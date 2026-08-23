@@ -2,6 +2,7 @@
 
 export const RpcMethods = {
   systemInfo: 'system.info',
+  systemRestart: 'system.restart',
   modelSettingsGet: 'model_settings.get',
   modelSettingsUpdate: 'model_settings.update',
   modelSettingsTest: 'model_settings.test',

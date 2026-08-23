@@ -68,12 +68,17 @@ export interface ModelUsage {
 
 export interface RunUsageSummary {
   main_agent: ModelUsage
+  context_summary: ModelUsage
   memory_reflection: ModelUsage
   memory_maintenance: ModelUsage
   provider_total: ModelUsage
   tool_schema_tokens_estimated: number
   memory_reflection_status: string
   memory_reflection_skip_reason: string | null
+  context_summary_status: string
+  context_summary_provider: string | null
+  context_summary_model: string | null
+  context_summary_duration_ms: number
   main_agent_chargeable_tokens: number
   run_budget_status: string
   run_budget_reason: string | null
@@ -231,6 +236,9 @@ export interface AgentEvent {
   summarized_conversation_blocks?: number | null
   summary_error?: string | null
   summary_usage?: ModelUsage | null
+  summary_provider?: string | null
+  summary_model?: string | null
+  summary_duration_ms?: number | null
   cache_prefix_reused?: boolean | null
   cache_prefix_message_count?: number | null
   available_skill_count?: number | null

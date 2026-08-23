@@ -76,6 +76,15 @@ export default function UsageInspector({
       </div>
       <div className="usage-post-run">
         <PostRunRow
+          label="Context Summary"
+          usage={summary.context_summary}
+          status={
+            summary.context_summary_status === 'not_run'
+              ? 'Not run'
+              : `${summary.context_summary_provider ?? '—'} / ${summary.context_summary_model ?? 'default'} · ${Math.round(summary.context_summary_duration_ms)} ms`
+          }
+        />
+        <PostRunRow
           label="Memory Reflection"
           usage={summary.memory_reflection}
           status={
@@ -90,8 +99,8 @@ export default function UsageInspector({
         <div><span>Provider Total</span><small>{summary.provider_total.model_calls ?? 0} calls</small></div>
         <strong className="mono">{formatTokens(summary.provider_total.total_tokens)}</strong>
       </div>
-      {!hasUsage(summary.memory_reflection) && !hasUsage(summary.memory_maintenance) ? (
-        <p className="usage-note">本 Run 没有产生 Post-Run 模型开销。</p>
+      {!hasUsage(summary.context_summary) && !hasUsage(summary.memory_reflection) && !hasUsage(summary.memory_maintenance) ? (
+        <p className="usage-note">本 Run 没有产生辅助模型或 Post-Run 模型开销。</p>
       ) : null}
     </section>
   )

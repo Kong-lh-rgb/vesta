@@ -45,12 +45,17 @@ class RunUsageSummary(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     main_agent: ModelUsage = Field(default_factory=ModelUsage)
+    context_summary: ModelUsage = Field(default_factory=ModelUsage)
     memory_reflection: ModelUsage = Field(default_factory=ModelUsage)
     memory_maintenance: ModelUsage = Field(default_factory=ModelUsage)
     provider_total: ModelUsage = Field(default_factory=ModelUsage)
     tool_schema_tokens_estimated: int = Field(default=0, ge=0)
     memory_reflection_status: str = "not_run"
     memory_reflection_skip_reason: str | None = None
+    context_summary_status: str = "not_run"
+    context_summary_provider: str | None = None
+    context_summary_model: str | None = None
+    context_summary_duration_ms: float = Field(default=0.0, ge=0.0)
     main_agent_chargeable_tokens: int = Field(default=0, ge=0)
     run_budget_status: str = "not_configured"
     run_budget_reason: str | None = None

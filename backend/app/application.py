@@ -19,6 +19,7 @@ CLI（``app.models.chat``）与 Vesta Host（``app.server``）共用这一份
 from __future__ import annotations
 
 import logging
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
@@ -279,6 +280,8 @@ class Application:
             else ModelSettings()
         )
         self.model_settings_service = ModelSettingsService()
+        self.active_model_roles: dict[str, dict[str, object]] = {}
+        self.host_restart_callback: Callable[[], None] | None = None
         if registry is not None:
             # 测试注入的离线 registry：provider 直接取传入值（不校验 .env）。
             self.registry = registry
@@ -475,8 +478,8 @@ class Application:
         memory_maintenance_reflector = MemoryMaintenanceReflector(
             self.registry,
             config=maintenance_config,
-            default_provider=memory_reflector.provider_hint or self.provider,
-            default_model=memory_reflector.model_hint or self.model,
+            default_provider=self.provider,
+            default_model=self.model,
         )
 
         context_settings = ContextSettings()
@@ -622,6 +625,28 @@ class Application:
         self.memory_reflection_enabled = reflection_config.enabled
         self.memory_maintenance_enabled = maintenance_config.enabled
         self.context_summarizer = context_summarizer
+        self.active_model_roles = {
+            "main": {
+                "enabled": True,
+                "provider": self.provider,
+                "model": self.model,
+            },
+            "summary": {
+                "enabled": summary_config.enabled,
+                "provider": summary_config.provider or self.provider,
+                "model": summary_config.model or self.model,
+            },
+            "reflection": {
+                "enabled": reflection_config.enabled,
+                "provider": memory_reflector.provider_hint,
+                "model": memory_reflector.model_hint,
+            },
+            "maintenance": {
+                "enabled": maintenance_config.enabled,
+                "provider": memory_maintenance_reflector.provider_hint,
+                "model": memory_maintenance_reflector.model_hint,
+            },
+        }
         self.mcp_manager = mcp_manager
         self.mcp_statuses = mcp_statuses
         self.mcp_error = mcp_error

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import time
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
 
@@ -32,6 +33,9 @@ class ConversationReductionResult:
     summary_state: ConversationSummaryState | None = None
     summarized_conversation_blocks: int = 0
     summary_usage: ModelUsage = field(default_factory=ModelUsage)
+    summary_provider: str | None = None
+    summary_model: str | None = None
+    summary_duration_ms: float | None = None
     reached_target: bool = False
     error: str | None = None
 
@@ -58,6 +62,12 @@ class ConversationReducer:
         if keep_recent_tool_rounds < 0:
             raise ValueError("keep_recent_tool_rounds cannot be negative")
         self._summarizer = summarizer
+        self.summary_provider = _optional_text(
+            getattr(summarizer, "provider_hint", None)
+        )
+        self.summary_model = _optional_text(
+            getattr(summarizer, "model_hint", None)
+        )
         self.keep_recent_conversation_blocks = keep_recent_conversation_blocks
         self.keep_recent_tool_rounds = keep_recent_tool_rounds
 
@@ -112,6 +122,7 @@ class ConversationReducer:
         previous_summary = previous_state.summary if previous_state else None
         total_usage = ModelUsage()
         last_error = "summary generation failed"
+        started = time.perf_counter()
         for attempt in range(2):
             try:
                 generated = (
@@ -149,6 +160,9 @@ class ConversationReducer:
                     summary_state=new_state,
                     summarized_conversation_blocks=len(summary_blocks),
                     summary_usage=total_usage,
+                    summary_provider=self.summary_provider,
+                    summary_model=self.summary_model,
+                    summary_duration_ms=(time.perf_counter() - started) * 1000,
                     reached_target=estimated <= target_tokens,
                 )
             last_error = "generated summary did not reduce the request context"
@@ -160,6 +174,9 @@ class ConversationReducer:
             target_tokens,
             last_error,
             summary_usage=total_usage,
+            summary_provider=self.summary_provider,
+            summary_model=self.summary_model,
+            summary_duration_ms=(time.perf_counter() - started) * 1000,
         )
 
     @staticmethod
@@ -171,12 +188,18 @@ class ConversationReducer:
         error: str | None = None,
         *,
         summary_usage: ModelUsage | None = None,
+        summary_provider: str | None = None,
+        summary_model: str | None = None,
+        summary_duration_ms: float | None = None,
     ) -> ConversationReductionResult:
         return ConversationReductionResult(
             messages=messages,
             estimated_input_tokens=estimated,
             summary_state=state,
             summary_usage=summary_usage or ModelUsage(),
+            summary_provider=summary_provider,
+            summary_model=summary_model,
+            summary_duration_ms=summary_duration_ms,
             reached_target=estimated <= target_tokens,
             error=error,
         )
@@ -186,6 +209,13 @@ def _error_usage(error: Exception) -> ModelUsage:
     if isinstance(error, SummaryGenerationError):
         return error.usage
     return ModelUsage()
+
+
+def _optional_text(value: object) -> str | None:
+    if value is None:
+        return None
+    normalized = str(value).strip()
+    return normalized or None
 
 
 def _add_usage(left: ModelUsage, right: ModelUsage) -> ModelUsage:

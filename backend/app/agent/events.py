@@ -105,6 +105,9 @@ class AgentEvent(BaseModel):
     summary_updated: bool | None = None
     summarized_conversation_blocks: int | None = Field(default=None, ge=0)
     summary_usage: ModelUsage | None = None
+    summary_provider: str | None = None
+    summary_model: str | None = None
+    summary_duration_ms: float | None = Field(default=None, ge=0.0)
     summary_error: str | None = None
     cache_prefix_reused: bool | None = None
     cache_prefix_message_count: int | None = Field(default=None, ge=0)

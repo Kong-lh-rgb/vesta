@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import logging
 import re
+from collections.abc import Callable
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -128,7 +129,11 @@ async def artifact_content(artifact_id: str, request: Request) -> FileResponse:
     )
 
 
-def create_app(application: Application | None = None) -> FastAPI:
+def create_app(
+    application: Application | None = None,
+    *,
+    restart_callback: Callable[[], None] | None = None,
+) -> FastAPI:
     """构造 Vesta Host 应用。
 
     ``application`` 为 None 时自动用默认配置创建（provider 从 .env 选择）。
@@ -141,6 +146,7 @@ def create_app(application: Application | None = None) -> FastAPI:
         application = Application(desktop_approval=True)
     else:
         application.desktop_approval = True
+    application.host_restart_callback = restart_callback
 
     # 全局共享事件观察者：在 application.start() 之前注入，
     # ConversationService 构造时会把 RPC 广播与 Trace 一起组合。

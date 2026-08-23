@@ -486,6 +486,13 @@ def _print_trace(events: tuple[AgentEvent, ...]) -> None:
                 )
             if event.compaction_stage not in (None, "none"):
                 details.append(f"context={event.compaction_stage}")
+            if event.summary_provider is not None:
+                details.append(
+                    "summary="
+                    f"{event.summary_provider}/{event.summary_model or 'default'}"
+                )
+            if event.summary_duration_ms is not None:
+                details.append(f"summary_ms={event.summary_duration_ms:.1f}")
         if event.run_budget_status is not None:
             details.append(
                 f"budget={event.run_budget_status}:"
