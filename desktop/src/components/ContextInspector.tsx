@@ -45,6 +45,14 @@ function CompactionList({ step }: { step: ContextStepVM }): React.JSX.Element {
         <p className="context-muted">本步骤不需要压缩。</p>
       )}
       {step.summaryError ? <p className="context-warning">摘要更新失败：{step.summaryError}</p> : null}
+      {step.summaryProvider || step.summaryUsage > 0 || step.summaryError ? (
+        <dl className="context-summary-details">
+          <div><dt>摘要模型</dt><dd>{step.summaryProvider ? `${step.summaryProvider} / ${step.summaryModel ?? 'default'}` : '历史记录未提供'}</dd></div>
+          <div><dt>摘要用量</dt><dd className="mono">{formatTokens(step.summaryUsage)}</dd></div>
+          <div><dt>耗时</dt><dd className="mono">{step.summaryDurationMs === null ? '—' : `${Math.round(step.summaryDurationMs)} ms`}</dd></div>
+          <div><dt>原始历史</dt><dd>{step.summaryError ? '已保留' : '摘要成功后仍由数据库完整保存'}</dd></div>
+        </dl>
+      ) : null}
     </section>
   )
 }

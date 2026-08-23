@@ -32,6 +32,10 @@ export interface ContextStepVM {
   removedToolRounds: number
   summaryUpdated: boolean
   summaryError: string | null
+  summaryProvider: string | null
+  summaryModel: string | null
+  summaryDurationMs: number | null
+  summaryUsage: number
   reachedTarget: boolean | null
   breakdown: ContextBreakdownItem[]
 }
@@ -120,6 +124,10 @@ export function buildContextSteps(events: AgentEvent[]): ContextStepVM[] {
         removedToolRounds: numberOrZero(event.removed_tool_rounds),
         summaryUpdated: event.summary_updated === true,
         summaryError: event.summary_error ?? null,
+        summaryProvider: event.summary_provider ?? null,
+        summaryModel: event.summary_model ?? null,
+        summaryDurationMs: event.summary_duration_ms ?? null,
+        summaryUsage: numberOrZero(event.summary_usage?.total_tokens),
         reachedTarget: event.reached_target ?? null,
         breakdown: rawBreakdown.map((item) => ({
           ...item,

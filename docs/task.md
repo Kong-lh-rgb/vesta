@@ -2568,3 +2568,30 @@ Automation ─┤  → ConversationService.dispatch(conversation_id, content, tr
 - [x] 旧版 `models.json` 缺少 summary 字段时兼容为“启用并继承主模型”
 - [x] 设置保存继续复用 Provider Keychain 密钥校验，不增加第二份密钥配置
 - [x] 已检查三行后台模型的真实页面布局
+
+### 完成：模型运行配置与摘要可观测性闭环 V1
+
+#### 运行配置
+
+- [x] 设置接口同时返回“已保存配置”和当前 Host 实际装配的主模型、会话摘要、记忆反思、容量维护模型
+- [x] `restart_required` 按四个模型角色的完整运行快照计算，不再只比较主 Provider / Model
+- [x] Host 入口改为受控监督循环；设置保存后可在无活动 Run 时优雅关闭资源并重新装配
+- [x] 有活动 Run 时拒绝重启并返回具体 Run ID；非标准启动入口明确提示需在终端重启
+- [x] 修正容量维护的继承语义：跟随主模型时不再错误继承记忆反思模型
+- [x] Desktop 设置页展示每个后台角色的当前生效模型，并提供“重启并应用”状态反馈
+
+#### 摘要与用量
+
+- [x] 滚动摘要记录实际 Provider、Model、耗时和独立 Usage，并进入 `model_started` Trace
+- [x] Run Usage 将 `Main Agent` 与 `Context Summary` 分账，同时继续纳入 `Provider Total`
+- [x] Context Inspector 展示摘要模型、Token、耗时、失败状态以及原始聊天历史仍完整持久化的语义
+- [x] CLI `/trace` 可直接查看摘要模型和耗时
+- [x] 旧 Trace 或旧 Host 缺少新增字段时，Desktop 保持兼容，不误报为零成本或阻断页面
+
+#### 验证
+
+- [x] Backend 全量 `pytest`：954 passed
+- [x] Backend `ruff`、`compileall`：通过
+- [x] Desktop `npm test`：240 passed
+- [x] Desktop `typecheck`、生产构建：通过
+- [x] 使用真实 Desktop 页面检查设置分类、当前模型与旧 Host 兼容提示

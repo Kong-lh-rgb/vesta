@@ -76,6 +76,9 @@ class ContextDecision:
     summary_updated: bool = False
     summarized_conversation_blocks: int = 0
     summary_usage: ModelUsage = field(default_factory=ModelUsage)
+    summary_provider: str | None = None
+    summary_model: str | None = None
+    summary_duration_ms: float | None = None
     summary_error: str | None = None
     reason: str | None = None
 
@@ -275,6 +278,9 @@ class ContextManager:
         summarized_conversation_blocks = 0
         summary_usage = ModelUsage()
         summary_error: str | None = None
+        summary_provider: str | None = None
+        summary_model: str | None = None
+        summary_duration_ms: float | None = None
         compaction_stage = ContextCompactionStage.NONE
         reached_target = not requires_compaction or (
             prepared_input_tokens <= budget.target_tokens
@@ -306,6 +312,9 @@ class ContextManager:
             summary_updated = summarized_conversation_blocks > 0
             summary_usage = conversation_reduction.summary_usage
             summary_error = conversation_reduction.error
+            summary_provider = conversation_reduction.summary_provider
+            summary_model = conversation_reduction.summary_model
+            summary_duration_ms = conversation_reduction.summary_duration_ms
             reached_target = (
                 conversation_reduction.reached_target
                 and tool_result_tokens_after <= budget.tool_result_budget_tokens
@@ -406,6 +415,9 @@ class ContextManager:
             summary_updated=summary_updated,
             summarized_conversation_blocks=summarized_conversation_blocks,
             summary_usage=summary_usage,
+            summary_provider=summary_provider,
+            summary_model=summary_model,
+            summary_duration_ms=summary_duration_ms,
             summary_error=summary_error,
             reason=reason,
         )

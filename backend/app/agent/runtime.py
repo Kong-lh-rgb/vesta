@@ -802,6 +802,9 @@ class AgentRuntime:
                     context_decision.summarized_conversation_blocks
                 ),
                 summary_usage=context_decision.summary_usage,
+                summary_provider=context_decision.summary_provider,
+                summary_model=context_decision.summary_model,
+                summary_duration_ms=context_decision.summary_duration_ms,
                 summary_error=context_decision.summary_error,
                 cache_prefix_reused=cache_prefix_reused,
                 cache_prefix_message_count=cache_prefix_message_count,

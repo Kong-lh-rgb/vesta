@@ -181,12 +181,17 @@ describe('ActivityItems', () => {
         events={events}
         usageSummary={{
           main_agent: { input_tokens: 10_000, output_tokens: 500, total_tokens: 10_500, model_calls: 2 },
+          context_summary: { input_tokens: 0, output_tokens: 0, total_tokens: 0 },
           memory_reflection: { input_tokens: 0, output_tokens: 0, total_tokens: 0 },
           memory_maintenance: { input_tokens: 0, output_tokens: 0, total_tokens: 0 },
           provider_total: { input_tokens: 10_000, output_tokens: 500, total_tokens: 10_500, model_calls: 2 },
           tool_schema_tokens_estimated: 3_000,
           memory_reflection_status: 'not_run',
           memory_reflection_skip_reason: null,
+          context_summary_status: 'not_run',
+          context_summary_provider: null,
+          context_summary_model: null,
+          context_summary_duration_ms: 0,
           main_agent_chargeable_tokens: 2_500,
           run_budget_status: 'active',
           run_budget_reason: null,

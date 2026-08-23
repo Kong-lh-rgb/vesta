@@ -37,6 +37,9 @@ from app.models.types import (
 class FakeSummarizer(ContextSummarizer):
     """记录摘要输入并返回固定的短摘要。"""
 
+    provider_hint = "fake-summary"
+    model_hint = "summary-small"
+
     def __init__(self, *, error: Exception | None = None) -> None:
         self.error = error
         self.calls: list[
@@ -278,6 +281,10 @@ async def test_conversation_reducer_summarizes_old_prefix_and_keeps_recent() -> 
     assert result.summary_state.covered_message_count == 9
     assert result.summarized_conversation_blocks == 4
     assert result.summary_usage.total_tokens == 40
+    assert result.summary_provider == "fake-summary"
+    assert result.summary_model == "summary-small"
+    assert result.summary_duration_ms is not None
+    assert result.summary_duration_ms >= 0
     assert result.messages[0] == history[0]
     assert result.messages[-5:] == (*history[-4:], *current)
     assert result.messages[1].name == "vesta_rolling_summary"

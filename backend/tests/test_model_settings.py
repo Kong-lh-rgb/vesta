@@ -141,6 +141,55 @@ def test_effective_configuration_merges_roles_and_keychain(tmp_path: Path) -> No
     assert effective.summary.model == "qwen-summary"
 
 
+def test_view_compares_saved_and_current_model_roles(tmp_path: Path) -> None:
+    service = ModelSettingsService(
+        store=ModelSettingsStore(tmp_path / "models.json"),
+        secrets=FakeSecrets(),
+        base_settings=_base_settings(),
+    )
+    service.save(_update())
+    active_roles = {
+        "main": {"enabled": True, "provider": "qwen", "model": "qwen-test"},
+        "summary": {
+            "enabled": True,
+            "provider": "qwen",
+            "model": "qwen-summary",
+        },
+        "reflection": {
+            "enabled": True,
+            "provider": "qwen",
+            "model": "qwen-small",
+        },
+        "maintenance": {
+            "enabled": False,
+            "provider": "openai",
+            "model": "gpt-small",
+        },
+    }
+
+    current = service.view(
+        active_provider="qwen",
+        active_model="qwen-test",
+        active_roles=active_roles,
+    )
+    changed = service.view(
+        active_provider="qwen",
+        active_model="qwen-test",
+        active_roles={
+            **active_roles,
+            "summary": {
+                "enabled": True,
+                "provider": "qwen",
+                "model": "other-summary",
+            },
+        },
+    )
+
+    assert current["restart_required"] is False
+    assert changed["restart_required"] is True
+    assert current["active_roles"] == active_roles
+
+
 def test_old_settings_without_summary_use_inherited_enabled_default(
     tmp_path: Path,
 ) -> None:

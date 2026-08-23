@@ -65,7 +65,13 @@ class ModelSettingsService:
         self.secrets = secrets or MacOSKeychainSecretStore()
         self.base_settings = base_settings or ModelSettings()
 
-    def view(self, *, active_provider: str, active_model: str) -> dict[str, Any]:
+    def view(
+        self,
+        *,
+        active_provider: str,
+        active_model: str,
+        active_roles: dict[str, dict[str, Any]] | None = None,
+    ) -> dict[str, Any]:
         base = self.base_settings
         stored = self.store.load() or _defaults(base)
         providers = []
@@ -88,6 +94,14 @@ class ModelSettingsService:
                     "key_source": source,
                 }
             )
+        current_roles = active_roles or {
+            "main": {
+                "enabled": True,
+                "provider": active_provider,
+                "model": active_model,
+            }
+        }
+        saved_roles = _resolved_saved_roles(stored)
         return {
             "default_provider": stored.default_provider.value,
             "providers": providers,
@@ -96,10 +110,8 @@ class ModelSettingsService:
             "summary": stored.summary.model_dump(mode="json"),
             "active_provider": active_provider,
             "active_model": active_model,
-            "restart_required": (
-                stored.default_provider.value != active_provider
-                or stored.providers[stored.default_provider.value].model != active_model
-            ),
+            "active_roles": current_roles,
+            "restart_required": saved_roles != current_roles,
         }
 
     def save(self, update: ModelSettingsUpdate) -> StoredModelSettings:
@@ -266,6 +278,33 @@ def _summary_config(role: ModelRoleSettings) -> ContextSummaryModelConfig:
         provider=None if role.inherit_main else role.provider.value,
         model=None if role.inherit_main else role.model,
     )
+
+
+def _resolved_saved_roles(
+    stored: StoredModelSettings,
+) -> dict[str, dict[str, Any]]:
+    main_provider = stored.default_provider
+    main_model = stored.providers[main_provider.value].model
+
+    def resolve(role: ModelRoleSettings) -> dict[str, Any]:
+        return {
+            "enabled": role.enabled,
+            "provider": (
+                main_provider.value if role.inherit_main else role.provider.value
+            ),
+            "model": main_model if role.inherit_main else role.model,
+        }
+
+    return {
+        "main": {
+            "enabled": True,
+            "provider": main_provider.value,
+            "model": main_model,
+        },
+        "summary": resolve(stored.summary),
+        "reflection": resolve(stored.reflection),
+        "maintenance": resolve(stored.maintenance),
+    }
 
 
 def _secret_value(secret: SecretStr | None) -> str | None:

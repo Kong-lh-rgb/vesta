@@ -69,6 +69,16 @@ def test_summarizes_main_post_run_and_provider_total() -> None:
             event_time=datetime(2026, 8, 22, tzinfo=UTC),
             step=1,
             tool_schema_tokens=50,
+            summary_usage=ModelUsage(
+                input_tokens=15,
+                output_tokens=5,
+                total_tokens=20,
+                model_calls=1,
+            ),
+            summary_updated=True,
+            summary_provider="qwen",
+            summary_model="qwen-summary",
+            summary_duration_ms=125.0,
         ),
         _event(1, AgentEventType.MODEL_COMPLETED, usage=first),
         AgentEvent(
@@ -123,13 +133,18 @@ def test_summarizes_main_post_run_and_provider_total() -> None:
     summary = summarize_run_usage(events)
 
     assert summary.main_agent == main
+    assert summary.context_summary.total_tokens == 20
+    assert summary.context_summary_status == "completed"
+    assert summary.context_summary_provider == "qwen"
+    assert summary.context_summary_model == "qwen-summary"
+    assert summary.context_summary_duration_ms == 125.0
     assert summary.memory_reflection.total_tokens == 35
     assert summary.memory_maintenance.model_calls == 1
-    assert summary.provider_total.total_tokens == 302
-    assert summary.provider_total.model_calls == 4
+    assert summary.provider_total.total_tokens == 322
+    assert summary.provider_total.model_calls == 5
     assert summary.provider_total.cached_input_tokens is None
     assert summary.tool_schema_tokens_estimated == 120
-    assert summary.main_agent_chargeable_tokens == 110
+    assert summary.main_agent_chargeable_tokens == 130
     assert summary.run_budget_status == "warning"
     assert summary.run_budget_reason == "tokens"
     assert summary.run_budget_hard_tokens == 300
@@ -197,5 +212,7 @@ def test_chargeable_tokens_are_summed_per_call_when_cache_detail_is_mixed() -> N
 
     summary = summarize_run_usage(events)
 
-    assert summary.main_agent.cached_input_tokens is None
+    assert summary.main_agent.cached_input_tokens == 80
+    assert summary.context_summary.total_tokens == 12
+    assert summary.provider_total.total_tokens == 117
     assert summary.main_agent_chargeable_tokens == 37

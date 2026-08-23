@@ -3939,6 +3939,8 @@ kbd { padding: 1px 5px; border: 1px solid var(--border); border-radius: 4px; bac
 .model-role-row { display: grid; grid-template-columns: 132px 76px 132px minmax(0, 1fr); align-items: center; gap: 14px; min-height: 55px; border-top: 1px solid #e5e5e1; }
 .model-role-row:last-child { border-bottom: 1px solid #e5e5e1; }
 .model-role-row__name { color: #222; font-size: 10.5px; }
+.model-role-row__identity { display: grid; gap: 3px; min-width: 0; }
+.model-role-row__identity small { overflow: hidden; color: #969691; font-size: 8px; text-overflow: ellipsis; white-space: nowrap; }
 .model-role-toggle,
 .model-role-inherit { display: inline-flex; align-items: center; gap: 6px; color: #777773; font-size: 9px; white-space: nowrap; }
 .model-role-row input[type='checkbox'] { accent-color: #222; }
@@ -3953,6 +3955,11 @@ kbd { padding: 1px 5px; border: 1px solid var(--border); border-radius: 4px; bac
 .settings-models .btn--primary:hover { background: #333331; }
 .model-notice { margin-top: 18px; padding: 10px 12px; border-left: 2px solid #45806f; background: #f3f6f4; color: #345f53; font-size: 9.5px; }
 .model-notice--error { border-left-color: #9c5149; background: #faf3f2; color: #8a443d; }
+.model-restart-notice { display: flex; align-items: center; justify-content: space-between; gap: 18px; margin-top: 18px; padding: 12px 0; border-top: 1px solid #deded9; border-bottom: 1px solid #deded9; }
+.model-restart-notice > div { display: grid; gap: 4px; }
+.model-restart-notice strong { color: #222; font-size: 10.5px; }
+.model-restart-notice span { color: #858581; font-size: 9px; }
+.model-restart-notice .btn { flex: 0 0 auto; }
 
 /* 设置 · 扩展能力 */
 .extensions-settings { display: grid; gap: 18px; }
@@ -4441,6 +4448,10 @@ kbd { padding: 1px 5px; border: 1px solid var(--border); border-radius: 4px; bac
 .context-stage.active { color: var(--accent); }
 .context-checks { display: grid; gap: 7px; margin: 0; padding: 0; list-style: none; }
 .context-checks li { color: var(--success); font-size: 10.5px; }
+.context-summary-details { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px 18px; margin: 12px 0 0; padding-top: 11px; border-top: 1px solid var(--border); }
+.context-summary-details > div { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
+.context-summary-details dt { color: var(--text-tertiary); font-size: 9px; }
+.context-summary-details dd { margin: 0; color: var(--text-secondary); font-size: 9.5px; text-align: right; }
 
 /* Trace */
 .execution-trace { min-width: 0; }

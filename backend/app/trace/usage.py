@@ -28,16 +28,24 @@ def summarize_run_usage(events: Sequence[AgentEvent]) -> RunUsageSummary:
     """按 Main/Post-Run 边界聚合事件中的 Provider Usage。"""
 
     main_agent = _main_agent_usage(events)
+    context_summary = _context_summary_usage(events)
     reflection = _sum_event_usage(events, _REFLECTION_USAGE_EVENTS)
     maintenance = _sum_event_usage(events, _MAINTENANCE_USAGE_EVENTS)
     reflection_status, reflection_skip_reason = _reflection_status(events)
     budget = _run_budget_snapshot(events)
     provider_total = add_model_usage(
-        add_model_usage(main_agent, reflection),
+        add_model_usage(
+            add_model_usage(main_agent, context_summary),
+            reflection,
+        ),
         maintenance,
+    )
+    summary_status, summary_provider, summary_model, summary_duration_ms = (
+        _context_summary_status(events)
     )
     return RunUsageSummary(
         main_agent=main_agent,
+        context_summary=context_summary,
         memory_reflection=reflection,
         memory_maintenance=maintenance,
         provider_total=provider_total,
@@ -48,6 +56,10 @@ def summarize_run_usage(events: Sequence[AgentEvent]) -> RunUsageSummary:
         ),
         memory_reflection_status=reflection_status,
         memory_reflection_skip_reason=reflection_skip_reason,
+        context_summary_status=summary_status,
+        context_summary_provider=summary_provider,
+        context_summary_model=summary_model,
+        context_summary_duration_ms=summary_duration_ms,
         main_agent_chargeable_tokens=_main_agent_chargeable_tokens(
             events,
             fallback=main_agent,
@@ -124,6 +136,15 @@ def _reflection_status(events: Sequence[AgentEvent]) -> tuple[str, str | None]:
 
 
 def _main_agent_usage(events: Sequence[AgentEvent]) -> ModelUsage:
+    usage = ModelUsage()
+    completed_calls = 0
+    for event in events:
+        if event.type is AgentEventType.MODEL_COMPLETED and event.usage is not None:
+            usage = add_model_usage(usage, _with_inferred_call(event.usage))
+            completed_calls += 1
+    if completed_calls:
+        return usage
+
     terminal_usage: ModelUsage | None = None
     for event in events:
         if event.type not in {
@@ -142,10 +163,20 @@ def _main_agent_usage(events: Sequence[AgentEvent]) -> ModelUsage:
             update={"model_calls": _main_model_call_count(events)}
         )
 
+    return ModelUsage()
+
+
+def _main_model_call_count(events: Sequence[AgentEvent]) -> int:
+    return sum(
+        event.usage.model_calls or 1
+        for event in events
+        if event.type is AgentEventType.MODEL_COMPLETED and event.usage is not None
+    )
+
+
+def _context_summary_usage(events: Sequence[AgentEvent]) -> ModelUsage:
     usage = ModelUsage()
     for event in events:
-        if event.type is AgentEventType.MODEL_COMPLETED and event.usage is not None:
-            usage = add_model_usage(usage, _with_inferred_call(event.usage))
         if (
             event.type is AgentEventType.MODEL_STARTED
             and event.summary_usage is not None
@@ -154,20 +185,29 @@ def _main_agent_usage(events: Sequence[AgentEvent]) -> ModelUsage:
     return usage
 
 
-def _main_model_call_count(events: Sequence[AgentEvent]) -> int:
-    model_calls = sum(
-        event.usage.model_calls or 1
-        for event in events
-        if event.type is AgentEventType.MODEL_COMPLETED and event.usage is not None
-    )
-    summary_calls = sum(
-        event.summary_usage.model_calls or 1
-        for event in events
-        if event.type is AgentEventType.MODEL_STARTED
-        and event.summary_usage is not None
-        and _has_tokens(event.summary_usage)
-    )
-    return model_calls + summary_calls
+def _context_summary_status(
+    events: Sequence[AgentEvent],
+) -> tuple[str, str | None, str | None, float]:
+    status = "not_run"
+    provider: str | None = None
+    model: str | None = None
+    duration_ms = 0.0
+    for event in events:
+        if event.type is not AgentEventType.MODEL_STARTED:
+            continue
+        if event.summary_provider is not None:
+            provider = event.summary_provider
+        if event.summary_model is not None:
+            model = event.summary_model
+        if event.summary_duration_ms is not None:
+            duration_ms += event.summary_duration_ms
+        if event.summary_updated:
+            status = "completed"
+        elif event.summary_error is not None:
+            status = "failed"
+        elif event.summary_usage is not None and _has_tokens(event.summary_usage):
+            status = "completed"
+    return status, provider, model, duration_ms
 
 
 def _sum_event_usage(

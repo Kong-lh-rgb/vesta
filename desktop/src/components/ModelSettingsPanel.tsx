@@ -3,9 +3,11 @@ import { useEffect, useMemo, useState } from 'react'
 
 import {
   getModelSettings,
+  restartHost,
   testModelConnection,
   updateModelSettings,
   type ApiStyle,
+  type ActiveModelRole,
   type ModelProvider,
   type ModelRoleSettings,
   type ModelSettingsUpdate,
@@ -31,6 +33,7 @@ export default function ModelSettingsPanel(): React.JSX.Element {
   const query = useQuery({
     queryKey: ['model-settings'],
     queryFn: getModelSettings,
+    refetchInterval: 5000,
     retry: false,
   })
   const [selected, setSelected] = useState<ModelProvider>('openai')
@@ -90,10 +93,22 @@ export default function ModelSettingsPanel(): React.JSX.Element {
     },
   })
 
+  const restartMutation = useMutation({
+    mutationFn: restartHost,
+    onSuccess: () => {
+      setError(null)
+      setNotice('Vesta Host 正在安全重启，连接恢复后新配置会自动生效。')
+    },
+    onError: (reason) => {
+      setNotice(null)
+      setError(errorMessage(reason))
+    },
+  })
+
   if (query.isLoading) {
     return <div className="settings-loading"><span className="spinner" />正在读取模型设置…</div>
   }
-  if (query.isError || !query.data || !current) {
+  if (!query.data || !current) {
     return <ErrorState message="无法读取模型设置" onRetry={() => void query.refetch()} />
   }
 
@@ -217,11 +232,29 @@ export default function ModelSettingsPanel(): React.JSX.Element {
         <header className="settings-group__header">
           <div><h3>后台模型</h3><p>非交互任务默认继承主模型，也可使用更轻量的独立模型</p></div>
         </header>
-        <RoleEditor title="会话摘要" value={summary} providers={providers} onChange={setSummary} />
-        <RoleEditor title="记忆反思" value={reflection} providers={providers} onChange={setReflection} />
-        <RoleEditor title="容量维护" value={maintenance} providers={providers} onChange={setMaintenance} />
+        <RoleEditor title="会话摘要" value={summary} active={query.data.active_roles?.summary} providers={providers} onChange={setSummary} />
+        <RoleEditor title="记忆反思" value={reflection} active={query.data.active_roles?.reflection} providers={providers} onChange={setReflection} />
+        <RoleEditor title="容量维护" value={maintenance} active={query.data.active_roles?.maintenance} providers={providers} onChange={setMaintenance} />
       </section>
 
+      {query.data.restart_required ? (
+        <div className="model-restart-notice">
+          <div>
+            <strong>存在尚未生效的模型配置</strong>
+            <span>{(query.data.restart_blocked_by_run_ids?.length ?? 0) > 0 ? `等待 ${query.data.restart_blocked_by_run_ids?.length ?? 0} 个 Run 结束后可以安全重启。` : query.data.restart_supported ? '重启过程会先关闭现有资源，再使用新配置重新装配。' : '当前启动方式不支持应用内重启，请在终端重启 Host。'}</span>
+          </div>
+          {query.data.restart_supported ? (
+            <button
+              type="button"
+              className="btn"
+              disabled={query.data.can_restart === false || restartMutation.isPending}
+              onClick={() => restartMutation.mutate()}
+            >
+              {restartMutation.isPending ? '正在重启…' : '重启并应用'}
+            </button>
+          ) : null}
+        </div>
+      ) : null}
       {(notice || error) && <div className={error ? 'model-notice model-notice--error' : 'model-notice'}>{error ?? notice}</div>}
       <div className="model-actions">
         <span>保存不会中断正在执行的 Run。</span>
@@ -236,11 +269,13 @@ export default function ModelSettingsPanel(): React.JSX.Element {
 function RoleEditor({
   title,
   value,
+  active,
   providers,
   onChange,
 }: {
   title: string
   value: ModelRoleSettings
+  active?: ActiveModelRole
   providers: ProviderDraft[]
   onChange: (value: ModelRoleSettings) => void
 }): React.JSX.Element {
@@ -248,7 +283,10 @@ function RoleEditor({
   const selectedModel = value.model ?? providers.find((item) => item.provider === selectedProvider)?.model ?? ''
   return (
     <div className="model-role-row">
-      <strong className="model-role-row__name">{title}</strong>
+      <div className="model-role-row__identity">
+        <strong className="model-role-row__name">{title}</strong>
+        <small>{active?.enabled === false ? '当前：已关闭' : active?.provider ? `当前：${active.provider} / ${active.model ?? 'default'}` : '当前：等待 Host 状态'}</small>
+      </div>
       <label className="model-role-toggle"><input type="checkbox" checked={value.enabled} onChange={(event) => onChange({ ...value, enabled: event.target.checked })} />启用</label>
       <label className="model-role-inherit">
         <input

@@ -31,6 +31,12 @@ export interface ModelRoleSettings {
   model: string | null
 }
 
+export interface ActiveModelRole {
+  enabled: boolean
+  provider: string | null
+  model: string | null
+}
+
 export interface ModelSettingsView {
   default_provider: ModelProvider
   providers: ProviderModelSettings[]
@@ -39,7 +45,11 @@ export interface ModelSettingsView {
   summary: ModelRoleSettings
   active_provider: string
   active_model: string
+  active_roles: Record<'main' | 'summary' | 'reflection' | 'maintenance', ActiveModelRole>
   restart_required: boolean
+  restart_supported: boolean
+  restart_blocked_by_run_ids: string[]
+  can_restart: boolean
 }
 
 export interface ModelSettingsUpdate {
@@ -69,4 +79,8 @@ export function testModelConnection(
   input: ProviderModelSettingsUpdate,
 ): Promise<ModelConnectionResult> {
   return rpcClient.call(RpcMethods.modelSettingsTest, { ...input })
+}
+
+export function restartHost(): Promise<{ accepted: boolean }> {
+  return rpcClient.call(RpcMethods.systemRestart, {})
 }

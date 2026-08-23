@@ -6,7 +6,12 @@ const { callMock } = vi.hoisted(() => ({ callMock: vi.fn() }))
 
 vi.mock('../rpc', () => ({ rpcClient: { call: callMock } }))
 
-import { getModelSettings, testModelConnection, updateModelSettings } from './modelSettings'
+import {
+  getModelSettings,
+  restartHost,
+  testModelConnection,
+  updateModelSettings,
+} from './modelSettings'
 
 const provider = {
   provider: 'qwen' as const,
@@ -42,5 +47,11 @@ describe('model settings api', () => {
     callMock.mockResolvedValue({ success: true })
     await testModelConnection(provider)
     expect(callMock).toHaveBeenCalledWith('model_settings.test', provider)
+  })
+
+  it('通过受控 RPC 请求 Host 重启', async () => {
+    callMock.mockResolvedValue({ accepted: true })
+    await restartHost()
+    expect(callMock).toHaveBeenCalledWith('system.restart', {})
   })
 })

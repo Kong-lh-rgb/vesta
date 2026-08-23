@@ -42,6 +42,15 @@ function contextEvent(): AgentEvent {
     compacted_tool_results: 4,
     removed_tool_rounds: 3,
     summary_updated: true,
+    summary_provider: 'qwen',
+    summary_model: 'qwen-turbo',
+    summary_duration_ms: 810,
+    summary_usage: {
+      input_tokens: 900,
+      output_tokens: 100,
+      total_tokens: 1_000,
+      model_calls: 1,
+    },
   }
 }
 
@@ -57,6 +66,9 @@ describe('ContextInspector', () => {
     expect(html).toContain('4 个工具结果已压缩')
     expect(html).toContain('3 个旧工具轮已移除')
     expect(html).toContain('Conversation summary 已更新')
+    expect(html).toContain('qwen / qwen-turbo')
+    expect(html).toContain('810 ms')
+    expect(html).toContain('1k')
     expect(html).toContain('Memory、Task 与系统消息当前没有独立计数字段')
     expect(html).not.toContain('为什么这轮可能更贵')
   })

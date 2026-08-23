@@ -17,14 +17,31 @@ def _invalid_params(exc: ValueError) -> JsonRpcError:
     return JsonRpcError(RpcErrorCode.INVALID_PARAMS, str(exc))
 
 
+def _view(application: Any) -> dict[str, Any]:
+    result = application.model_settings_service.view(
+        active_provider=application.provider,
+        active_model=application.model,
+        active_roles=application.active_model_roles,
+    )
+    active_run_ids = application.run_manager.active_run_ids
+    result.update(
+        {
+            "restart_supported": application.host_restart_callback is not None,
+            "restart_blocked_by_run_ids": list(active_run_ids),
+            "can_restart": (
+                application.host_restart_callback is not None
+                and not active_run_ids
+            ),
+        }
+    )
+    return result
+
+
 async def model_settings_get(
     params: dict[str, Any], ctx: RpcContext
 ) -> dict[str, Any]:
     application = ctx.application
-    return application.model_settings_service.view(
-        active_provider=application.provider,
-        active_model=application.model,
-    )
+    return _view(application)
 
 
 async def model_settings_update(
@@ -35,10 +52,7 @@ async def model_settings_update(
         ctx.application.model_settings_service.save(update)
     except (ValidationError, ValueError) as exc:
         raise _invalid_params(exc) from exc
-    result = ctx.application.model_settings_service.view(
-        active_provider=ctx.application.provider,
-        active_model=ctx.application.model,
-    )
+    result = _view(ctx.application)
     result["restart_required"] = True
     return result
 

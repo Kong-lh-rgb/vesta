@@ -2262,3 +2262,51 @@ Task是长任务的权威事实源，消息只是交互记录。主界面展示T
 4. 摘要模型Provider复用统一Registry和Keychain配置，不单独保存API Key。
 5. 设置默认启用并继承主模型，保证旧配置行为不变；选择独立模型或关闭后都需要重启Host，避免
    同一个Run中途改变摘要语义。
+
+## 61. “保存成功”不等于“运行时已生效”（2026-08-23）
+
+模型设置同时存在三份容易混淆的事实：表单草稿、已经落盘的配置，以及当前 Host 启动时装配的
+运行时快照。用户真正需要知道的是后两者是否一致，因此设置接口不能只返回保存结果，而应按角色
+同时暴露当前生效状态：
+
+```text
+Saved roles                    Active roles
+main       qwen/a              main       deepseek/b
+summary    qwen/small          summary    deepseek/b
+reflection disabled           reflection deepseek/b
+maintenance qwen/small        maintenance deepseek/b
+             └────── 完整比较 ──────┘
+                    ↓
+              restart_required
+```
+
+关键约束：
+
+1. Runtime不应热替换。模型注册表、上下文摘要器、记忆后台任务和Run恢复都共享启动期依赖；一个
+   Run中途切换会破坏模型一致性和Usage口径。
+2. 安全重启必须由Host入口监督，而不是让业务RPC直接结束进程。RPC只提交重启意图；监督循环让
+   ASGI lifespan先执行`Application.close()`，再创建一套新依赖。
+3. 活动Run是重启硬边界。审批等待也属于活动Run，不能因为此刻没有模型请求就重启。
+4. 非标准嵌入式入口没有监督者时必须明确拒绝，不能返回“成功”后留下一个没有重启的Host。
+5. 前端在重连期间保留最后一次成功数据，避免短暂断线把整个设置页替换成错误页。
+
+## 62. Context Summary属于Run关键路径，但不属于Main Agent用量（2026-08-23）
+
+滚动摘要发生在主模型请求之前，因此会影响Run延迟和预算；但它是一次独立Provider调用，若把它
+合入Main Agent，就无法判断主循环与压缩治理各自花了多少。Vesta采用三层口径：
+
+```text
+Main Agent          只累计 model_completed
+Context Summary     累计 model_started.summary_usage
+Provider Total      Main + Summary + Reflection + Maintenance
+```
+
+这三个口径回答不同问题：
+
+1. `Main Agent`回答核心Agent Loop本身处理了多少Token、调用了几次模型。
+2. `Context Summary`回答压缩上下文付出了多少额外成本，并同时记录模型、耗时和成功状态。
+3. `Provider Total`回答Provider最终实际处理的全量调用，不能漏掉后台模型。
+4. Run Budget仍应包含Context Summary，因为它发生在Run关键路径并会持续消耗当前Run资源；UI分账
+   不代表预算豁免。
+5. 摘要失败时原始聊天历史仍保存在数据库中，Reducer也保留原请求上下文。Trace展示“失败”和
+   已产生Usage，不能把失败误显示成“未运行”或零成本。
