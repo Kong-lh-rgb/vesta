@@ -52,6 +52,8 @@ class DistillationRecord(BaseModel):
     proposed_name: str | None = None
     existing_skill_name: str | None = None
     related_skill_names: tuple[str, ...] = ()
+    raw_output: str | None = None
+    adjudication_raw_output: str | None = None
     error: str | None = None
 
 
@@ -66,6 +68,7 @@ class SkillLearningOutcome(BaseModel):
     scanned_task_count: int = 0
     cluster_count: int = 0
     clusters: tuple[TaskPatternCluster, ...] = ()
+    pattern_mining_raw_output: str | None = None
     candidate_count: int = 0
     distillations: tuple[DistillationRecord, ...] = ()
     usage: ModelUsage = Field(default_factory=ModelUsage)
@@ -238,6 +241,7 @@ class SkillLearningService:
                     triggered=True,
                     pending_count=len(new_pending),
                     scanned_task_count=len(cards),
+                    pattern_mining_raw_output=mining.raw_output,
                     usage=usage,
                     pattern_mining_calls=1,
                     input_tokens=usage.input_tokens,
@@ -274,6 +278,7 @@ class SkillLearningService:
                 triggered=True,
                 pending_count=len(new_pending),
                 scanned_task_count=len(cards),
+                pattern_mining_raw_output=mining.raw_output,
                 usage=usage,
                 pattern_mining_calls=1,
                 input_tokens=usage.input_tokens,
@@ -304,6 +309,7 @@ class SkillLearningService:
                 scanned_task_count=len(cards),
                 cluster_count=0,
                 clusters=(),
+                pattern_mining_raw_output=mining.raw_output,
                 usage=usage,
                 pattern_mining_calls=1,
                 input_tokens=usage.input_tokens,
@@ -360,6 +366,8 @@ class SkillLearningService:
                     proposed_name=distill.proposed_name,
                     existing_skill_name=distill.existing_skill_name,
                     related_skill_names=distill.related_skill_names,
+                    raw_output=distill.raw_output,
+                    adjudication_raw_output=distill.adjudication_raw_output,
                     error=distill.error,
                 )
             )
@@ -408,6 +416,7 @@ class SkillLearningService:
                     scanned_task_count=len(cards),
                     cluster_count=len(mining.clusters),
                     clusters=mining.clusters,
+                    pattern_mining_raw_output=mining.raw_output,
                     candidate_count=len(created),
                     distillations=tuple(distillations),
                     usage=total_usage,
@@ -450,6 +459,7 @@ class SkillLearningService:
                 scanned_task_count=len(cards),
                 cluster_count=len(mining.clusters),
                 clusters=mining.clusters,
+                pattern_mining_raw_output=mining.raw_output,
                 candidate_count=len(created),
                 distillations=tuple(distillations),
                 usage=total_usage,
@@ -483,6 +493,7 @@ class SkillLearningService:
             scanned_task_count=len(cards),
             cluster_count=len(mining.clusters),
             clusters=mining.clusters,
+            pattern_mining_raw_output=mining.raw_output,
             candidate_count=len(created),
             distillations=tuple(distillations),
             usage=total_usage,

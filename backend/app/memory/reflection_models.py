@@ -36,7 +36,8 @@ class MemoryReflectionConfig(BaseSettings):
     enabled: bool = True
     provider: str | None = None
     model: str | None = None
-    max_output_tokens: int = Field(default=1_200, gt=0)
+    max_output_tokens: int = Field(default=2_000, gt=0)
+    max_attempts: int = Field(default=2, ge=1, le=2)
     temperature: float = Field(default=0.0, ge=0.0, le=2.0)
     timeout_seconds: float = Field(default=30.0, gt=0.0)
     max_tool_context_chars: int = Field(default=8_000, ge=0, le=20_000)
@@ -157,6 +158,8 @@ class MemoryReflectionProposal(BaseModel):
     model: str | None = None
     duration_ms: float = Field(default=0.0, ge=0.0)
     usage: ModelUsage = Field(default_factory=ModelUsage)
+    attempts: int = Field(default=0, ge=0)
+    finish_reason: str | None = None
     error: str | None = None
     input_json: str | None = None
     raw_output: str | None = None

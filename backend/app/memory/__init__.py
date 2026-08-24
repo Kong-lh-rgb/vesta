@@ -50,6 +50,7 @@ from .reflection_models import (
 )
 from .store import DEFAULT_MEMORY_DIR, MemoryStore
 from .tools import (
+    DEFAULT_DEFERRED_MEMORY_TOOL_NAMES,
     CoreMemoryRemoveTool,
     CoreMemoryUpdateTool,
     MemoryArchiveTool,
@@ -62,6 +63,7 @@ from .tools import (
 )
 
 __all__ = [
+    "DEFAULT_DEFERRED_MEMORY_TOOL_NAMES",
     "CORE_MEMORY_MESSAGE_NAME",
     "CoreMemoryEntry",
     "CoreMemoryManager",
