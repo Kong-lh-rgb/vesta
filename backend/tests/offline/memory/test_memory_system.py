@@ -543,6 +543,14 @@ async def test_read_updates_last_accessed_at(memory_root: Path) -> None:
     assert loaded.last_accessed_at >= before
 
 
+def test_memory_policy_requires_read_before_using_index_cue() -> None:
+    """Index 只负责发现；依赖普通记忆前必须读取正文，保证使用次数可审计。"""
+
+    assert "discovery metadata" in MEMORY_POLICY_PROMPT
+    assert "before relying on it" in MEMORY_POLICY_PROMPT
+    assert "successful memory_read" in MEMORY_POLICY_PROMPT
+
+
 @pytest.mark.asyncio
 async def test_update_refreshes_updated_at(memory_root: Path) -> None:
     manager = await _manager(memory_root)

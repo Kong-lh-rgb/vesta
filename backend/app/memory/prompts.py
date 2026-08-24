@@ -18,8 +18,11 @@ Long-term memory is intentionally sparse.
 Do not assume all historical information is already present
 in the current context.
 
-When a memory cue appears relevant to the current task,
-you may call memory_read to inspect the full memory.
+The Memory Index is discovery metadata, not authoritative memory content.
+When a memory cue appears relevant to the current task, call memory_read to
+inspect the full memory before relying on it in an answer, decision, or action.
+This requirement applies even when the cue itself appears to contain enough
+information. Only a successful memory_read counts as an ordinary-memory read.
 
 Do not read memories unnecessarily.
 
