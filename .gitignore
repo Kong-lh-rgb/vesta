@@ -23,7 +23,10 @@ backend/.vesta/
 backend/.oneagent/
 
 # Local evaluation artifacts
-backend/tests/eval/reports/*.md
+backend/tests/eval_legacy/reports/*.md
+!backend/tests/eval_legacy/reports/README.md
+backend/tests/eval_legacy/reports/historical/runtime/*.md
+backend/tests/eval_legacy/reports/historical/skill_learning/*.md
 
 # Desktop (Electron / Vite)
 desktop/node_modules/

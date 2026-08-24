@@ -29,7 +29,7 @@ UPDATE description 契约 Bad Case   →  update + 无 description → Candidate
 
 ## 1. 阶段一：Skill Learning V1 Debug + 真实模型 Live Eval（67%）
 
-**报告**：`backend/tests/eval/reports/skill_learning_live_20260818.md`
+**报告**：`backend/tests/eval_legacy/reports/historical/skill_learning/skill_learning_live_20260818.md`
 **结论**：18/27 pass，Cluster Precision/Recall=1.00，Action Accuracy=1.00，FP=0%，
 Duplicate=0%，Pitfall Recall=0.25；45 calls / 51,918 tokens / 128.8s。
 
@@ -74,7 +74,7 @@ Duplicate=0%，Pitfall Recall=0.25；45 calls / 51,918 tokens / 128.8s。
 
 ## 2. 阶段二：Skill Learning V1 Eval 收口（87%）
 
-**报告**：`backend/tests/eval/reports/skill_learning_live_20260818b.md`
+**报告**：`backend/tests/eval_legacy/reports/historical/skill_learning/skill_learning_live_20260818b.md`
 **结论**：26/30 pass，Pattern Detection Recall=0.93(14/15)，Action Accuracy=0.75(9/12)，
 Positive Abstention=0.33(3/9)，FP=0%(0/6)，Duplicate=0%(0/3)，Pitfall=0.50；
 35 calls / 43,042 tokens / 96.1s。
@@ -115,7 +115,7 @@ Positive Abstention=0.33(3/9)，FP=0%(0/6)，Duplicate=0%(0/3)，Pitfall=0.50；
 
 ## 3. 阶段三：Distiller Progressive Disclosure（91%）
 
-**报告**：`backend/tests/eval/reports/skill_learning_live_20260818c.md`
+**报告**：`backend/tests/eval_legacy/reports/historical/skill_learning/skill_learning_live_20260818c.md`
 **结论**：30/33 pass，Pattern Detection=0.89(16/18)，Action Accuracy=0.87(13/15)，
 Abstention=0.22(2/9)，FP=0%，Duplicate=0%；48 calls / 55,231 tokens / 132.1s。
 
@@ -222,4 +222,3 @@ Abstention=0.22(2/9)，FP=0%，Duplicate=0%；48 calls / 55,231 tokens / 132.1s�
 Distillation 语义来修正（上一轮历史结论"UPDATE 稳定性是模型行为难点"在本场景被推翻
 ——它同时是 Prompt 语义问题）。新 Bad Case：无；仅候选文本风格波动（run1/3 procedure
 带编号前缀，run2 无；verification 条数 1~4 不等）。
-

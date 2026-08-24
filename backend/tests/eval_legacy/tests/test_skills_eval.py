@@ -11,10 +11,10 @@ from pathlib import Path
 import pytest
 
 from app.agent.events import AgentEventType
-from tests.eval.assertions import _check_skill, run_checks
-from tests.eval.harness import run_scenario
-from tests.eval.loader import load_scenarios
-from tests.eval.mocks import fake_registry, model_response, text_tool_call
+from tests.eval_legacy.assertions import _check_skill, run_checks
+from tests.eval_legacy.harness import run_scenario
+from tests.eval_legacy.loader import load_scenarios
+from tests.eval_legacy.mocks import fake_registry, model_response, text_tool_call
 
 
 def _skill_scenario(scenario_id: str):

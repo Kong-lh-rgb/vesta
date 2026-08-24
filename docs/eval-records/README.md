@@ -3,9 +3,9 @@
 > 集中的评测记录目录（2026-08-18 建立）。
 > 本目录收录每个模块做过的测试、真实模型 Live Eval 结果与各阶段 Bad Case 分析。
 > 代码在 `backend/tests/`；Eval 基建：
-> - Agent Runtime / Skill Learning → `backend/tests/eval/`
-> - 长期记忆 → `backend/tests/memory_eval/`
-> - 综合入口 → `backend/tests/eval/run_suite.py`
+> - Agent Runtime / Skill Learning → `backend/tests/eval_legacy/`
+> - 长期记忆 → `backend/tests/eval_legacy/memory/`
+> - 综合入口 → `backend/tests/eval_legacy/run_suite.py`
 > 原始时间戳报告保留在各 `reports/` 子目录。
 
 ## 目录
@@ -16,8 +16,8 @@
 | `agent-eval-optimization-story.md` | 2026-08-23 综合 Eval 框架、真实 Bad Case、优化过程、结果与诚实边界 | 本轮综合评测收口 |
 | `memory-evaluation-design.md` | 长期记忆测评设计（确定性不变量 + 真实模型语义测评分层、场景结构、运行方式） | 原 `docs/memory-evaluation.md` |
 | `skill-learning-eval-history.md` | Skill Learning V1 各阶段 Bad Case、Eval 指标与提升历史（阶段一~四） | 原根目录 `skill-learning-eval-history.md` |
-| `backend/tests/eval/reports/` | Agent Runtime / Skill Learning 的 Live Eval 原始报告（时间戳） | 代码库 |
-| `backend/tests/memory_eval/reports/` | 长期记忆 Live Eval 原始报告 | 代码库 |
+| `backend/tests/eval_legacy/reports/` | 当前 Baseline、综合报告与历史报告索引 | 代码库 |
+| `backend/tests/eval_legacy/reports/historical/` | Runtime、长期记忆和 Skill Learning 的旧版原始报告 | 代码库 |
 
 ## Agent 综合评测 V1
 
@@ -37,20 +37,20 @@ Smoke 场景只覆盖关键路径，Regression 包含全部非 Manual 场景。�
 cd backend
 
 # Core Smoke
-.venv/bin/python -m tests.eval.run_suite \
+.venv/bin/python -m tests.eval_legacy.run_suite \
   --suite core --tier smoke --runs 1 --print
 
 # 三套综合 Smoke；建议建立正式基线时每条运行 3 次
-.venv/bin/python -m tests.eval.run_suite \
+.venv/bin/python -m tests.eval_legacy.run_suite \
   --suite core --suite memory --suite learning \
   --tier smoke --runs 3 \
-  --save-baseline tests/eval/reports/baselines/deepseek-smoke.json
+  --save-baseline tests/eval_legacy/reports/baselines/deepseek-smoke.json
 
 # 使用相同模型和完全相同题集比较
-.venv/bin/python -m tests.eval.run_suite \
+.venv/bin/python -m tests.eval_legacy.run_suite \
   --suite core --suite memory --suite learning \
   --tier smoke --runs 3 \
-  --baseline tests/eval/reports/baselines/deepseek-smoke.json
+  --baseline tests/eval_legacy/reports/baselines/deepseek-smoke.json
 ```
 
 Baseline V1 将安全场景失败、原本稳定通过场景退化作为阻断项；平均可计费 Token 增长超过
@@ -94,10 +94,10 @@ MCP；后续应以独立 Integration / Manual Suite 接入同一 Sample Record�
 
 | 模块 | 场景 / 样本 | 通过率 | 关键报告 |
 | --- | --- | --- | --- |
-| Agent Runtime 通用 | 30 场景 × 1 | **86.7%** (26/30) | `backend/tests/eval/reports/baseline_20260806_v2_86.7.md` |
-| 长期记忆 | 10 场景 × 3（33 阶段） | **81.8%** (27/33) | `backend/tests/memory_eval/reports/memory_report_20260812_*.md` |
-| Skill Learning（旧 9 场景） | 10 场景 × 3 | **87%** (26/30) | `backend/tests/eval/reports/skill_learning_live_20260818c.md` |
-| Skill Learning learning-10（20-Task） | 1 场景 × 3 | 上一轮 **0/3** → 本轮 **100%** (3/3) | `backend/tests/eval/reports/skill_learning_live_20260818.md` |
+| Agent Runtime 通用 | 30 场景 × 1 | **86.7%** (26/30) | `backend/tests/eval_legacy/reports/historical/runtime/baseline_20260806_v2_86.7.md` |
+| 长期记忆 | 10 场景 × 3（33 阶段） | **81.8%** (27/33) | `backend/tests/eval_legacy/reports/historical/memory/memory_report_20260812_*.md` |
+| Skill Learning（旧 9 场景） | 10 场景 × 3 | **87%** (26/30) | `backend/tests/eval_legacy/reports/historical/skill_learning/skill_learning_live_20260818c.md` |
+| Skill Learning learning-10（20-Task） | 1 场景 × 3 | 上一轮 **0/3** → 本轮 **100%** (3/3) | `backend/tests/eval_legacy/reports/historical/skill_learning/skill_learning_live_20260818.md` |
 
 > 报告文件名的日期后缀代表生成时间；同一模块存在多份报告时，最新一份在
 > `git log` / 文件 mtime 中可见，历史报告保留原始失败样本，不覆盖不隐藏。

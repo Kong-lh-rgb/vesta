@@ -14,12 +14,12 @@ from pathlib import Path
 import pytest
 
 from app.skill_learning import TaskCard
-from tests.eval.learning_harness import (
+from tests.eval_legacy.learning_harness import (
     prepare_learning_environment,
     run_learning_scenario,
 )
-from tests.eval.loader import load_scenarios
-from tests.eval.mocks import fake_registry, model_response
+from tests.eval_legacy.loader import load_scenarios
+from tests.eval_legacy.mocks import fake_registry, model_response
 
 # 供 distillation 复用的 candidate 响应模板（按场景覆盖 action / name / pitfalls）。
 _DISTILL_CREATE = {
@@ -122,7 +122,7 @@ async def test_learning_fixture_preserves_task_card_facts(
     tmp_path: Path,
 ) -> None:
     from app.skill_learning.service import _to_card
-    from tests.eval.scenario import Scenario
+    from tests.eval_legacy.scenario import Scenario
 
     scenario = Scenario.model_validate(
         {

@@ -1013,7 +1013,7 @@ Memory Eval V1 已采用独立目录实现。Scenario 内的多个 Phase 共享�
 conversation 标签相同才继承聊天历史，因此“A 会话写入、B 会话召回”不会被旧 History
 作弊。Reflection 产生的 ID 绑定成场景别名，断言不依赖 M001 等具体编号。每个阶段同时
 保存 Core、Index、active、archive 快照和事件，并将三类模型 Token 分开报告。真实模型
-只通过 `tests.memory_eval.run_live` 显式运行，pytest 只用 Fake Adapter 验证 Harness。
+只通过 `tests.eval_legacy.memory.run_live` 显式运行，pytest 只用 Fake Adapter 验证 Harness。
 
 首轮 Live Eval 说明 CREATE 与 UPDATE 不应共享完全相同的保守阈值。CREATE 会扩张 active
 集合，应默认稀疏；UPDATE 不增加条目数量，承担防止已有知识过时的职责。当前用户明确
@@ -1393,7 +1393,7 @@ Multi-Agent / Task Graph / Planner DAG。Pattern Mining V1 完全用一次结构
   exact-name 作为记录项、以 action/count 作为硬标准；Human Gate 用 accept_all / reject_all
   而非按名匹配；
 - **成本**：每 20-Task batch 约 1 次 mining + 1 次 distillation，实测约 1,923 tokens /
-  4.8s；Live Eval 用正式 `tests/eval/run_learning_live.py` + `learning_judge.py` 驱动并
+  4.8s；Live Eval 用正式 `tests/eval_legacy/run_learning_live.py` + `learning_judge.py` 驱动并
   生成带真实模型输出的报告。
 
 ## 33. Skill Learning 收口：钉死 CREATE/UPDATE/NONE 语义 + 修 Eval pitfall 跨语言误判（2026-08-18）
@@ -1427,9 +1427,9 @@ Multi-Agent / Task Graph / Planner DAG。Pattern Mining V1 完全用一次结构
 
 ### 33.3 修复 2：Eval pitfall 支持中英同义组（concept-based recall）
 
-- `tests/eval/scenario.py`：`expected_pitfall_keywords` 类型
+- `tests/eval_legacy/scenario.py`：`expected_pitfall_keywords` 类型
   `tuple[str, ...]` → `tuple[str | tuple[str, ...], ...]`（旧单字符串格式向后兼容）；
-- `tests/eval/learning_judge.py`：pitfall 计算改为 concept-based —— 每组命中任意一个
+- `tests/eval_legacy/learning_judge.py`：pitfall 计算改为 concept-based —— 每组命中任意一个
   alias 即算该 concept 命中，recall = 命中 concept 数 / concept 总数；
 - learning-10 YAML：`[全局, 解释器]` → `[[全局, global], [解释器, interpreter]]`，
   `expected_action=update`、min thresholds 不变。
@@ -2411,3 +2411,17 @@ README 的职责是让第一次进入仓库的人快速回答四个问题：项�
 演示素材还没准备好时，可以先固定截图和视频的位置及文件命名，避免之后重新调整首页信息
 结构；但不能提交失效图片链接伪装成已有演示。能力列表同样只描述当前闭环，并单独列出
 macOS、stdio MCP、本地单用户和 Live Eval 成本等真实边界。
+
+## 69. 测试目录先按执行语义分层，再按业务领域分组（2026-08-24）
+
+测试目录混乱的根因通常不是文件太多，而是离线回归、真实模型评测、夹具和历史报告共享同一
+层级。开发者无法一眼判断一个文件是否会产生 API 成本，也不知道某个通过率是否属于当前基线。
+
+Vesta 先按执行语义拆成三层：`offline/` 只运行确定性 pytest，`fixtures/` 保存共享假服务，
+`eval_legacy/` 冻结已有真实模型 Eval V1；随后 `offline/` 内再按 Agent、Context、Memory、
+Task、Computer 等生产领域分组。这样既能用一次 `pytest` 做全量回归，也能按目录精确运行模块。
+
+旧 Eval 被命名为 `eval_legacy` 不等于删除价值，而是固定它的历史口径。已有报告仍可复现优化
+过程，但新语义 Judge、人工复核和 Eval V2 不再继续堆进旧 Harness。报告也应区分正式 Baseline、
+综合运行结果和历史模块报告；只有 Provider、Model、题集、Runs 与 Scenario Digest 一致时，
+两份结果才适合严格比较。

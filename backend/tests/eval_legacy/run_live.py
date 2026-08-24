@@ -2,10 +2,10 @@
 
 用法（在 backend 目录）：
 
-    .venv/bin/python -m tests.eval.run_live
-    .venv/bin/python -m tests.eval.run_live --group task
-    .venv/bin/python -m tests.eval.run_live --scenario eval-01 eval-02 --runs 3
-    .venv/bin/python -m tests.eval.run_live --provider deepseek \
+    .venv/bin/python -m tests.eval_legacy.run_live
+    .venv/bin/python -m tests.eval_legacy.run_live --group task
+    .venv/bin/python -m tests.eval_legacy.run_live --scenario eval-01 eval-02 --runs 3
+    .venv/bin/python -m tests.eval_legacy.run_live --provider deepseek \
     --model deepseek-v4-flash
 """
 
@@ -19,10 +19,10 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from app.models.config import ModelSettings
-from tests.eval import harness
-from tests.eval.assertions import run_checks
-from tests.eval.loader import load_scenarios, select_scenarios
-from tests.eval.metrics import EvalReport, metric_from_outcome, render_report
+from tests.eval_legacy import harness
+from tests.eval_legacy.assertions import run_checks
+from tests.eval_legacy.loader import load_scenarios, select_scenarios
+from tests.eval_legacy.metrics import EvalReport, metric_from_outcome, render_report
 
 _DEFAULT_REPORTS_DIR = Path(__file__).resolve().parent / "reports"
 
@@ -57,7 +57,7 @@ def _parse_args() -> argparse.Namespace:
         "--out",
         type=Path,
         default=None,
-        help="报告输出路径（默认 tests/eval/reports/report_<时间戳>.md）。",
+        help="报告输出路径（默认 tests/eval_legacy/reports/report_<时间戳>.md）。",
     )
     parser.add_argument(
         "--print",
@@ -108,7 +108,7 @@ async def main(args: argparse.Namespace) -> int:
         scenario_ids=tuple(args.scenario or ()),
         groups=tuple(args.group or ()),
     )
-    # learning 组由 tests/eval/learning_harness 以 Mock 模型驱动，不走普通 Agent Run。
+    # learning 组由 learning_harness 以 Mock 模型驱动，不走普通 Agent Run。
     explicit_learning = (
         "learning" in (args.group or ())
         or any(scenario.group == "learning" for scenario in scenarios)
@@ -119,7 +119,7 @@ async def main(args: argparse.Namespace) -> int:
         )
     elif explicit_learning:
         print(
-            "learning 组场景由 tests/eval/learning_harness 驱动（Mock 模型），"
+            "learning 组场景由 tests/eval_legacy/learning_harness 驱动（Mock 模型），"
             "请运行 tests/test_skill_learning_eval.py 验证。",
             file=sys.stderr,
         )

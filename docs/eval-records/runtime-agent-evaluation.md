@@ -26,14 +26,14 @@ Live Eval 才会调用已配置的模型 API。
 
 ```bash
 # 离线验证测评框架，不调用真实 API
-.venv/bin/python -m pytest tests/test_harness.py -q
+.venv/bin/python -m pytest tests/eval_legacy/tests/test_harness.py -q
 
 # 使用 .env 中的默认模型运行全部 Live Eval
-.venv/bin/python -m tests.eval.run_live --print
+.venv/bin/python -m tests.eval_legacy.run_live --print
 
 # 筛选场景并重复运行
-.venv/bin/python -m tests.eval.run_live --group task --runs 3 --print
-.venv/bin/python -m tests.eval.run_live --scenario eval-02 --provider qwen
+.venv/bin/python -m tests.eval_legacy.run_live --group task --runs 3 --print
+.venv/bin/python -m tests.eval_legacy.run_live --scenario eval-02 --provider qwen
 ```
 
 Live Eval 存在失败时默认返回退出码 1，可用于 CI 门禁。探索性运行需要保留退出码
@@ -62,11 +62,11 @@ Live Eval 存在失败时默认返回退出码 1，可用于 CI 门禁。探索�
 | learning | learning-05 | 已存在 Skill + 新类似 Task → UPDATE 而不是 CREATE |
 | learning | learning-06–08 | Human Gate：pending 不可见 / accept 后可 discover / reject 不产生 Skill |
 
-场景文件：`tests/eval/scenarios/`（NN_名称.yaml）。
+场景文件：`tests/eval_legacy/scenarios/`（NN_名称.yaml）。
 
 ## 场景语义
 
-场景位于 `tests/eval/scenarios/`。其中几个容易混淆的字段约定如下：
+场景位于 `tests/eval_legacy/scenarios/`。其中几个容易混淆的字段约定如下：
 
 - `task.created: false` 表示本轮不能新增 Task，不表示运行后 Task 总数必须为零；
 - `task.new_count` 精确检查相对初始 Task 快照的新增数量；
@@ -84,7 +84,7 @@ Live Eval 存在失败时默认返回退出码 1，可用于 CI 门禁。探索�
   FakeModelAdapter 捕获的真实 ModelRequest 在激活后每 Step 都含 `vesta_active_skill`；
 - `initial_skills` 预置目录式 Skill（`<name>/SKILL.md` + 可选 `reference_files`），
   由 Harness 写入临时 skills 目录并装配 `SkillStore` / `SkillContextProvider`；
-- Learning 场景（group=learning）不走普通 Agent Run，由 `tests/eval/learning_harness.py`
+- Learning 场景（group=learning）不走普通 Agent Run，由 `tests/eval_legacy/learning_harness.py`
   预置 Completed Task + Trace 事件（`initial_runs`），驱动 `SkillLearningService`；
   `learning.batch_size` 控制触发，`learning.candidate_count` / `create_count` /
   `update_count` / `expected_names` 检查候选，`learning.no_candidates` 要求不产生候选，
@@ -116,7 +116,7 @@ Live Eval 存在失败时默认返回退出码 1，可用于 CI 门禁。探索�
 ## 基线结果（2026-08-06 · deepseek-v4-flash）
 
 首份全量基线：30 条场景 × 1 次，真实 DeepSeek。完整报告：
-`tests/eval/reports/baseline_20260806_full.md`。
+`tests/eval_legacy/reports/historical/runtime/baseline_20260806_full.md`。
 
 ### 汇总指标
 
@@ -165,7 +165,7 @@ Live Eval 存在失败时默认返回退出码 1，可用于 CI 门禁。探索�
 
 ## 基线更新（2026-08-06 · 第二轮，A 类修复后）
 
-完整报告：`tests/eval/reports/baseline_20260806_v2_86.7.md`。
+完整报告：`tests/eval_legacy/reports/historical/runtime/baseline_20260806_v2_86.7.md`。
 
 | 指标 | 第一轮 | 第二轮 |
 | --- | --- | --- |
@@ -195,7 +195,7 @@ Live Eval 存在失败时默认返回退出码 1，可用于 CI 门禁。探索�
 - 压缩场景的"压缩后信息保留"这一维度，因当前模型组合不可靠，暂不在稳定基线内。
 ## 基线更新（2026-08-06 · 第三轮，reasoning 摘要修复后）
 
-runs3 报告：`tests/eval/reports/report_20260806_120313.md`。
+runs3 报告：`tests/eval_legacy/reports/historical/runtime/report_20260806_120313.md`。
 
 ### 本轮修复：reasoning 模型摘要稳定性
 
@@ -254,7 +254,7 @@ Memory OFF 对照。
 | 完整通过场景 | 8/10 |
 | 通过阶段 | 27/33 |
 | 阶段通过率 | **81.8%** |
-| 原始报告 | `backend/tests/memory_eval/reports/memory_report_20260812_074146.md` |
+| 原始报告 | `backend/tests/eval_legacy/reports/historical/memory/memory_report_20260812_074146.md` |
 | 生成时间 | 2026-08-12 15:31（Asia/Shanghai） |
 
 ### 核心指标

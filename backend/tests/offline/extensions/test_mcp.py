@@ -417,7 +417,11 @@ def test_serialize_mcp_result_preserves_text_and_structured_content() -> None:
 
 
 def _stdio_config(*, call_timeout: float = 2.0) -> MCPServerConfig:
-    server_path = Path(__file__).parent / "fixtures" / "fake_mcp_server.py"
+    server_path = (
+        Path(__file__).resolve().parents[2]
+        / "fixtures"
+        / "fake_mcp_server.py"
+    )
     return MCPServerConfig(
         name="stdio_test",
         command=sys.executable,

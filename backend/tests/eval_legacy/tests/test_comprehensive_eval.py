@@ -13,14 +13,18 @@ from app.models.config import ModelSettings
 from app.models.types import ModelUsage
 from app.tools.approval import ApprovalDecision, ApprovalRequest
 from app.trace import RunUsageSummary
-from tests.eval import run_suite
-from tests.eval.adapters import learning_sample_from_outcome
-from tests.eval.harness import EvalApprovalGate
-from tests.eval.loader import load_scenarios
-from tests.eval.mocks import fake_registry, model_response
-from tests.eval.records import EvalCheckRecord, EvalSampleRecord, EvalSuiteReport
-from tests.eval.reporting import compare_reports, render_comparison, render_report
-from tests.memory_eval.loader import load_scenarios as load_memory_scenarios
+from tests.eval_legacy import run_suite
+from tests.eval_legacy.adapters import learning_sample_from_outcome
+from tests.eval_legacy.harness import EvalApprovalGate
+from tests.eval_legacy.loader import load_scenarios
+from tests.eval_legacy.memory.loader import load_scenarios as load_memory_scenarios
+from tests.eval_legacy.mocks import fake_registry, model_response
+from tests.eval_legacy.records import EvalCheckRecord, EvalSampleRecord, EvalSuiteReport
+from tests.eval_legacy.reporting import (
+    compare_reports,
+    render_comparison,
+    render_report,
+)
 
 
 def _sample(

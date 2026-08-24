@@ -47,7 +47,11 @@ from app.models.types import (
 
 
 def _helper_command() -> tuple[str, tuple[str, ...]]:
-    script = Path(__file__).resolve().parent / "fixtures" / "fake_computer_helper.py"
+    script = (
+        Path(__file__).resolve().parents[2]
+        / "fixtures"
+        / "fake_computer_helper.py"
+    )
     return sys.executable, (str(script),)
 
 
