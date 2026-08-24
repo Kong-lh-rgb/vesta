@@ -25,6 +25,17 @@ def _config(**overrides: object) -> RunBudgetConfig:
     return RunBudgetConfig(_env_file=None, **values)
 
 
+def test_default_run_budget_thresholds() -> None:
+    config = RunBudgetConfig(_env_file=None)
+
+    assert config.warning_tokens == 80_000
+    assert config.finalization_tokens == 120_000
+    assert config.hard_tokens == 160_000
+    assert config.warning_model_calls == 8
+    assert config.finalization_model_calls == 10
+    assert config.hard_model_calls == 12
+
+
 def test_chargeable_tokens_prefers_uncached_input() -> None:
     usage = ModelUsage(
         input_tokens=1_000,

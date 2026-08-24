@@ -2713,3 +2713,35 @@ Automation ─┤  → ConversationService.dispatch(conversation_id, content, tr
 - [x] 更新代码导入、运行命令与文档路径；本轮不修改生产行为、场景语义或评分规则
 - [x] Backend 全量离线 `pytest`：1004 passed
 - [x] `ruff check .`、`python -m compileall -q app tests`、`git diff --check`：通过
+
+### 完成：Eval简历与面试讲述材料
+
+- [x] 新增`docs/eval-records/resume-eval-case-study.md`，用一张架构图说明离线测试、三套领域Harness、统一Sample Record和Baseline关系
+- [x] 固化最终204样本、Core、Memory、Skill Learning与成本指标的分子、分母和正确解释
+- [x] 整理Memory同义断言、Learning Trace契约、Reasoning摘要三个真实Bad Case及诊断修复
+- [x] 明确可严格A/B与只能说明工程演进的数字边界，不夸大94.1%或缓存收益
+- [x] 提供简历三条表述、两分钟和五分钟面试讲述稿及常见追问答案
+
+### 完成：扩大日常上下文工作预算
+
+- [x] 将默认 `working_input_budget` 从 32,768 调整为 64,000 tokens
+- [x] 将日常压缩触发比例从 70% 调整为 80%，触发线变为 51,200 tokens
+- [x] 保持目标比例 45%，压缩目标变为 28,800 tokens
+- [x] 保持工具结果比例 35%，工具结果预算随目标扩大为 10,080 tokens
+- [x] 不修改模型物理窗口、硬窗口保护、Run Budget 和现有压缩算法
+- [x] 同步 `.env.example` 与上下文预算测试断言
+- [x] 压缩机制测试显式固定测试阈值，避免继续依赖生产默认值
+- [x] 上下文定向测试：30 passed
+- [x] Backend 全量离线测试：1004 passed
+- [x] Ruff 与 `git diff --check`：通过
+
+### 完成：扩大 Main Agent Run 累计预算
+
+- [x] 将可计费 Token 预警线从 50,000 调整为 80,000
+- [x] 将强制收口线从 75,000 调整为 120,000
+- [x] 将硬停止线从 100,000 调整为 160,000
+- [x] 保持模型调用次数阈值为 8 / 10 / 12
+- [x] 不修改 `uncached input + output` 的预算统计口径
+- [x] 不修改当前 Finalizing 行为；交付工具白名单留作后续独立修复
+- [x] Run Budget / AgentRuntime 定向测试：49 passed
+- [x] Ruff 与 `git diff --check`：通过

@@ -41,9 +41,9 @@ class RunBudgetConfig(BaseSettings):
     )
 
     enabled: bool = True
-    warning_tokens: int = Field(default=50_000, ge=1)
-    finalization_tokens: int = Field(default=75_000, ge=1)
-    hard_tokens: int = Field(default=100_000, ge=1)
+    warning_tokens: int = Field(default=80_000, ge=1)
+    finalization_tokens: int = Field(default=120_000, ge=1)
+    hard_tokens: int = Field(default=160_000, ge=1)
     warning_model_calls: int = Field(default=8, ge=1)
     finalization_model_calls: int = Field(default=10, ge=1)
     hard_model_calls: int = Field(default=12, ge=1)
