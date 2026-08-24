@@ -113,7 +113,9 @@ export function MemoryCard({ memory }: { memory: LongTermMemory }): React.JSX.El
       </div>
       <dl className="memory-card__meta">
         <div><dt>版本</dt><dd>r{memory.revision}</dd></div>
-        <div><dt>读取</dt><dd>{memory.access_count} 次</dd></div>
+        <div title="Agent 成功调用 memory_read 并读取完整正文的次数">
+          <dt>正文读取</dt><dd>{memory.access_count} 次</dd>
+        </div>
         <div><dt>更新</dt><dd>{formatTime(memory.updated_at)}</dd></div>
       </dl>
       <details className="memory-card__details">

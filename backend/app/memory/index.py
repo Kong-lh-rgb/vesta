@@ -22,8 +22,9 @@ logger = logging.getLogger("vesta.memory.index")
 _INDEX_HEADER = (
     "# Long-term Memory Index\n\n"
     "The following long-term memories are available.\n"
-    "Use memory_read only when one of these memories may materially "
-    "help the current task.\n"
+    "These cues are discovery metadata, not authoritative memory content.\n"
+    "When a memory may materially help the current task, use memory_read "
+    "before relying on it in an answer, decision, or action.\n"
 )
 
 
