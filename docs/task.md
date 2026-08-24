@@ -2745,3 +2745,15 @@ Automation ─┤  → ConversationService.dispatch(conversation_id, content, tr
 - [x] 不修改当前 Finalizing 行为；交付工具白名单留作后续独立修复
 - [x] Run Budget / AgentRuntime 定向测试：49 passed
 - [x] Ruff 与 `git diff --check`：通过
+
+### 完成：Run Budget Closing 保留交付工具
+
+- [x] 为工具定义增加声明式 `closing_allowed`，默认拒绝进入 Closing
+- [x] `write_file`、`artifact_publish`、`task_create`、`task_update` 标记为交付工具
+- [x] 达到 Run Budget 收口线后隐藏搜索和调查工具，只保留交付工具
+- [x] Closing 最多执行一轮交付工具，随后使用无工具请求汇报最终结果
+- [x] 执行层硬性拒绝模型伪造的非交付工具调用，不只依赖 Schema 隐藏
+- [x] 没有可用交付工具时保持原有一次无工具 Finalizing 行为
+- [x] Closing / Tool / Task / Artifact 定向测试：120 passed
+- [x] Backend 全量离线测试：1008 passed
+- [x] Ruff、compileall 与 `git diff --check`：通过

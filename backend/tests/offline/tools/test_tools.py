@@ -7,7 +7,7 @@ from typing import Any
 
 import pytest
 
-from app.models.types import ToolCall, ToolDefinition
+from app.models.types import AgentMode, ToolCall, ToolDefinition
 from app.tools import (
     BaseTool,
     CurrentTimeTool,
@@ -97,6 +97,22 @@ def test_model_definitions_are_stable_across_registration_order() -> None:
 
     assert first.model_definitions() == second.model_definitions()
     assert [item.name for item in first.model_definitions()] == ["alpha", "zeta"]
+
+
+def test_closing_definitions_only_include_declared_delivery_tools() -> None:
+    registry = ToolRegistry()
+    registry.register(EchoTool())
+    registry.register(
+        StubDefinitionTool(
+            ToolDefinition(name="deliver", closing_allowed=True)
+        )
+    )
+
+    definitions = registry.closing_definitions_for_mode(AgentMode.NORMAL)
+
+    assert [definition.name for definition in definitions] == ["deliver"]
+    assert registry.is_allowed_during_closing("deliver", AgentMode.NORMAL) is True
+    assert registry.is_allowed_during_closing("echo", AgentMode.NORMAL) is False
 
 
 def test_tool_catalog_tracks_deferred_registry_changes_automatically() -> None:

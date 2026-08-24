@@ -49,6 +49,7 @@ class ArtifactPublishTool(BaseTool):
             },
             permission=ToolPermission.ALLOWED,
             strict=False,
+            closing_allowed=True,
         )
 
     async def execute(self, arguments: dict[str, Any]) -> Any:

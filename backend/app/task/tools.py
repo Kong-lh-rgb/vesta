@@ -93,6 +93,7 @@ class TaskCreateTool(BaseTool):
                 "additionalProperties": False,
             },
             strict=False,
+            closing_allowed=True,
         )
 
     async def execute(self, arguments: dict[str, Any]) -> dict[str, Any]:
@@ -253,6 +254,7 @@ class TaskUpdateTool(BaseTool):
                 "additionalProperties": False,
             },
             strict=False,
+            closing_allowed=True,
         )
 
     async def execute(self, arguments: dict[str, Any]) -> dict[str, Any]:
