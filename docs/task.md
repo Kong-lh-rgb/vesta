@@ -2777,3 +2777,14 @@ Automation ─┤  → ConversationService.dispatch(conversation_id, content, tr
 - [x] Run Budget / Runtime / Trace 定向测试：64 passed
 - [x] Backend 全量离线测试：1010 passed
 - [x] Ruff 与 compileall：通过
+
+### 完成：Desktop 运行反馈与审批体验优化
+
+- [x] 聊天中的 Agent 执行过程只显示“正在思考”，移除圆点与竖线工具时间线
+- [x] 完整工具过程继续保留在 Run Detail / Trace，不删除底层事件
+- [x] Run 错误按停止原因提供中文标题、恢复建议和折叠技术详情
+- [x] Shell 命令审批突出显示即将执行的命令、风险说明和中文操作按钮
+- [x] Chat 审批、Computer Floating Window 和系统通知统一为中文主文案
+- [x] 优化审批卡片与浮窗的留白、层级、圆角、阴影、按钮和错误详情
+- [x] Desktop Tests：240 passed
+- [x] Desktop Typecheck 与 Build：通过

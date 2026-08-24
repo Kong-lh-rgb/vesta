@@ -170,7 +170,7 @@ export function ApprovalFloatingCard({
         </span>
         {queuedCount > 1 ? (
           <span className="floating-approval__waiting">
-            {queuedCount - 1} more waiting
+            还有 {queuedCount - 1} 项等待确认
           </span>
         ) : null}
       </header>
@@ -194,7 +194,7 @@ export function ApprovalFloatingCard({
         ) : null}
 
         <details className="floating-approval__details">
-          <summary>Show details</summary>
+          <summary>查看技术详情</summary>
           {techLine ? (
             <div className="floating-approval__tech">{techLine}</div>
           ) : null}
@@ -202,7 +202,10 @@ export function ApprovalFloatingCard({
         </details>
 
         {error ? (
-          <div className="error-text floating-approval__error">{error}</div>
+          <details className="floating-approval__error">
+            <summary>查看错误详情</summary>
+            <code>{error}</code>
+          </details>
         ) : null}
       </div>
 
@@ -212,18 +215,18 @@ export function ApprovalFloatingCard({
           className="floating-approval__btn floating-approval__btn--deny"
           disabled={busy}
           onClick={() => onDeny(approval.id)}
-          aria-label={`Deny ${label}`}
+          aria-label={`拒绝${label}`}
         >
-          Deny
+          暂不允许
         </button>
         <button
           type="button"
           className="floating-approval__btn floating-approval__btn--allow"
           disabled={busy}
           onClick={() => onApprove(approval.id)}
-          aria-label={`Allow ${label}`}
+          aria-label={`允许${label}`}
         >
-          Allow
+          允许
         </button>
       </footer> : null}
     </div>
@@ -246,23 +249,42 @@ export function floatingApprovalPresentation(
 ): FloatingApprovalPresentation {
   switch (phase) {
     case 'submitting':
-      return { eyebrow: 'Approval received', title: actionLabel, description: 'Sending your decision…', status: 'Submitting approval', tone: 'working' }
+      return { eyebrow: '正在提交', title: actionLabel, description: '正在发送你的选择，请稍候。', status: '提交确认中', tone: 'working' }
     case 'executing':
-      return { eyebrow: 'Approved', title: actionLabel, description: 'Vesta is performing the approved computer action.', status: 'Executing', tone: 'working' }
+      return { eyebrow: '已允许', title: actionLabel, description: 'Vesta 正在执行你刚刚允许的电脑操作。', status: '正在执行', tone: 'working' }
     case 'action_delivered':
-      return { eyebrow: 'Action sent', title: actionLabel, description: 'The command was delivered. Vesta is checking the result.', status: 'Checking the result', tone: 'working' }
+      return { eyebrow: '操作已发送', title: actionLabel, description: '操作事件已经发送，Vesta 正在确认界面是否真的发生变化。', status: '正在检查结果', tone: 'working' }
     case 'action_failed':
-      return { eyebrow: 'Action failed', title: actionLabel, description: error ?? 'The computer action could not be completed.', status: 'Vesta is deciding what to do next', tone: 'danger' }
+      return { eyebrow: '操作未完成', title: actionLabel, description: friendlyFloatingError(error, '这次电脑操作没有完成。'), status: 'Vesta 正在判断是否可以恢复', tone: 'danger' }
     case 'continuing':
-      return { eyebrow: 'Working', title: 'Vesta is continuing', description: 'The approved action finished and the agent is continuing the run.', status: 'Agent running', tone: 'working' }
+      return { eyebrow: '继续执行', title: 'Vesta 正在继续任务', description: '刚才允许的操作已经结束，Vesta 正在处理下一步。', status: '任务执行中', tone: 'working' }
     case 'run_completed':
-      return { eyebrow: 'Done', title: 'Run completed', description: 'Vesta finished the task.', status: 'Completed', tone: 'success' }
+      return { eyebrow: '任务完成', title: '本轮执行已完成', description: 'Vesta 已经完成这次任务。', status: '已完成', tone: 'success' }
     case 'run_failed':
-      return { eyebrow: 'Stopped', title: 'Run stopped', description: error ?? 'The run could not continue.', status: 'Needs attention', tone: 'danger' }
+      return { eyebrow: '执行已停止', title: '本轮未能完成', description: friendlyFloatingError(error, 'Vesta 无法继续本轮任务，你可以返回会话查看详情。'), status: '需要你的关注', tone: 'danger' }
     case 'denied':
-      return { eyebrow: 'Denied', title: actionLabel, description: 'The computer action was not allowed.', status: 'Action denied', tone: 'neutral' }
+      return { eyebrow: '已拒绝', title: actionLabel, description: '这项电脑操作没有执行。', status: '操作已取消', tone: 'neutral' }
     case 'rpc_error':
+      return { eyebrow: '提交失败', title: actionLabel, description: '暂时无法提交你的选择，请检查 Host 连接后重试。', status: '', tone: 'danger' }
     case 'pending':
-      return { eyebrow: 'Permission required', title: actionLabel, description: '', status: '', tone: 'neutral' }
+      return { eyebrow: '需要你的确认', title: actionLabel, description: '', status: '', tone: 'neutral' }
   }
+}
+
+function friendlyFloatingError(
+  error: string | null,
+  fallback: string,
+): string {
+  if (!error) return fallback
+  const normalized = error.toLowerCase()
+  if (normalized.includes('maximum step') || normalized.includes('max_steps')) {
+    return '执行步骤已达到上限。你可以返回会话，让 Vesta 从现有结果继续。'
+  }
+  if (normalized.includes('stale_observation') || normalized.includes('fresh observation')) {
+    return '电脑画面已经变化。为了避免误操作，本次动作已安全停止。'
+  }
+  if (normalized.includes('permission') || normalized.includes('denied')) {
+    return '这项操作没有获得允许，因此没有执行。'
+  }
+  return fallback
 }

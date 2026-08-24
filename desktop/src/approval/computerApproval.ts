@@ -53,33 +53,33 @@ export function floatingShouldShowApproval(approval: ApprovalRequest): boolean {
 // ---------------------------------------------------------------------------
 
 const ACTION_LABELS: Record<string, string> = {
-  computer_click: 'Click an interface element',
-  computer_type: 'Type text',
-  computer_key: 'Press a key or shortcut',
-  computer_scroll: 'Scroll the current window',
-  computer_open_app: 'Open an application',
-  computer_focus_window: 'Focus a window',
+  computer_click: '点击界面元素',
+  computer_type: '输入文本',
+  computer_key: '按下按键或快捷键',
+  computer_scroll: '滚动当前窗口',
+  computer_open_app: '打开应用',
+  computer_focus_window: '切换到目标窗口',
 }
 
 const ACTION_DESCRIPTIONS: Record<string, string> = {
-  computer_click: 'Vesta wants to click an interface element.',
-  computer_type: 'Vesta wants to type text into the current application.',
-  computer_key: 'Vesta wants to press a key or shortcut.',
-  computer_scroll: 'Vesta wants to scroll the current window.',
-  computer_open_app: 'Vesta wants to open an application.',
-  computer_focus_window: 'Vesta wants to focus a window.',
+  computer_click: 'Vesta 准备点击当前应用中的界面元素。',
+  computer_type: 'Vesta 准备向当前应用输入下面的文本。',
+  computer_key: 'Vesta 准备向当前应用发送按键或快捷键。',
+  computer_scroll: 'Vesta 准备滚动当前应用窗口。',
+  computer_open_app: 'Vesta 准备打开一个应用。',
+  computer_focus_window: 'Vesta 准备切换到目标应用窗口。',
 }
 
-/** 主要动作名（如 “Type text”）；未知 computer_* → “Control this Mac”。 */
+/** 主要动作名（如“输入文本”）；未知 computer_* 使用通用电脑操作文案。 */
 export function computerActionLabel(approval: ApprovalRequest): string {
-  return ACTION_LABELS[approval.tool_name] ?? 'Control this Mac'
+  return ACTION_LABELS[approval.tool_name] ?? '操作这台 Mac'
 }
 
-/** 描述句（如 “Vesta wants to type text into the current application.”）。 */
+/** 面向用户的电脑操作描述。 */
 export function computerActionDescription(approval: ApprovalRequest): string {
   return (
     ACTION_DESCRIPTIONS[approval.tool_name] ??
-    'Vesta wants to control this Mac.'
+    'Vesta 准备操作这台 Mac。'
   )
 }
 
@@ -149,7 +149,7 @@ export function computerActionSummary(approval: ApprovalRequest): string | null 
     }
     case 'computer_click': {
       if (typeof args.element_ref === 'string' && args.element_ref) {
-        return `Element ${args.element_ref}`
+        return `界面元素 ${args.element_ref}`
       }
       if (
         typeof args.x === 'number' &&
@@ -157,7 +157,7 @@ export function computerActionSummary(approval: ApprovalRequest): string | null 
         !Number.isNaN(args.x) &&
         !Number.isNaN(args.y)
       ) {
-        return `At position (${args.x}, ${args.y})`
+        return `位置 (${args.x}, ${args.y})`
       }
       return null
     }
@@ -174,8 +174,8 @@ export function computerActionSummary(approval: ApprovalRequest): string | null 
     case 'computer_scroll': {
       const dx = typeof args.delta_x === 'number' ? args.delta_x : 0
       const dy = typeof args.delta_y === 'number' ? args.delta_y : 0
-      if (dy !== 0) return dy > 0 ? 'Scroll down' : 'Scroll up'
-      if (dx !== 0) return dx > 0 ? 'Scroll right' : 'Scroll left'
+      if (dy !== 0) return dy > 0 ? '向下滚动' : '向上滚动'
+      if (dx !== 0) return dx > 0 ? '向右滚动' : '向左滚动'
       return null
     }
     default:

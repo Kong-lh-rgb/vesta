@@ -57,8 +57,8 @@ export class DesktopNotificationController {
     // 原生 Notification，避免同一审批出现双提醒。
     if (data.approval?.tool_name?.startsWith('computer_')) return
     this.deliver(`approval:${id}`, {
-      title: 'Vesta needs your approval',
-      body: 'A tool is waiting for your decision.',
+      title: 'Vesta 需要你的确认',
+      body: '有一项敏感操作正在等待你的决定。',
       kind: 'approval',
     })
   }
@@ -71,9 +71,15 @@ export class DesktopNotificationController {
       !TERMINAL_RUN_STATUSES.has(data.status) ||
       !this.isHidden()
     ) return
+    const statusLabel: Record<string, string> = {
+      completed: '已完成',
+      failed: '未能完成',
+      cancelled: '已取消',
+      interrupted: '已中断',
+    }
     this.deliver(`run:${data.run_id}:${data.status}`, {
-      title: `Vesta run ${data.status}`,
-      body: 'Open Vesta to review the result.',
+      title: `Vesta 任务${statusLabel[data.status] ?? '已结束'}`,
+      body: '打开 Vesta 查看本轮结果。',
       kind: 'run',
     })
   }
@@ -83,8 +89,8 @@ export class DesktopNotificationController {
     const id = data.artifact?.id
     if (!id || !this.isHidden()) return
     this.deliver(`artifact:${id}`, {
-      title: 'Vesta created a new artifact',
-      body: 'Open Vesta to view the delivered result.',
+      title: 'Vesta 已生成新的交付物',
+      body: '打开 Vesta 查看交付结果。',
       kind: 'artifact',
     })
   }

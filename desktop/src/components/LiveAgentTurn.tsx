@@ -6,54 +6,20 @@ import {
   formatCacheHitRate,
   formatDuration,
   formatTokens,
-  type ToolStepVM,
 } from '../agent/turnPresentation'
 import { useEventsStore } from '../stores/events'
 import { AssistantContent } from './AssistantContent'
-import { Icon } from './Icon'
 
 const STATUS = {
-  thinking: { label: '正在分析', tone: 'working' },
-  working: { label: '正在执行', tone: 'working' },
-  waiting_approval: { label: '等待确认', tone: 'waiting' },
-  verifying: { label: '正在验证', tone: 'waiting' },
+  thinking: { label: '正在思考', tone: 'working' },
+  working: { label: '正在思考', tone: 'working' },
+  waiting_approval: { label: '正在思考', tone: 'working' },
+  verifying: { label: '正在思考', tone: 'working' },
   completed: { label: '已完成', tone: 'completed' },
   failed: { label: '已停止', tone: 'failed' },
   interrupted: { label: '已中断', tone: 'failed' },
   cancelled: { label: '已取消', tone: 'cancelled' },
 } as const
-
-function markerFor(tool: ToolStepVM): React.JSX.Element | string {
-  if (tool.state === 'done') return <Icon name="check" size={11} />
-  if (tool.state === 'failed') return '×'
-  return <span className="agent-action__pulse" />
-}
-
-function ToolRow({ tool }: { tool: ToolStepVM }): React.JSX.Element {
-  return (
-    <li className={`agent-action agent-action--${tool.state}`}>
-      <span className="agent-action__marker" aria-hidden="true">
-        {markerFor(tool)}
-      </span>
-      <div className="agent-action__body">
-        <span className="agent-action__label">{tool.label}</span>
-        {tool.approval === 'pending' ? (
-          <span className="agent-action__state">
-            {tool.isComputer
-              ? '等待电脑操作确认'
-              : '等待你的确认'}
-          </span>
-        ) : tool.verification === 'unverified' ? (
-          <span className="agent-action__state agent-action__state--warning">
-            操作已发送 · 等待验证
-          </span>
-        ) : tool.verification === 'verified' ? (
-          <span className="agent-action__state">已验证</span>
-        ) : null}
-      </div>
-    </li>
-  )
-}
 
 export default function LiveAgentTurn({
   runId,
@@ -83,11 +49,6 @@ export default function LiveAgentTurn({
     view.status,
   )
   const text = streamText !== undefined ? streamText : liveText || view.finalText
-  const timeline = view.tools.length > 0 ? (
-    <ol className="agent-turn__timeline turn-timeline" aria-label="执行过程">
-      {view.tools.map((tool) => <ToolRow key={tool.id} tool={tool} />)}
-    </ol>
-  ) : null
 
   return (
     <section
@@ -106,19 +67,21 @@ export default function LiveAgentTurn({
         </div>
         {view.status !== 'completed' ? (
           <span className={`agent-turn__status agent-turn__status--${status.tone}`}>
-            {!terminal ? <span className="live-turn__pulse" aria-hidden="true" /> : null}
             {status.label}
           </span>
         ) : null}
       </header>
 
-      {/* 动作时间线：仅运行中展示；聊天结束后不再显示（含 Show work 折叠块）。 */}
-      {!terminal ? timeline : null}
-
       {view.error ? (
         <div className="agent-turn__error">
           <strong>{view.error.title}</strong>
           <p>{view.error.message}</p>
+          {view.error.technical ? (
+            <details className="agent-turn__error-details">
+              <summary>查看技术详情</summary>
+              <code>{view.error.technical}</code>
+            </details>
+          ) : null}
           <div className="agent-turn__error-actions">
             {view.status === 'interrupted' && onRecover ? (
               <button className="btn btn-primary btn-sm" onClick={onRecover}>
@@ -135,10 +98,9 @@ export default function LiveAgentTurn({
           <AssistantContent content={text} streaming={!terminal} />
           {!terminal ? <span className="stream-cursor" aria-hidden="true" /> : null}
         </div>
-      ) : view.tools.length === 0 ? (
+      ) : !terminal ? (
         <div className="live-turn__waiting">
-          <span className="live-turn__waiting-spinner" aria-hidden="true" />
-          正在执行…
+          正在思考
         </div>
       ) : null}
 

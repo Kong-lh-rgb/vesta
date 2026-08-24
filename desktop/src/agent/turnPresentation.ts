@@ -248,19 +248,54 @@ export function humanizeRunError(
   stopReason: string | null,
   rawError: string | null = null,
 ): { title: string; message: string; technical: string | null } {
-  const known: Record<string, string> = {
-    max_steps: 'Vesta 在完成前达到了最大执行步数。',
-    repeated_tool_call: 'Vesta 重复了相同策略，但没有取得进展。',
-    stale_observation: '电脑画面已变化，无法安全验证这次操作。',
-    stale_snapshot: '电脑画面已变化，无法安全验证这次操作。',
-    permission_denied: '请求的操作没有获得批准。',
-    model_error: '模型无法继续本轮执行。',
-    context_error: '当前对话超过了可用上下文窗口。',
-    interrupted: '本轮执行已中断，可以从恢复点继续。',
+  const known: Record<string, { title: string; message: string }> = {
+    max_steps: {
+      title: '本轮执行已暂停',
+      message: '执行步骤已达到上限，任务可能尚未完全完成。你可以继续发送消息，让 Vesta 接着处理。',
+    },
+    repeated_tool_call: {
+      title: '执行遇到循环',
+      message: 'Vesta 连续尝试了相同操作但没有取得进展。请补充信息，或换一种方式继续。',
+    },
+    stale_observation: {
+      title: '电脑画面已经变化',
+      message: '为避免操作到错误位置，本次电脑操作已安全停止。重新观察屏幕后即可继续。',
+    },
+    stale_snapshot: {
+      title: '电脑画面已经变化',
+      message: '为避免操作到错误位置，本次电脑操作已安全停止。重新观察屏幕后即可继续。',
+    },
+    permission_denied: {
+      title: '操作未获允许',
+      message: '这项操作没有执行。你可以调整要求后重新尝试。',
+    },
+    model_error: {
+      title: '模型暂时无法响应',
+      message: '模型服务没有完成本轮请求。请稍后重试；已完成的工具结果不会因此被伪装成成功。',
+    },
+    context_error: {
+      title: '上下文整理失败',
+      message: '当前内容超过了本次请求可安全处理的范围。可以新建会话，或缩小本次任务范围。',
+    },
+    run_budget: {
+      title: '本轮用量已达上限',
+      message: 'Vesta 已停止继续消耗模型用量。已完成的结果仍会保留，你可以在下一条消息中继续。',
+    },
+    interrupted: {
+      title: '执行已中断',
+      message: '本轮已安全停止，可以从恢复点继续执行。',
+    },
+    cancelled: {
+      title: '执行已取消',
+      message: '本轮操作已经取消，没有继续执行后续动作。',
+    },
+  }
+  const presentation = known[stopReason ?? ''] ?? {
+    title: '本轮未能完成',
+    message: 'Vesta 已停止本轮执行。你可以查看技术详情，或调整要求后重试。',
   }
   return {
-    title: stopReason === 'interrupted' ? '执行已中断' : '执行已停止',
-    message: known[stopReason ?? ''] ?? 'Vesta 未能完成本轮执行。',
+    ...presentation,
     technical: rawError || stopReason || null,
   }
 }

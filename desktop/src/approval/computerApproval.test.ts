@@ -136,26 +136,26 @@ describe('isChatApproval', () => {
 describe('动作文案', () => {
   it('computer 工具 → 人类可读动作名', () => {
     expect(computerActionLabel(approval({ tool_name: 'computer_click' }))).toBe(
-      'Click an interface element',
+      '点击界面元素',
     )
     expect(computerActionLabel(approval({ tool_name: 'computer_type' }))).toBe(
-      'Type text',
+      '输入文本',
     )
     expect(computerActionLabel(approval({ tool_name: 'computer_key' }))).toBe(
-      'Press a key or shortcut',
+      '按下按键或快捷键',
     )
   })
 
-  it('未知 computer_* → Control this Mac', () => {
+  it('未知 computer_* → 通用中文文案', () => {
     expect(computerActionLabel(approval({ tool_name: 'computer_hack' }))).toBe(
-      'Control this Mac',
+      '操作这台 Mac',
     )
   })
 
   it('描述句', () => {
     expect(
       computerActionDescription(approval({ tool_name: 'computer_type' })),
-    ).toContain('type text')
+    ).toContain('输入')
   })
 })
 
@@ -187,7 +187,7 @@ describe('参数摘要', () => {
           arguments: { element_ref: 'e102' },
         }),
       ),
-    ).toBe('Element e102')
+    ).toBe('界面元素 e102')
   })
 
   it('computer_click 坐标 → 摘要', () => {
@@ -198,7 +198,7 @@ describe('参数摘要', () => {
           arguments: { x: 1100, y: 300 },
         }),
       ),
-    ).toBe('At position (1100, 300)')
+    ).toBe('位置 (1100, 300)')
   })
 
   it('无可展示内容 → null', () => {
