@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from enum import StrEnum
+from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
@@ -52,7 +53,9 @@ class StoredMemoryExpectation(BaseModel):
     target: str
     title_contains: tuple[str, ...] = ()
     summary_contains: tuple[str, ...] = ()
+    summary_contains_any: tuple[tuple[str, ...], ...] = ()
     content_contains: tuple[str, ...] = ()
+    content_contains_any: tuple[tuple[str, ...], ...] = ()
     revision_at_least: int | None = Field(default=None, ge=1)
 
 
@@ -77,6 +80,9 @@ class PhaseExpectation(BaseModel):
     active_count: int | None = Field(default=None, ge=0)
     archive_count: int | None = Field(default=None, ge=0)
     core_contains: tuple[str, ...] = ()
+    # 每个内层 tuple 表示一个语义概念，命中其中任意同义表达即可。
+    core_contains_any: tuple[tuple[str, ...], ...] = ()
+    core_excludes: tuple[str, ...] = ()
     memory: StoredMemoryExpectation | None = None
 
 
@@ -110,6 +116,7 @@ class MemoryEvalScenario(BaseModel):
 
     id: str
     name: str
+    tier: Literal["smoke", "regression", "manual"] = "regression"
     tags: tuple[str, ...] = ()
     max_active: int = Field(default=25, gt=0)
     initial_core: str = ""

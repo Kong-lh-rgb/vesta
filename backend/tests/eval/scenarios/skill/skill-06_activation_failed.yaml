@@ -1,6 +1,6 @@
 id: skill-06
 group: skill
-name: 激活不存在的 skill 触发失败
+name: 不存在的 skill 被诚实拒绝
 initial_skills:
   - name: debug-python
     description: 排查 Python 报错或异常的标准流程
@@ -15,4 +15,6 @@ expect:
   skill:
     activated: []
     not_activated: [debug-python]
-    activation_failed: [write-notes]
+  answer:
+    keypoints: [write-notes]
+    any_of: [不存在, 不在, unavailable]

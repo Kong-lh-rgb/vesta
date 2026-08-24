@@ -1,0 +1,433 @@
+{
+  "schema_version": 3,
+  "provider": "deepseek",
+  "model": "deepseek-v4-flash",
+  "suites": [
+    "learning"
+  ],
+  "tier": "regression",
+  "requested_runs": 3,
+  "expected_sample_count": 3,
+  "expected_stability_keys": [
+    [
+      "learning",
+      "learning-05a",
+      null,
+      "on"
+    ]
+  ],
+  "actual_sample_count": 3,
+  "complete": true,
+  "completeness_issues": [],
+  "generated_at": "2026-08-23T13:16:18.164410+00:00",
+  "git_commit": null,
+  "scenario_digest": "06f262f02073fe059a9d6a21b54cffd1b53fbf0577adb39c74eac6d106dff729",
+  "run_root": "/var/folders/pf/zby_ydbx0nj2f0krp_8wft140000gp/T/vesta-comprehensive-eval-350iu7na",
+  "samples": [
+    {
+      "suite": "learning",
+      "scenario_id": "learning-05a",
+      "scenario_name": "证据不足 + 已有 debug-python Skill 覆盖 → 预期 NONE",
+      "group": "learning",
+      "tier": "regression",
+      "phase_id": null,
+      "conversation": null,
+      "mode": "on",
+      "run_index": 1,
+      "provider": "deepseek",
+      "model": "deepseek-v4-flash",
+      "passed": true,
+      "checks": [
+        {
+          "name": "learning",
+          "ok": true,
+          "detail": "",
+          "applicable": true
+        }
+      ],
+      "stop_reason": "completed",
+      "steps": 0,
+      "tool_calls": 0,
+      "tool_failures": 0,
+      "duration_s": 9.081239792052656,
+      "usage": {
+        "main_agent": {
+          "input_tokens": 2812,
+          "output_tokens": 417,
+          "total_tokens": 3229,
+          "cached_input_tokens": null,
+          "uncached_input_tokens": null,
+          "cache_read_input_tokens": null,
+          "cache_write_input_tokens": null,
+          "model_calls": 3
+        },
+        "context_summary": {
+          "input_tokens": 0,
+          "output_tokens": 0,
+          "total_tokens": 0,
+          "cached_input_tokens": null,
+          "uncached_input_tokens": null,
+          "cache_read_input_tokens": null,
+          "cache_write_input_tokens": null,
+          "model_calls": 0
+        },
+        "memory_reflection": {
+          "input_tokens": 0,
+          "output_tokens": 0,
+          "total_tokens": 0,
+          "cached_input_tokens": null,
+          "uncached_input_tokens": null,
+          "cache_read_input_tokens": null,
+          "cache_write_input_tokens": null,
+          "model_calls": 0
+        },
+        "memory_maintenance": {
+          "input_tokens": 0,
+          "output_tokens": 0,
+          "total_tokens": 0,
+          "cached_input_tokens": null,
+          "uncached_input_tokens": null,
+          "cache_read_input_tokens": null,
+          "cache_write_input_tokens": null,
+          "model_calls": 0
+        },
+        "provider_total": {
+          "input_tokens": 2812,
+          "output_tokens": 417,
+          "total_tokens": 3229,
+          "cached_input_tokens": null,
+          "uncached_input_tokens": null,
+          "cache_read_input_tokens": null,
+          "cache_write_input_tokens": null,
+          "model_calls": 3
+        },
+        "tool_schema_tokens_estimated": 0,
+        "memory_reflection_status": "not_run",
+        "memory_reflection_skip_reason": null,
+        "context_summary_status": "not_run",
+        "context_summary_provider": null,
+        "context_summary_model": null,
+        "context_summary_duration_ms": 0.0,
+        "main_agent_chargeable_tokens": 3229,
+        "run_budget_status": "not_configured",
+        "run_budget_reason": null,
+        "run_budget_warning_tokens": null,
+        "run_budget_finalization_tokens": null,
+        "run_budget_hard_tokens": null,
+        "run_budget_warning_model_calls": null,
+        "run_budget_finalization_model_calls": null,
+        "run_budget_hard_model_calls": null
+      },
+      "error": null,
+      "trace_path": null,
+      "workspace_path": "/var/folders/pf/zby_ydbx0nj2f0krp_8wft140000gp/T/vesta-comprehensive-eval-350iu7na/learning/learning-05a/run-1",
+      "learning_diagnostics": {
+        "mining": {
+          "scanned_task_count": 4,
+          "cluster_count": 1,
+          "clusters": [
+            {
+              "id": "python-env-troubleshooting",
+              "task_ids": [
+                "d60830ab3a454d6c89328a419017fa72",
+                "083bf52ad5ba47bcbb27a04b7743e481",
+                "d5bd2009ccca4c2cbbed094f2033cc15",
+                "04bec81c7418444781fc134910d26e91"
+              ],
+              "pattern_name": "Python 环境错配排查与恢复",
+              "description": "按统一流程排查 Python 运行环境、解释器路径、依赖或虚拟环境错配问题，通过复现错误、修复配置并验证来恢复项目运行。",
+              "similarity_reason": "四个任务均围绕 Python 环境错配（运行环境、路径、依赖、虚拟环境）展开，目标均为恢复项目运行，且 final_steps 完全一致（复现错误、修复并验证），key_facts 均指向 Python 环境相关异常。",
+              "reusable_value": "该流程可复用于任何 Python 环境错配问题，提供标准化的排查步骤（复现、定位错配类型、修复、验证），减少重复诊断时间，降低因环境问题导致的项目中断风险。"
+            }
+          ],
+          "raw_output": "{\"clusters\":[{\"id\":\"python-env-troubleshooting\",\"task_ids\":[\"d60830ab3a454d6c89328a419017fa72\",\"083bf52ad5ba47bcbb27a04b7743e481\",\"d5bd2009ccca4c2cbbed094f2033cc15\",\"04bec81c7418444781fc134910d26e91\"],\"pattern_name\":\"Python 环境错配排查与恢复\",\"description\":\"按统一流程排查 Python 运行环境、解释器路径、依赖或虚拟环境错配问题，通过复现错误、修复配置并验证来恢复项目运行。\",\"similarity_reason\":\"四个任务均围绕 Python 环境错配（运行环境、路径、依赖、虚拟环境）展开，目标均为恢复项目运行，且 final_steps 完全一致（复现错误、修复并验证），key_facts 均指向 Python 环境相关异常。\",\"reusable_value\":\"该流程可复用于任何 Python 环境错配问题，提供标准化的排查步骤（复现、定位错配类型、修复、验证），减少重复诊断时间，降低因环境问题导致的项目中断风险。\"}]}"
+        },
+        "distillations": [
+          {
+            "cluster_name": "Python 环境错配排查与恢复",
+            "action": "none",
+            "reason": "The four tasks are extremely thin (each only 2 steps, 1 run, with no actual diagnostic steps beyond run_pytest failing and a task_update). The evidence does not demonstrate a stable, validated procedure — there is no repeated sequence of steps, no confirmed fixes, and no verification beyond the generic 'reproduce, fix, verify' pattern already fully covered by the existing debug-python skill. The cluster is essentially a single failed pytest invocation per task with no substantive troubleshooting workflow. Creating or updating a skill would invent evidence not present in the summaries.",
+            "proposed_name": null,
+            "existing_skill_name": null,
+            "related_skill_names": [
+              "debug-python"
+            ],
+            "raw_output": "{\"action\":\"none\",\"proposed_name\":null,\"description\":null,\"reason\":\"The four tasks are extremely thin (each only 2 steps, 1 run, with no actual diagnostic steps beyond run_pytest failing and a task_update). The evidence does not demonstrate a stable, validated procedure — there is no repeated sequence of steps, no confirmed fixes, and no verification beyond the generic 'reproduce, fix, verify' pattern already fully covered by the existing debug-python skill. The cluster is essentially a single failed pytest invocation per task with no substantive troubleshooting workflow. Creating or updating a skill would invent evidence not present in the summaries.\",\"procedure\":null,\"pitfalls\":null,\"verification\":null,\"existing_skill_name\":null}",
+            "adjudication_raw_output": null,
+            "error": null
+          }
+        ]
+      }
+    },
+    {
+      "suite": "learning",
+      "scenario_id": "learning-05a",
+      "scenario_name": "证据不足 + 已有 debug-python Skill 覆盖 → 预期 NONE",
+      "group": "learning",
+      "tier": "regression",
+      "phase_id": null,
+      "conversation": null,
+      "mode": "on",
+      "run_index": 2,
+      "provider": "deepseek",
+      "model": "deepseek-v4-flash",
+      "passed": true,
+      "checks": [
+        {
+          "name": "learning",
+          "ok": true,
+          "detail": "",
+          "applicable": true
+        }
+      ],
+      "stop_reason": "completed",
+      "steps": 0,
+      "tool_calls": 0,
+      "tool_failures": 0,
+      "duration_s": 7.491208001039922,
+      "usage": {
+        "main_agent": {
+          "input_tokens": 2840,
+          "output_tokens": 528,
+          "total_tokens": 3368,
+          "cached_input_tokens": null,
+          "uncached_input_tokens": null,
+          "cache_read_input_tokens": null,
+          "cache_write_input_tokens": null,
+          "model_calls": 3
+        },
+        "context_summary": {
+          "input_tokens": 0,
+          "output_tokens": 0,
+          "total_tokens": 0,
+          "cached_input_tokens": null,
+          "uncached_input_tokens": null,
+          "cache_read_input_tokens": null,
+          "cache_write_input_tokens": null,
+          "model_calls": 0
+        },
+        "memory_reflection": {
+          "input_tokens": 0,
+          "output_tokens": 0,
+          "total_tokens": 0,
+          "cached_input_tokens": null,
+          "uncached_input_tokens": null,
+          "cache_read_input_tokens": null,
+          "cache_write_input_tokens": null,
+          "model_calls": 0
+        },
+        "memory_maintenance": {
+          "input_tokens": 0,
+          "output_tokens": 0,
+          "total_tokens": 0,
+          "cached_input_tokens": null,
+          "uncached_input_tokens": null,
+          "cache_read_input_tokens": null,
+          "cache_write_input_tokens": null,
+          "model_calls": 0
+        },
+        "provider_total": {
+          "input_tokens": 2840,
+          "output_tokens": 528,
+          "total_tokens": 3368,
+          "cached_input_tokens": null,
+          "uncached_input_tokens": null,
+          "cache_read_input_tokens": null,
+          "cache_write_input_tokens": null,
+          "model_calls": 3
+        },
+        "tool_schema_tokens_estimated": 0,
+        "memory_reflection_status": "not_run",
+        "memory_reflection_skip_reason": null,
+        "context_summary_status": "not_run",
+        "context_summary_provider": null,
+        "context_summary_model": null,
+        "context_summary_duration_ms": 0.0,
+        "main_agent_chargeable_tokens": 3368,
+        "run_budget_status": "not_configured",
+        "run_budget_reason": null,
+        "run_budget_warning_tokens": null,
+        "run_budget_finalization_tokens": null,
+        "run_budget_hard_tokens": null,
+        "run_budget_warning_model_calls": null,
+        "run_budget_finalization_model_calls": null,
+        "run_budget_hard_model_calls": null
+      },
+      "error": null,
+      "trace_path": null,
+      "workspace_path": "/var/folders/pf/zby_ydbx0nj2f0krp_8wft140000gp/T/vesta-comprehensive-eval-350iu7na/learning/learning-05a/run-2",
+      "learning_diagnostics": {
+        "mining": {
+          "scanned_task_count": 4,
+          "cluster_count": 1,
+          "clusters": [
+            {
+              "id": "python-env-misconfig-debug",
+              "task_ids": [
+                "34df6ce351d8448bb2c7e662061fc122",
+                "8859e1d8b1b840ccaeb6a91f2be55cd8",
+                "ab260016d26f46da9c54d432c566615a",
+                "c542b11dc8f147fdb7d2fd72e998f54a"
+              ],
+              "pattern_name": "Python 环境错配排查与恢复",
+              "description": "按统一流程排查 Python 运行环境、解释器路径、依赖或虚拟环境错配问题，通过复现错误、定位根因、修复配置并验证来恢复项目运行。",
+              "similarity_reason": "四个任务均围绕 Python 环境错配（运行环境、路径、依赖、虚拟环境）展开，目标均为恢复项目运行，且 final_steps 完全一致（复现错误、修复并验证），key_facts 均指向 Python 环境相关异常。",
+              "reusable_value": "可沉淀为通用的 Python 环境诊断流程：先复现错误，再按环境、路径、依赖、虚拟环境分层排查，修复后验证，显著减少未来同类问题的排查时间。"
+            }
+          ],
+          "raw_output": "{\"clusters\":[{\"id\":\"python-env-misconfig-debug\",\"task_ids\":[\"34df6ce351d8448bb2c7e662061fc122\",\"8859e1d8b1b840ccaeb6a91f2be55cd8\",\"ab260016d26f46da9c54d432c566615a\",\"c542b11dc8f147fdb7d2fd72e998f54a\"],\"pattern_name\":\"Python 环境错配排查与恢复\",\"description\":\"按统一流程排查 Python 运行环境、解释器路径、依赖或虚拟环境错配问题，通过复现错误、定位根因、修复配置并验证来恢复项目运行。\",\"similarity_reason\":\"四个任务均围绕 Python 环境错配（运行环境、路径、依赖、虚拟环境）展开，目标均为恢复项目运行，且 final_steps 完全一致（复现错误、修复并验证），key_facts 均指向 Python 环境相关异常。\",\"reusable_value\":\"可沉淀为通用的 Python 环境诊断流程：先复现错误，再按环境、路径、依赖、虚拟环境分层排查，修复后验证，显著减少未来同类问题的排查时间。\",\"reusable_value\":\"可沉淀为通用的 Python 环境诊断流程：先复现错误，再按环境、路径、依赖、虚拟环境分层排查，修复后验证，显著减少未来同类问题的排查时间。\"}]}"
+        },
+        "distillations": [
+          {
+            "cluster_name": "Python 环境错配排查与恢复",
+            "action": "none",
+            "reason": "The cluster evidence is too thin to establish a stable procedure. All four tasks show only two steps (run_pytest → task_update) with a single failed run each, and the final_steps are identical boilerplate ('复现错误、修复并验证') without any actual diagnostic steps, root-cause analysis, or concrete fixes. The key_facts are just one-line labels (environment mismatch, path not found, venv missing) with no detail on how the diagnosis was performed or resolved. This does not demonstrate a repeatable, validated workflow — it could be luck or superficial labeling. Additionally, the existing 'debug-python' skill already covers the generic 'reproduce → read traceback → fix and verify' pattern, and this cluster adds no new stable steps, pitfalls, or verification beyond that. Therefore no create or update is warranted.",
+            "proposed_name": null,
+            "existing_skill_name": null,
+            "related_skill_names": [
+              "debug-python"
+            ],
+            "raw_output": "{\"action\":\"none\",\"proposed_name\":null,\"description\":null,\"reason\":\"The cluster evidence is too thin to establish a stable procedure. All four tasks show only two steps (run_pytest → task_update) with a single failed run each, and the final_steps are identical boilerplate ('复现错误、修复并验证') without any actual diagnostic steps, root-cause analysis, or concrete fixes. The key_facts are just one-line labels (environment mismatch, path not found, venv missing) with no detail on how the diagnosis was performed or resolved. This does not demonstrate a repeatable, validated workflow — it could be luck or superficial labeling. Additionally, the existing 'debug-python' skill already covers the generic 'reproduce → read traceback → fix and verify' pattern, and this cluster adds no new stable steps, pitfalls, or verification beyond that. Therefore no create or update is warranted.\",\"procedure\":null,\"pitfalls\":null,\"verification\":null,\"existing_skill_name\":null}",
+            "adjudication_raw_output": null,
+            "error": null
+          }
+        ]
+      }
+    },
+    {
+      "suite": "learning",
+      "scenario_id": "learning-05a",
+      "scenario_name": "证据不足 + 已有 debug-python Skill 覆盖 → 预期 NONE",
+      "group": "learning",
+      "tier": "regression",
+      "phase_id": null,
+      "conversation": null,
+      "mode": "on",
+      "run_index": 3,
+      "provider": "deepseek",
+      "model": "deepseek-v4-flash",
+      "passed": true,
+      "checks": [
+        {
+          "name": "learning",
+          "ok": true,
+          "detail": "",
+          "applicable": true
+        }
+      ],
+      "stop_reason": "completed",
+      "steps": 0,
+      "tool_calls": 0,
+      "tool_failures": 0,
+      "duration_s": 7.807898000115529,
+      "usage": {
+        "main_agent": {
+          "input_tokens": 2829,
+          "output_tokens": 444,
+          "total_tokens": 3273,
+          "cached_input_tokens": null,
+          "uncached_input_tokens": null,
+          "cache_read_input_tokens": null,
+          "cache_write_input_tokens": null,
+          "model_calls": 3
+        },
+        "context_summary": {
+          "input_tokens": 0,
+          "output_tokens": 0,
+          "total_tokens": 0,
+          "cached_input_tokens": null,
+          "uncached_input_tokens": null,
+          "cache_read_input_tokens": null,
+          "cache_write_input_tokens": null,
+          "model_calls": 0
+        },
+        "memory_reflection": {
+          "input_tokens": 0,
+          "output_tokens": 0,
+          "total_tokens": 0,
+          "cached_input_tokens": null,
+          "uncached_input_tokens": null,
+          "cache_read_input_tokens": null,
+          "cache_write_input_tokens": null,
+          "model_calls": 0
+        },
+        "memory_maintenance": {
+          "input_tokens": 0,
+          "output_tokens": 0,
+          "total_tokens": 0,
+          "cached_input_tokens": null,
+          "uncached_input_tokens": null,
+          "cache_read_input_tokens": null,
+          "cache_write_input_tokens": null,
+          "model_calls": 0
+        },
+        "provider_total": {
+          "input_tokens": 2829,
+          "output_tokens": 444,
+          "total_tokens": 3273,
+          "cached_input_tokens": null,
+          "uncached_input_tokens": null,
+          "cache_read_input_tokens": null,
+          "cache_write_input_tokens": null,
+          "model_calls": 3
+        },
+        "tool_schema_tokens_estimated": 0,
+        "memory_reflection_status": "not_run",
+        "memory_reflection_skip_reason": null,
+        "context_summary_status": "not_run",
+        "context_summary_provider": null,
+        "context_summary_model": null,
+        "context_summary_duration_ms": 0.0,
+        "main_agent_chargeable_tokens": 3273,
+        "run_budget_status": "not_configured",
+        "run_budget_reason": null,
+        "run_budget_warning_tokens": null,
+        "run_budget_finalization_tokens": null,
+        "run_budget_hard_tokens": null,
+        "run_budget_warning_model_calls": null,
+        "run_budget_finalization_model_calls": null,
+        "run_budget_hard_model_calls": null
+      },
+      "error": null,
+      "trace_path": null,
+      "workspace_path": "/var/folders/pf/zby_ydbx0nj2f0krp_8wft140000gp/T/vesta-comprehensive-eval-350iu7na/learning/learning-05a/run-3",
+      "learning_diagnostics": {
+        "mining": {
+          "scanned_task_count": 4,
+          "cluster_count": 1,
+          "clusters": [
+            {
+              "id": "python-env-mismatch-debug",
+              "task_ids": [
+                "c14f33ce6ced41abb4dcb6bcc9128d71",
+                "80e1233a633a4ae98f0771c50260ec6e",
+                "d7d0f3609ae241eb9715fefd6a86dc4c",
+                "18662a84cce846ed96f426cee9021931"
+              ],
+              "pattern_name": "Python 环境错配排查与恢复",
+              "description": "按统一流程排查 Python 运行环境（解释器路径、依赖、虚拟环境等）错配问题，通过复现错误、定位根因、修复并验证来恢复项目运行。",
+              "similarity_reason": "四个任务均围绕 Python 环境错配（路径、依赖、虚拟环境、运行环境）展开，目标均为恢复项目运行，且 final_steps 完全一致（复现错误、修复并验证），属于同一类多步骤排查流程。",
+              "reusable_value": "可沉淀为通用的 Python 环境问题排查 SOP，涵盖环境诊断、根因定位、修复和验证步骤，减少未来同类问题的排查时间，提高恢复效率。"
+            }
+          ],
+          "raw_output": "{\"clusters\":[{\"id\":\"python-env-mismatch-debug\",\"task_ids\":[\"c14f33ce6ced41abb4dcb6bcc9128d71\",\"80e1233a633a4ae98f0771c50260ec6e\",\"d7d0f3609ae241eb9715fefd6a86dc4c\",\"18662a84cce846ed96f426cee9021931\"],\"pattern_name\":\"Python 环境错配排查与恢复\",\"description\":\"按统一流程排查 Python 运行环境（解释器路径、依赖、虚拟环境等）错配问题，通过复现错误、定位根因、修复并验证来恢复项目运行。\",\"similarity_reason\":\"四个任务均围绕 Python 环境错配（路径、依赖、虚拟环境、运行环境）展开，目标均为恢复项目运行，且 final_steps 完全一致（复现错误、修复并验证），属于同一类多步骤排查流程。\",\"reusable_value\":\"可沉淀为通用的 Python 环境问题排查 SOP，涵盖环境诊断、根因定位、修复和验证步骤，减少未来同类问题的排查时间，提高恢复效率。\"}]}"
+        },
+        "distillations": [
+          {
+            "cluster_name": "Python 环境错配排查与恢复",
+            "action": "none",
+            "reason": "The evidence is too thin to support a stable procedure. All four tasks show only two tool calls (run_pytest → task_update) with no actual diagnostic steps, root-cause analysis, or repair actions performed. The 'final_steps' mentioned in the cluster description (复现错误、修复并验证) are not evidenced in the execution summaries — no fix or verification tool calls appear. The tasks merely record constraints/facts about environment mismatches without demonstrating a repeatable troubleshooting flow. Additionally, the existing 'debug-python' skill already covers the general 'reproduce → read traceback → fix and verify' pattern, and this cluster adds no new stable steps beyond what that skill describes.",
+            "proposed_name": null,
+            "existing_skill_name": null,
+            "related_skill_names": [
+              "debug-python"
+            ],
+            "raw_output": "{\"action\":\"none\",\"proposed_name\":null,\"description\":null,\"reason\":\"The evidence is too thin to support a stable procedure. All four tasks show only two tool calls (run_pytest → task_update) with no actual diagnostic steps, root-cause analysis, or repair actions performed. The 'final_steps' mentioned in the cluster description (复现错误、修复并验证) are not evidenced in the execution summaries — no fix or verification tool calls appear. The tasks merely record constraints/facts about environment mismatches without demonstrating a repeatable troubleshooting flow. Additionally, the existing 'debug-python' skill already covers the general 'reproduce → read traceback → fix and verify' pattern, and this cluster adds no new stable steps beyond what that skill describes.\",\"procedure\":[],\"pitfalls\":[],\"verification\":[],\"existing_skill_name\":null}",
+            "adjudication_raw_output": null,
+            "error": null
+          }
+        ]
+      }
+    }
+  ]
+}

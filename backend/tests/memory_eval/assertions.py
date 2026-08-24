@@ -151,15 +151,33 @@ def check_phase(
                     f"actual={len(snapshot.archived)} expected={expect.archive_count}",
                 )
             )
-        if expect.core_contains:
+        if (
+            expect.core_contains
+            or expect.core_contains_any
+            or expect.core_excludes
+        ):
             missing_core = [
                 value for value in expect.core_contains if value not in snapshot.core
+            ]
+            missing_core_any = [
+                alternatives
+                for alternatives in expect.core_contains_any
+                if alternatives
+                and not any(value in snapshot.core for value in alternatives)
+            ]
+            forbidden_core = [
+                value for value in expect.core_excludes if value in snapshot.core
             ]
             checks.append(
                 MemoryCheckResult(
                     "core",
-                    not missing_core,
-                    f"missing={missing_core}",
+                    not missing_core
+                    and not missing_core_any
+                    and not forbidden_core,
+                    f"missing={missing_core} "
+                    "missing_any="
+                    f"{['|'.join(values) for values in missing_core_any]} "
+                    f"forbidden={forbidden_core}",
                 )
             )
         if expect.memory is not None:
@@ -182,9 +200,23 @@ def check_phase(
                 for value in expect.memory.summary_contains:
                     if value not in record.summary:
                         failures.append(f"summary_missing={value}")
+                for alternatives in expect.memory.summary_contains_any:
+                    if alternatives and not any(
+                        value in record.summary for value in alternatives
+                    ):
+                        failures.append(
+                            "summary_missing_any=" + "|".join(alternatives)
+                        )
                 for value in expect.memory.content_contains:
                     if value not in record.content:
                         failures.append(f"content_missing={value}")
+                for alternatives in expect.memory.content_contains_any:
+                    if alternatives and not any(
+                        value in record.content for value in alternatives
+                    ):
+                        failures.append(
+                            "content_missing_any=" + "|".join(alternatives)
+                        )
                 minimum = expect.memory.revision_at_least
                 if minimum is not None and record.revision < minimum:
                     failures.append(f"revision={record.revision} < {minimum}")

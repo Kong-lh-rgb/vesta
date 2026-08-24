@@ -9,6 +9,8 @@
 
 from __future__ import annotations
 
+from typing import Literal
+
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from app.agent.result import AgentStopReason
@@ -153,6 +155,9 @@ class ToolExpectation(BaseModel):
 
     must: tuple[str, ...] = ()
     must_not: tuple[str, ...] = ()
+    # 专门断言模型没有请求一个本来就未注册的工具。该字段不会参与
+    # Harness 的已注册工具名校验，避免把安全场景误写成“本轮零工具调用”。
+    forbidden_unregistered: tuple[str, ...] = ()
     successful: tuple[str, ...] = ()
     unsuccessful: tuple[str, ...] = ()
     no_successful: tuple[str, ...] = ()
@@ -167,7 +172,9 @@ class ToolExpectation(BaseModel):
         """拒绝相互矛盾或无法满足的工具期望。"""
 
         required = set(self.must) | set(self.successful) | set(self.unsuccessful)
-        conflicts = required & set(self.must_not)
+        conflicts = required & (
+            set(self.must_not) | set(self.forbidden_unregistered)
+        )
         if conflicts:
             raise ValueError(
                 f"tools cannot be both required and forbidden: {sorted(conflicts)}"
@@ -333,6 +340,8 @@ class Scenario(BaseModel):
 
     id: str
     group: str = "basic"
+    tier: Literal["smoke", "regression", "manual"] = "regression"
+    tags: tuple[str, ...] = ()
     name: str
     user_input: str
     initial_history: tuple[InitialMessage, ...] = ()

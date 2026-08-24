@@ -24,6 +24,8 @@ user_input: >-
   请使用 structured-research 技能研究「Python asyncio 相比多线程的优势」，
   并按研究模板的结构输出完整结论。
 max_steps: 8
+# 本场景验证 Skill 模板与 Resource 渐进读取，不混入开放网络检索。
+allowed_tools: [skill_read, skill_resource_read]
 expect:
   skill:
     activated: [structured-research]

@@ -28,10 +28,11 @@ from app.skill_learning import (
 from app.skill_learning.evidence import TraceEvidenceBuilder
 from app.skill_learning.trace_selector import TaskTraceSelector
 from app.skills import SkillStore
-from app.task import FileTaskStore, TaskStatus, TaskStep
+from app.task import FileTaskStore, TaskStep
 from app.trace.store import SQLiteTraceStore
 
 from .scenario import Scenario
+from .task_fixtures import create_initial_task
 
 
 @dataclass
@@ -108,7 +109,14 @@ def _resolve_task_aliases(value: object, aliases: dict[str, str]) -> object:
     return value
 
 
-def _trace_event(run_id: str, sequence: int, spec, aliases) -> AgentEvent:
+def _trace_event(
+    run_id: str,
+    sequence: int,
+    spec,
+    aliases,
+    *,
+    inferred_step: int | None = None,
+) -> AgentEvent:
     """把 InitialTraceEvent 转为 AgentEvent（透传 step，解析 $task:<alias>）。"""
 
     arguments = (
@@ -124,7 +132,7 @@ def _trace_event(run_id: str, sequence: int, spec, aliases) -> AgentEvent:
             run_id=run_id,
             conversation_id="learning",
             sequence=sequence,
-            step=spec.step,
+            step=spec.step or inferred_step,
             type=AgentEventType.TOOL_STARTED,
             tool_call=tool_call,
         )
@@ -133,7 +141,7 @@ def _trace_event(run_id: str, sequence: int, spec, aliases) -> AgentEvent:
             run_id=run_id,
             conversation_id="learning",
             sequence=sequence,
-            step=spec.step,
+            step=spec.step or inferred_step,
             type=AgentEventType.TOOL_COMPLETED,
             tool_call=tool_call,
             tool_result=ToolResult(
@@ -181,10 +189,10 @@ async def prepare_learning_environment(
     task_ids: list[str] = []
     aliases: dict[str, str] = {}
     for task_spec in scenario.initial_tasks:
-        task = await task_store.create(
-            title=task_spec.title,
-            description=task_spec.description,
-            goal=task_spec.goal,
+        task = await create_initial_task(
+            task_store,
+            task_spec,
+            owner_conversation_id="learning",
             steps=tuple(
                 TaskStep(
                     id=step.id,
@@ -194,19 +202,28 @@ async def prepare_learning_environment(
                 )
                 for step in task_spec.steps
             ),
-            owner_conversation_id=task_spec.owner or "learning",
-            run_ids=task_spec.run_ids,
         )
-        if task_spec.status is not TaskStatus.PENDING:
-            await task_store.set_status(task.id, task_spec.status)
         task_ids.append(task.id)
         if task_spec.alias:
             aliases[task_spec.alias] = task.id
 
     for run_spec in scenario.initial_runs:
+        inferred_step = 0
         for index, event_spec in enumerate(run_spec.events):
+            event_step: int | None = None
+            if event_spec.type == "tool_started":
+                inferred_step += 1
+                event_step = inferred_step
+            elif event_spec.type == "tool_completed":
+                event_step = inferred_step or 1
             await trace_store.record_event(
-                _trace_event(run_spec.run_id, index, event_spec, aliases)
+                _trace_event(
+                    run_spec.run_id,
+                    index,
+                    event_spec,
+                    aliases,
+                    inferred_step=event_step,
+                )
             )
 
     for skill_spec in scenario.initial_skills:

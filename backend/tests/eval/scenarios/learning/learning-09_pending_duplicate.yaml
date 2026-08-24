@@ -5,27 +5,33 @@ user_input: "learning pipeline"
 initial_tasks:
   - alias: q1
     title: 修复 Python ImportError
+    description: 按“复现错误、读取 traceback、做最小修复、重新验证”的流程排查 Python 运行时异常。
     goal: 恢复启动
     status: completed
     run_ids: [r1]
+    key_facts: [使用统一的 Python 异常调试流程]
     steps:
       - {id: s1, title: 复现, status: done, note: 完成}
       - {id: s2, title: 读 traceback, status: done, note: 完成}
       - {id: s3, title: 修复, status: done, note: 完成}
   - alias: q2
     title: 修复 Python TypeError
+    description: 按“复现错误、读取 traceback、做最小修复、重新验证”的流程排查 Python 运行时异常。
     goal: 恢复启动
     status: completed
     run_ids: [r2]
+    key_facts: [使用统一的 Python 异常调试流程]
     steps:
       - {id: s1, title: 复现, status: done, note: 完成}
       - {id: s2, title: 读 traceback, status: done, note: 完成}
       - {id: s3, title: 修复, status: done, note: 完成}
   - alias: q3
     title: 修复 Python KeyError
+    description: 按“复现错误、读取 traceback、做最小修复、重新验证”的流程排查 Python 运行时异常。
     goal: 恢复启动
     status: completed
     run_ids: [r3]
+    key_facts: [使用统一的 Python 异常调试流程]
     steps:
       - {id: s1, title: 复现, status: done, note: 完成}
       - {id: s2, title: 读 traceback, status: done, note: 完成}
@@ -37,8 +43,8 @@ initial_runs:
       - {type: tool_completed, tool_name: read_file, arguments: {path: main.py}}
       - {type: tool_started, tool_name: run_pytest, arguments: {}}
       - {type: tool_completed, tool_name: run_pytest, arguments: {}, success: false, error: ImportError}
-      - {type: tool_started, tool_name: task_update, arguments: {status: completed}}
-      - {type: tool_completed, tool_name: task_update, arguments: {status: completed}}
+      - {type: tool_started, tool_name: task_update, arguments: {task_id: "$task:q1", status: completed}}
+      - {type: tool_completed, tool_name: task_update, arguments: {task_id: "$task:q1", status: completed}}
       - {type: agent_completed}
   - run_id: r2
     events:
@@ -46,8 +52,8 @@ initial_runs:
       - {type: tool_completed, tool_name: read_file, arguments: {path: app.py}}
       - {type: tool_started, tool_name: run_pytest, arguments: {}}
       - {type: tool_completed, tool_name: run_pytest, arguments: {}, success: false, error: TypeError}
-      - {type: tool_started, tool_name: task_update, arguments: {status: completed}}
-      - {type: tool_completed, tool_name: task_update, arguments: {status: completed}}
+      - {type: tool_started, tool_name: task_update, arguments: {task_id: "$task:q2", status: completed}}
+      - {type: tool_completed, tool_name: task_update, arguments: {task_id: "$task:q2", status: completed}}
       - {type: agent_completed}
   - run_id: r3
     events:
@@ -55,12 +61,12 @@ initial_runs:
       - {type: tool_completed, tool_name: read_file, arguments: {path: models.py}}
       - {type: tool_started, tool_name: run_pytest, arguments: {}}
       - {type: tool_completed, tool_name: run_pytest, arguments: {}, success: false, error: KeyError}
-      - {type: tool_started, tool_name: task_update, arguments: {status: completed}}
-      - {type: tool_completed, tool_name: task_update, arguments: {status: completed}}
+      - {type: tool_started, tool_name: task_update, arguments: {task_id: "$task:q3", status: completed}}
+      - {type: tool_completed, tool_name: task_update, arguments: {task_id: "$task:q3", status: completed}}
       - {type: agent_completed}
 initial_pending_candidates:
   - proposed_name: python-runtime-debug
-    description: 已待评审的 Python 调试候选
+    description: 已待评审的 Python 调试候选，覆盖复现、读取 traceback、最小修复和重新验证流程
     action: create
     source_task_ids: [seed-a, seed-b, seed-c]
 expect:

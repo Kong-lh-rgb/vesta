@@ -29,6 +29,7 @@ initial_skills:
 user_input: >-
   帮我研究一下 SQLite WAL 模式相比传统回滚日志的优势，
   请按研究模板产出结构化的结论。
+allowed_tools: [skill_read, skill_resource_read]
 max_steps: 8
 expect:
   skill:

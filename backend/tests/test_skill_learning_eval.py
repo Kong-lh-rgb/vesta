@@ -13,6 +13,7 @@ from pathlib import Path
 
 import pytest
 
+from app.skill_learning import TaskCard
 from tests.eval.learning_harness import (
     prepare_learning_environment,
     run_learning_scenario,
@@ -114,6 +115,56 @@ async def test_learning_01_unrelated_tasks_no_candidate(tmp_path: Path) -> None:
     assert outcome.error is None
     assert outcome.candidates == ()
     assert outcome.mining is not None and outcome.mining.cluster_count == 0
+
+
+@pytest.mark.asyncio
+async def test_learning_fixture_preserves_task_card_facts(
+    tmp_path: Path,
+) -> None:
+    from app.skill_learning.service import _to_card
+    from tests.eval.scenario import Scenario
+
+    scenario = Scenario.model_validate(
+        {
+            "id": "learning-task-card-fields",
+            "group": "learning",
+            "name": "TaskCard 保留任务事实",
+            "initial_tasks": [
+                {
+                    "alias": "completed",
+                    "title": "恢复 Python 环境",
+                    "description": "诊断虚拟环境损坏",
+                    "goal": "恢复测试运行",
+                    "status": "completed",
+                    "constraints": ["不要重装全部依赖"],
+                    "key_facts": ["项目使用 Python 3.14"],
+                    "run_ids": ["run-1", "run-2"],
+                    "steps": [
+                        {
+                            "id": "s1",
+                            "title": "确认 virtualenv",
+                            "status": "done",
+                            "note": "环境已确认",
+                        }
+                    ],
+                }
+            ],
+            "user_input": "分析可复用模式。",
+            "expect": {},
+        }
+    )
+    environment = await prepare_learning_environment(
+        scenario,
+        root=tmp_path / "task-card-fields",
+    )
+    task = await environment.task_store.get(environment.task_ids[0])
+
+    assert task is not None
+    card: TaskCard = _to_card(task)
+    assert card.description == "诊断虚拟环境损坏"
+    assert card.constraints == ("不要重装全部依赖",)
+    assert card.key_facts == ("项目使用 Python 3.14",)
+    assert card.run_count == 2
 
 
 @pytest.mark.asyncio

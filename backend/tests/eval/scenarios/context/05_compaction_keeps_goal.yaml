@@ -1,5 +1,7 @@
 id: eval-05
 group: context
+tier: smoke
+tags: [smoke, context, compaction]
 name: 上下文压缩后仍遵守 Task 目标
 initial_tasks:
   - alias: current_task
@@ -49,7 +51,9 @@ initial_history:
     content: "FAQ 完成：常见问题均围绕效率提升解答，未引入其他卖点，全文保持一致。"
 user_input: "现在请总结一下当前任务的核心目标，并告诉我下一步要做什么。"
 max_steps: 6
-max_output_tokens: 4096
+# 保留足够输出空间，同时避免把 6K 测试窗口的绝大部分都预留给输出，
+# 导致摘要已成功后仍没有任何可用输入预算。
+max_output_tokens: 2700
 allowed_tools: []
 context:
   window_override: 6000

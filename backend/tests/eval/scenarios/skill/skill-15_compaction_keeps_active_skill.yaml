@@ -7,6 +7,13 @@ initial_skills:
     body: |
       # Debug Python
       遇到报错时：1. 复现 2. 读 traceback 3. 查代码 4. 修复并验证。
+initial_files:
+  - path: latest_error.txt
+    content: |
+      Traceback (most recent call last):
+        File "parse.py", line 3, in <module>
+          value = int("abc")
+      ValueError: invalid literal for int() with base 10: 'abc'
 initial_history:
   - role: user
     content: "开始排查几个历史报错。"
@@ -25,9 +32,13 @@ initial_history:
   - role: assistant
     content: "汇总如下：KeyError 用 get 提供默认值；IndexError 先判断长度；AttributeError 判空后再访问属性；TypeError 显式转换类型。每条都附带复现路径、根因分析、修复代码与验证结论，整体排查流程保持一致：先复现、再读 traceback、定位根因、修复并验证。这些信息都保留在对话中，便于后续继续沿用同一套排查标准。"
 context:
-  window_override: 6000
+  window_override: 2500
+  margin_tokens: 100
+  keep_recent_conversation_blocks: 1
 user_input: >-
-  现在按标准流程排查最新的报错：ValueError: invalid literal for int()。
+  现在先激活匹配的 Skill，再读取 latest_error.txt，按标准流程排查这个最新报错。
+allowed_tools: [skill_read, read_file]
+max_output_tokens: 512
 max_steps: 8
 expect:
   requires_compaction: true
@@ -35,7 +46,8 @@ expect:
     activated: [debug-python]
     survives_compaction: true
   tools:
-    must: [skill_read]
-    successful: [skill_read]
+    must: [skill_read, read_file]
+    successful: [skill_read, read_file]
+    ordered: [skill_read, read_file]
   answer:
     keypoints: ["int", "ValueError"]

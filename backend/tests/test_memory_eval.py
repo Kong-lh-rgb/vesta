@@ -163,6 +163,102 @@ def test_scenario_rejects_duplicate_aliases() -> None:
         )
 
 
+@pytest.mark.asyncio
+async def test_stored_memory_content_any_accepts_semantic_alternatives(
+    tmp_path: Path,
+) -> None:
+    scenario = MemoryEvalScenario.model_validate(
+        {
+            "id": "offline-content-any",
+            "name": "普通记忆正文同义表达",
+            "initial_core": "回答时先给出结论，再展开原因。",
+            "phases": [
+                {
+                    "id": "learn",
+                    "user_input": "项目记忆使用 Markdown，不使用向量数据库 Top-K。",
+                    "bind_reflection_memory_as": "storage",
+                    "expect": {
+                        "reflection_action": "create",
+                        "core_contains_any": [
+                            ["先给结论", "先给出结论"],
+                            ["解释原因", "展开原因"],
+                        ],
+                        "memory": {
+                            "target": "storage",
+                            "content_contains": ["Markdown"],
+                            "content_contains_any": [
+                                ["向量数据库", "vector database"],
+                                ["Top-K", "top-k"],
+                            ],
+                        },
+                    },
+                }
+            ],
+        }
+    )
+    responses = [
+        model_response(content="已记录。"),
+        model_response(
+            content=(
+                '{"action":"create","memory_id":null,'
+                '"title":"Project memory storage",'
+                '"summary":"Markdown without vector retrieval",'
+                '"content":"Use Markdown files instead of a vector database '
+                'for automatic Top-K retrieval.",'
+                '"reason":"Durable project decision"}'
+            )
+        ),
+    ]
+    registry, _ = fake_registry(responses)
+
+    outcome = await run_scenario(
+        scenario,
+        root=tmp_path,
+        provider="fake",
+        model="fake-model",
+        registry=registry,
+    )
+
+    checks, passed = check_phase(
+        scenario,
+        outcome.phases[0],
+        aliases=outcome.aliases,
+    )
+    assert passed, checks
+
+    core_check = next(check for check in checks if check.name == "core")
+    assert core_check.ok is True
+
+    # 每组候选都必须至少命中一个；缺少第二组时应给出可解释失败原因。
+    phase = outcome.phases[0]
+    memory_expectation = phase.phase.expect.memory
+    assert memory_expectation is not None
+    missing_memory = memory_expectation.model_copy(
+        update={
+            "content_contains_any": (
+                ("向量数据库", "vector database"),
+                ("嵌入", "embedding"),
+            )
+        }
+    )
+    phase.phase = phase.phase.model_copy(
+        update={
+            "expect": phase.phase.expect.model_copy(
+                update={"memory": missing_memory}
+            )
+        }
+    )
+    failed_checks, failed = check_phase(
+        scenario,
+        phase,
+        aliases=outcome.aliases,
+    )
+    stored = next(check for check in failed_checks if check.name == "stored_memory")
+    assert failed is False
+    assert stored.ok is False
+    assert "content_missing_any=嵌入|embedding" in stored.detail
+
+
 def test_report_separates_main_reflection_and_maintenance_usage() -> None:
     report = MemoryEvalReport(provider="fake", model="fake-model")
     scenario = _scenario()

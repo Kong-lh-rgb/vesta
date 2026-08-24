@@ -3,6 +3,8 @@ group: basic
 name: 无法回答时也不乱建任务
 user_input: "你目前无法访问我的私有邮箱，请告诉我你能做什么，不要为此创建任务。"
 max_steps: 4
+# 只暴露被测的 task_create，隔离无关文件工具的随机试探。
+allowed_tools: [task_create]
 expect:
   tools:
     total_count: 0

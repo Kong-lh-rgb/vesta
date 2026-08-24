@@ -125,6 +125,15 @@ def test_skill_check_survives_compaction(tmp_path: Path) -> None:
     check = _check_skill(scenario, events)
     assert check.ok, check.detail
 
+    # 压缩后的当前请求已经带 Active Skill，模型可直接作答，无需额外一步。
+    events_same_request = [
+        started_event(0, "none", ()),
+        activated_event,
+        started_event(1, "compact", ("debug-python",)),
+    ]
+    check_same_request = _check_skill(scenario, events_same_request)
+    assert check_same_request.ok, check_same_request.detail
+
     # 压缩后 run state 还在（active_skill_names）但实际消息未注入 → 失败。
     events_state_only = [
         started_event(0, "none", ()),
