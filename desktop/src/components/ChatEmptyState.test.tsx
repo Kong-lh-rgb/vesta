@@ -8,7 +8,7 @@ import ChatEmptyState, { EXAMPLE_PROMPTS } from './ChatEmptyState'
 describe('ChatEmptyState', () => {
   it('渲染欢迎信息和四个可点击示例', () => {
     const html = renderToStaticMarkup(<ChatEmptyState onSelectPrompt={() => {}} />)
-    expect(html).toContain('What should Vesta work on?')
+    expect(html).toContain('今天想让 Vesta 帮你完成什么？')
     expect(html.match(/<button/g)).toHaveLength(4)
     for (const prompt of EXAMPLE_PROMPTS) expect(html).toContain(prompt)
   })

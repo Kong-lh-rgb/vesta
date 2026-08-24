@@ -5124,3 +5124,142 @@ body.approval-app {
 .floating-approval__btn--allow {
   min-width: 76px;
 }
+
+/* 新会话入口：保持轻盈的工作台感，同时给第一次使用提供明确方向。 */
+.chat-empty {
+  width: min(100%, 760px);
+  max-width: 760px;
+  padding: 10px 0 4px;
+}
+
+.chat-empty__eyebrow {
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+  margin-bottom: 16px;
+  color: var(--text-tertiary);
+  font-size: 11px;
+  font-weight: 620;
+  letter-spacing: .08em;
+}
+
+.chat-empty__eyebrow .chat-empty__mark {
+  width: 30px;
+  height: 30px;
+  margin: 0;
+  border: 0;
+  border-radius: 10px;
+  background: var(--text-primary);
+  color: white;
+  box-shadow: 0 7px 20px rgba(25, 31, 29, .14);
+}
+
+.chat-empty h1 {
+  margin: 0 0 11px;
+  font-size: clamp(25px, 3vw, 34px);
+  font-weight: 690;
+  letter-spacing: -.045em;
+}
+
+.chat-empty p.chat-empty__intro {
+  max-width: 590px;
+  margin-bottom: 30px;
+  font-size: 13.5px;
+  line-height: 1.7;
+}
+
+.chat-empty__prompts {
+  max-width: 720px;
+  gap: 10px;
+}
+
+.chat-empty__prompts button {
+  position: relative;
+  display: grid;
+  grid-template-columns: 36px minmax(0, 1fr) 18px;
+  align-items: center;
+  gap: 11px;
+  min-height: 84px;
+  padding: 14px 15px;
+  border: 1px solid rgba(45, 58, 53, .1);
+  border-radius: 16px;
+  background: rgba(255, 255, 255, .52);
+  box-shadow: 0 9px 30px rgba(24, 35, 31, .035);
+  backdrop-filter: blur(18px);
+  -webkit-backdrop-filter: blur(18px);
+}
+
+.chat-empty__prompts button:hover {
+  border-color: rgba(45, 83, 70, .22);
+  background: rgba(255, 255, 255, .84);
+  box-shadow: 0 12px 32px rgba(24, 35, 31, .07);
+  transform: translateY(-1px);
+}
+
+.chat-empty__prompt-icon {
+  width: 36px;
+  height: 36px;
+  display: grid;
+  place-items: center;
+  border-radius: 11px;
+  background: rgba(48, 99, 81, .08);
+  color: var(--accent);
+}
+
+.chat-empty__prompt-copy {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.chat-empty__prompt-copy strong {
+  color: var(--text-primary);
+  font-size: 12.5px;
+  font-weight: 660;
+}
+
+.chat-empty__prompt-copy small {
+  color: var(--text-tertiary);
+  font-size: 10.5px;
+  line-height: 1.45;
+}
+
+.chat-empty__prompt-action {
+  color: var(--text-tertiary);
+  opacity: .5;
+  transition: color var(--transition-fast), opacity var(--transition-fast),
+    transform var(--transition-fast);
+}
+
+.chat-empty__prompts button:hover .chat-empty__prompt-action {
+  color: var(--accent);
+  opacity: 1;
+  transform: rotate(90deg);
+}
+
+.chat-empty__hint {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  margin-top: 20px;
+  color: var(--text-tertiary);
+  font-size: 10px;
+}
+
+.chat-empty__hint i {
+  width: 3px;
+  height: 3px;
+  border-radius: 50%;
+  background: var(--border-strong);
+}
+
+@media (max-width: 760px) {
+  .chat-empty__prompts {
+    grid-template-columns: 1fr;
+  }
+
+  .chat-empty h1 {
+    font-size: 25px;
+  }
+}

@@ -89,13 +89,13 @@ export default function Composer({
               void submit()
             }
           }}
-          placeholder="Ask Vesta to do something…"
+          placeholder="告诉 Vesta 你想完成什么…"
           rows={1}
           disabled={busy}
           aria-label="消息输入框"
         />
         <div className="composer__footer">
-          <div className="mode-switch" aria-label="Agent mode">
+          <div className="mode-switch" aria-label="执行模式">
             {(['normal', 'plan'] as const).map((item) => (
               <button
                 key={item}
@@ -105,12 +105,12 @@ export default function Composer({
                 aria-pressed={mode === item}
                 title={
                   item === 'plan'
-                    ? 'Plan Mode 会先调查并生成计划，等待你确认后再执行。'
-                    : 'Normal Mode 直接执行你的请求。'
+                    ? '规划模式会先调查并生成计划，等待你确认后再执行。'
+                    : '普通模式会直接执行你的请求。'
                 }
                 disabled={busy || !onModeChange}
               >
-                {item === 'normal' ? 'Normal' : 'Plan'}
+                {item === 'normal' ? '普通' : '规划'}
               </button>
             ))}
           </div>
