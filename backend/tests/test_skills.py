@@ -898,6 +898,55 @@ async def test_runtime_emits_activation_failed_when_budget_exceeded(
         )
 
 
+@pytest.mark.asyncio
+async def test_runtime_emits_activation_failed_when_skill_is_missing(
+    tmp_path: Path,
+) -> None:
+    store = SkillStore(tmp_path / "user", tmp_path / "project")
+    await store.initialize()
+    registry = ToolRegistry()
+    register_skill_tools(registry, store)
+    provider = SkillContextProvider(max_tokens=4096, max_active=4)
+    model_registry, _ = _fake_registry(
+        [
+            _model_response(
+                tool_calls=(
+                    ToolCall(
+                        id="missing-skill",
+                        name=SKILL_READ_TOOL_NAME,
+                        arguments={"name": "write-notes"},
+                    ),
+                )
+            ),
+            _model_response(content="write-notes 不存在。"),
+        ]
+    )
+    events = InMemoryEventHandler()
+    runtime = AgentRuntime(
+        model_registry,
+        registry,
+        provider="fake",
+        skill_store=store,
+        skill_context_provider=provider,
+    )
+
+    result = await runtime.run("请使用 write-notes", event_handler=events)
+
+    assert result.ok is True
+    assert result.tool_calls[0].result.success is True
+    failed = [
+        event
+        for event in events.events
+        if event.type is AgentEventType.SKILL_ACTIVATION_FAILED
+    ]
+    assert len(failed) == 1
+    assert failed[0].skill_name == "write-notes"
+    assert failed[0].skill_error == "skill not found"
+    assert not any(
+        event.type is AgentEventType.SKILL_ACTIVATED for event in events.events
+    )
+
+
 def test_runtime_rejects_provider_without_store() -> None:
     registry = ModelAdapterRegistry(ModelSettings(_env_file=None))
     with pytest.raises(ValueError, match="skill_context_provider requires"):

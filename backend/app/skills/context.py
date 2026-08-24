@@ -21,9 +21,8 @@ ACTIVE_SKILL_MESSAGE_NAME = "vesta_active_skill"
 
 _CATALOG_HEADER = (
     "# Available Skills\n\n"
-    "The following skills are available. When the current task matches one of "
-    "them, call skill_read with that name to activate it and follow its "
-    "instructions.\n"
+    "Before other tools or an answer, call skill_read for each matching skill. "
+    "For multi-stage work, activate each matching skill before its stage.\n"
 )
 
 _DEFAULT_CATALOG_MAX_TOKENS = 2_048

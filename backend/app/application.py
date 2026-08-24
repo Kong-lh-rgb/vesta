@@ -71,6 +71,7 @@ from app.mcp import (
     MCPStatusTool,
 )
 from app.memory import (
+    DEFAULT_DEFERRED_MEMORY_TOOL_NAMES,
     DEFAULT_MEMORY_DIR,
     MemoryMaintenanceConfig,
     MemoryMaintenanceReflector,
@@ -125,9 +126,7 @@ logger = logging.getLogger("vesta.application")
 _DEFERRED_TOOL_NAMES = frozenset(
     {
         "http_request",
-        "memory_list",
-        "core_memory_update",
-        "core_memory_remove",
+        *DEFAULT_DEFERRED_MEMORY_TOOL_NAMES,
     }
 )
 
@@ -135,8 +134,13 @@ DEFAULT_SYSTEM_PROMPT = (
     "你是 Vesta，一个本地运行的智能助理。请使用用户的语言回答。"
     "调用工具时优先使用已有结果；网页搜索通常只需一到两次，获得可用结果后"
     "立即整理回答，不要为了追求完美而反复改写相同查询。"
+    "只有用户目标确实依赖实时或外部信息、或者需要操作本地环境时才调用工具；"
+    "普通知识问答、能力说明，以及请求的工具不存在时直接如实回答，不要为了"
+    "试探或确认而调用搜索、文件或其他无关工具。"
     "当用户明确要求记录任务，或工作复杂、需要多个步骤或跨多轮跟踪时，"
-    "调用 task_create；简单的一次性问题不要创建任务。完成任务步骤、计划"
+    "调用 task_create。一个用户整体目标通常只创建一个 Task，目标内部的阶段、"
+    "模块和动作应拆为该 Task 的 Steps；只有彼此独立、可分别完成和关闭的目标"
+    "才创建多个 Task。简单的一次性问题不要创建任务。完成任务步骤、计划"
     "变化或任务状态变化后调用 task_update，必要时用 task_get/task_list"
     "重新确认任务状态。"
     "如果生成了用户需要保留、下载或查看的文件（如报告、CSV、代码、图片），"
@@ -242,7 +246,10 @@ class Application:
             if skills_project_dir is not None
             else None
         )
-        self.system_prompt = system_prompt
+        # ``None`` 表示使用产品默认提示词；空字符串仍保留为显式关闭入口。
+        self.system_prompt = (
+            DEFAULT_SYSTEM_PROMPT if system_prompt is None else system_prompt
+        )
         self.max_steps = max_steps
         self.max_tool_rounds = max_tool_rounds
         self.max_output_tokens = max_output_tokens
@@ -518,6 +525,7 @@ class Application:
             tool_registry,
             provider=self.provider,
             model=self.model,
+            system_prompt=self.system_prompt,
             max_steps=self.max_steps,
             max_tool_rounds=self.max_tool_rounds,
             max_output_tokens=self.max_output_tokens,

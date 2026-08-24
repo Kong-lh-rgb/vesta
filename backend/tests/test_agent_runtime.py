@@ -53,6 +53,13 @@ from app.models.types import (
     ToolDefinition,
     ToolPermission,
 )
+from app.skills import (
+    ACTIVE_SKILL_MESSAGE_NAME,
+    SKILL_READ_TOOL_NAME,
+    SkillContextProvider,
+    SkillStore,
+    register_skill_tools,
+)
 from app.task import (
     TASK_CONTEXT_MESSAGE_NAME,
     FileTaskStore,
@@ -370,6 +377,262 @@ async def test_runtime_removes_legacy_date_without_injecting_current_time() -> N
         for message in request.messages
     )
     assert result.messages[0] == old_system
+
+
+@pytest.mark.asyncio
+async def test_runtime_system_prompt_is_request_only_and_deduplicated() -> None:
+    """Runtime 系统提示只进入请求；历史已有完全相同内容时不重复。"""
+
+    prompt = "你是 Vesta，请优先给出可靠结论。"
+    registry, adapter = fake_registry([model_response(content="完成")])
+    history = (
+        Message(role=MessageRole.SYSTEM, content=prompt),
+        Message(role=MessageRole.USER, content="之前的问题"),
+        Message(role=MessageRole.ASSISTANT, content="之前的回答"),
+    )
+
+    result = await AgentRuntime(
+        registry,
+        ToolRegistry(),
+        provider="fake",
+        system_prompt=prompt,
+    ).run("继续", history=history)
+
+    assert sum(
+        message.role is MessageRole.SYSTEM and message.content == prompt
+        for message in adapter.requests[0].messages
+    ) == 1
+    assert result.messages[: len(history)] == history
+    assert sum(
+        message.role is MessageRole.SYSTEM and message.content == prompt
+        for message in result.messages
+    ) == 1
+
+
+@pytest.mark.asyncio
+async def test_runtime_system_prompt_survives_summary_and_prefix_reuse() -> None:
+    """请求态系统提示稳定置顶，摘要水位还原为原始历史坐标。"""
+
+    prompt = "稳定系统提示：按证据回答。"
+    history_messages: list[Message] = []
+    for index in range(8):
+        history_messages.extend(
+            (
+                Message(
+                    role=MessageRole.USER,
+                    content=f"旧问题 {index} " + "问" * 150,
+                ),
+                Message(
+                    role=MessageRole.ASSISTANT,
+                    content=f"旧回答 {index} " + "答" * 150,
+                ),
+            )
+        )
+    tool_call = ToolCall(
+        id="count-with-system-prompt",
+        name="count",
+        arguments={"value": 1},
+    )
+    registry, adapter = fake_registry(
+        [
+            model_response(tool_calls=(tool_call,)),
+            model_response(content="最终回答"),
+        ]
+    )
+    capability_registry = ModelCapabilityRegistry()
+    capability_registry.register_override(
+        "fake",
+        "fake-model",
+        context_window=2_000,
+        max_output_tokens=100,
+    )
+    context_manager = ContextManager(
+        registry=capability_registry,
+        budget_policy=ContextBudgetPolicy(safety_margin_tokens=0),
+        conversation_reducer=ConversationReducer(
+            FixedContextSummarizer(),
+            keep_recent_conversation_blocks=2,
+            keep_recent_tool_rounds=0,
+        ),
+    )
+    tools = ToolRegistry()
+    tools.register(CountingTool())
+    events = InMemoryEventHandler()
+
+    result = await AgentRuntime(
+        registry,
+        tools,
+        provider="fake",
+        system_prompt=prompt,
+        max_output_tokens=100,
+        context_manager=context_manager,
+    ).run(
+        "当前问题",
+        history=tuple(history_messages),
+        event_handler=events,
+    )
+
+    assert result.ok is True
+    assert result.summary_state is not None
+    assert result.summary_state.covered_message_count <= len(history_messages)
+    assert all(message.content != prompt for message in result.messages)
+    first, second = adapter.requests
+    assert first.messages[0].role is MessageRole.SYSTEM
+    assert first.messages[0].content == prompt
+    assert sum(message.content == prompt for message in first.messages) == 1
+    assert second.messages[: len(first.messages)] == first.messages
+    started = [
+        event
+        for event in events.events
+        if event.type is AgentEventType.MODEL_STARTED
+    ]
+    assert [event.cache_prefix_reused for event in started] == [False, True]
+
+
+@pytest.mark.asyncio
+async def test_runtime_retries_one_empty_final_response() -> None:
+    """Reasoning-only 空回复不能被当作成功答案，允许一次有界重试。"""
+
+    registry, adapter = fake_registry(
+        [
+            model_response(content=None, reasoning="仅有内部推理"),
+            model_response(content="这是可展示的最终回答。"),
+        ]
+    )
+
+    result = await AgentRuntime(
+        registry,
+        ToolRegistry(),
+        provider="fake",
+    ).run("请回答")
+
+    assert result.ok is True
+    assert result.steps == 2
+    assert result.content == "这是可展示的最终回答。"
+    assert len(adapter.requests) == 2
+    assert "没有可展示文本" in (
+        adapter.requests[1].messages[-1].content or ""
+    )
+    assert not any(
+        message.role is MessageRole.ASSISTANT
+        and not (message.content or "").strip()
+        and not message.tool_calls
+        for message in adapter.requests[1].messages
+    )
+    assert all(
+        "没有可展示文本" not in (message.content or "")
+        for message in result.messages
+    )
+
+
+@pytest.mark.asyncio
+async def test_runtime_rejects_two_empty_final_responses() -> None:
+    """连续两次空回复后明确以 model_error 收口，不制造空成功消息。"""
+
+    registry, adapter = fake_registry(
+        [model_response(content=None), model_response(content="   ")]
+    )
+
+    result = await AgentRuntime(
+        registry,
+        ToolRegistry(),
+        provider="fake",
+    ).run("请回答")
+
+    assert result.ok is False
+    assert result.steps == 2
+    assert result.stop_reason is AgentStopReason.MODEL_ERROR
+    assert result.error is not None
+    assert "empty content twice" in result.error.message
+    assert len(adapter.requests) == 2
+    assert all(
+        "没有可展示文本" not in (message.content or "")
+        for message in result.messages
+    )
+
+
+@pytest.mark.asyncio
+async def test_runtime_retries_textual_tool_protocol_as_structured_response() -> None:
+    """普通响应中的 DSML 不是答案；移除污染消息后只允许一次修复。"""
+
+    textual_protocol = (
+        '<｜｜DSML｜｜tool_calls><｜｜DSML｜｜invoke name="count">2'
+    )
+    registry, adapter = fake_registry(
+        [
+            model_response(content=textual_protocol),
+            model_response(content="已直接完成回答。"),
+        ]
+    )
+
+    result = await AgentRuntime(
+        registry,
+        ToolRegistry(),
+        provider="fake",
+    ).run("请回答")
+
+    assert result.ok is True
+    assert result.steps == 2
+    assert result.content == "已直接完成回答。"
+    assert len(adapter.requests) == 2
+    assert "结构化 tool_calls" in (
+        adapter.requests[1].messages[-1].content or ""
+    )
+    assert all(
+        textual_protocol not in (message.content or "")
+        for message in adapter.requests[1].messages
+    )
+    assert all(
+        textual_protocol not in (message.content or "")
+        for message in result.messages
+    )
+    assert all(
+        "结构化 tool_calls" not in (message.content or "")
+        for message in result.messages
+    )
+
+
+@pytest.mark.asyncio
+async def test_runtime_rejects_repeated_textual_tool_protocol() -> None:
+    """连续两次输出文本工具协议时以 model_error 收口，不制造假成功。"""
+
+    registry, adapter = fake_registry(
+        [
+            model_response(content="<tool_calls>count(1)</tool_calls>"),
+            model_response(
+                content=(
+                    '<｜｜DSML｜｜tool_calls><｜｜DSML｜｜invoke name="count">2'
+                )
+            ),
+        ]
+    )
+
+    result = await AgentRuntime(
+        registry,
+        ToolRegistry(),
+        provider="fake",
+    ).run("请回答")
+
+    assert result.ok is False
+    assert result.steps == 2
+    assert result.stop_reason is AgentStopReason.MODEL_ERROR
+    assert result.error is not None
+    assert "textual tool call twice" in result.error.message
+    assert len(adapter.requests) == 2
+    assert all(
+        not (
+            message.role is MessageRole.ASSISTANT
+            and (
+                "<tool_calls" in (message.content or "").lower()
+                or "<｜｜dsml｜｜" in (message.content or "").lower()
+            )
+        )
+        for message in result.messages
+    )
+    assert all(
+        "结构化 tool_calls" not in (message.content or "")
+        for message in result.messages
+    )
 
 
 @pytest.mark.asyncio
@@ -835,6 +1098,163 @@ async def test_runtime_extends_compacted_prefix_without_rebuilding_next_step() -
 
 
 @pytest.mark.asyncio
+async def test_runtime_rebuilds_prefix_for_late_compaction_with_active_skill(
+    tmp_path,
+) -> None:
+    """Prefix 复用期间才越线时，回到完整历史摘要并保留 Active Skill。"""
+
+    skill_dir = tmp_path / "project-skills" / "debug-python"
+    skill_dir.mkdir(parents=True)
+    (skill_dir / "SKILL.md").write_text(
+        "---\n"
+        "name: debug-python\n"
+        "description: 排查 Python 报错或异常的标准流程\n"
+        "---\n\n"
+        "# Debug Python\n"
+        "遇到报错时：1. 复现 2. 读 traceback 3. 查代码 4. 修复并验证。",
+        encoding="utf-8",
+    )
+    store = SkillStore(tmp_path / "user-skills", tmp_path / "project-skills")
+    await store.initialize()
+    (tmp_path / "latest_error.txt").write_text(
+        'Traceback\nvalue = int("abc")\nValueError: invalid literal',
+        encoding="utf-8",
+    )
+
+    history = (
+        Message(role=MessageRole.USER, content="开始排查几个历史报错。"),
+        Message(
+            role=MessageRole.ASSISTANT,
+            content=(
+                "好的，我会逐一记录历史报错及其处理过程，并说明每一步的排查"
+                "依据。为了保持排查的完整上下文，我会保留之前的报错症状、尝试"
+                "过的修复和验证结果，避免遗漏关键信息。"
+            ),
+        ),
+        Message(role=MessageRole.USER, content="继续记录更多报错细节。"),
+        Message(
+            role=MessageRole.ASSISTANT,
+            content=(
+                "继续补充历史报错：KeyError 的根因是字典访问缺键，处理方式是"
+                "先用 get 提供默认值；IndexError 的根因是列表越界，处理方式是"
+                "先判断长度。每一个报错都记录复现步骤、根因分析和验证结果。"
+            ),
+        ),
+        Message(role=MessageRole.USER, content="再补充一批报错记录。"),
+        Message(
+            role=MessageRole.ASSISTANT,
+            content=(
+                "AttributeError 的根因是 None 对象访问属性，处理方式是判空；"
+                "TypeError 的根因是类型不匹配，处理方式是显式转换。全部记录按"
+                "时间顺序整理，包含症状、定位方法、修复与验证结果。"
+            ),
+        ),
+        Message(role=MessageRole.USER, content="把前面的报错记录再汇总一遍。"),
+        Message(
+            role=MessageRole.ASSISTANT,
+            content=(
+                "汇总：KeyError 用 get 默认值；IndexError 先判断长度；"
+                "AttributeError 先判空；TypeError 显式转换。流程始终是先复现、"
+                "再读 traceback、定位根因、修复并验证。"
+            ),
+        ),
+    )
+    model_registry, adapter = fake_registry(
+        [
+            model_response(
+                tool_calls=(
+                    ToolCall(
+                        id="activate-debug-skill",
+                        name=SKILL_READ_TOOL_NAME,
+                        arguments={"name": "debug-python"},
+                    ),
+                )
+            ),
+            model_response(
+                content="Skill 已激活。现在读取最新报错文件：",
+                tool_calls=(
+                    ToolCall(
+                        id="read-latest-error",
+                        name="read_file",
+                        arguments={"path": "latest_error.txt"},
+                    ),
+                ),
+            ),
+            model_response(content="根因是 int 转换失败导致 ValueError。"),
+        ]
+    )
+    capability_registry = ModelCapabilityRegistry()
+    capability_registry.register_override(
+        "fake",
+        "fake-model",
+        context_window=2_140,
+        max_output_tokens=512,
+    )
+    context_manager = ContextManager(
+        registry=capability_registry,
+        budget_policy=ContextBudgetPolicy(safety_margin_tokens=100),
+        conversation_reducer=ConversationReducer(
+            FixedContextSummarizer(),
+            keep_recent_conversation_blocks=1,
+            keep_recent_tool_rounds=0,
+        ),
+    )
+    tools = ToolRegistry()
+    register_skill_tools(tools, store)
+    tools.unregister("skill_resource_read")
+    tools.register(ReadFileTool(tmp_path))
+    events = InMemoryEventHandler()
+
+    result = await AgentRuntime(
+        model_registry,
+        tools,
+        provider="fake",
+        max_output_tokens=512,
+        context_manager=context_manager,
+        skill_store=store,
+        skill_context_provider=SkillContextProvider(
+            max_tokens=4_096,
+            max_active=4,
+        ),
+    ).run(
+        "先激活匹配的 Skill，再读取 latest_error.txt，按标准流程排查。",
+        history=history,
+        event_handler=events,
+    )
+
+    assert result.ok is True
+    started = [
+        event
+        for event in events.events
+        if event.type is AgentEventType.MODEL_STARTED
+    ]
+    assert [event.requires_compaction for event in started[:2]] == [False, False]
+    assert started[2].requires_compaction is True, [
+        (
+            event.original_estimated_input_tokens,
+            event.trigger_tokens,
+            event.cache_prefix_reused,
+        )
+        for event in started
+    ]
+    assert started[2].cache_prefix_reused is False
+    assert started[2].summary_updated is True
+    assert started[2].compaction_stage == "rolling_summary"
+    assert started[2].active_skill_message_names == ("debug-python",)
+    assert result.summary_state is not None
+    final_request = adapter.requests[2]
+    assert any(
+        message.name == ACTIVE_SKILL_MESSAGE_NAME
+        and "Skill: debug-python" in (message.content or "")
+        for message in final_request.messages
+    )
+    assert any(
+        message.name == "vesta_rolling_summary"
+        for message in final_request.messages
+    )
+
+
+@pytest.mark.asyncio
 async def test_runtime_does_not_inject_pending_task_created_in_current_run(
     tmp_path,
 ) -> None:
@@ -1138,6 +1558,50 @@ async def test_tool_round_budget_forces_final_answer_without_more_tools() -> Non
         "工具调用轮次已用完" not in (message.content or "")
         for message in result.messages
     )
+
+
+@pytest.mark.asyncio
+async def test_textual_tool_call_after_tool_round_limit_gets_safe_fallback() -> None:
+    registry, adapter = fake_registry(
+        [
+            model_response(
+                tool_calls=(
+                    ToolCall(
+                        id="count-1",
+                        name="count",
+                        arguments={"value": 1},
+                    ),
+                )
+            ),
+            model_response(
+                content=(
+                    '<｜｜DSML｜｜tool_calls><｜｜DSML｜｜invoke '
+                    'name="count">2'
+                )
+            ),
+        ]
+    )
+    counting_tool = CountingTool()
+    tools = ToolRegistry()
+    tools.register(counting_tool)
+
+    result = await AgentRuntime(
+        registry,
+        tools,
+        provider="fake",
+        max_steps=10,
+        max_tool_rounds=1,
+    ).run("持续计数")
+
+    assert counting_tool.executions == 1
+    assert len(adapter.requests) == 2
+    assert adapter.requests[-1].tools == ()
+    assert result.ok is True
+    assert result.steps == 2
+    assert result.stop_reason is AgentStopReason.FINAL_ANSWER
+    assert result.error is None
+    assert "工具调用轮次上限" in (result.content or "")
+    assert "maximum step limit" not in (result.content or "")
 
 
 @pytest.mark.asyncio

@@ -496,6 +496,8 @@ async def test_mark_deferred_tools_hides_tools_until_activated(
     catalog = ToolCatalog(registry)
     matches = catalog.search("http_request")
     assert any(match.name == "http_request" for match in matches)
+    core_matches = catalog.search("core memory update")
+    assert any(match.name == "core_memory_update" for match in core_matches)
 
     activated = {match.name for match in matches}
     activated_names = {

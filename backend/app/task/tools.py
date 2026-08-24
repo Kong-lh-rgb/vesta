@@ -3,7 +3,7 @@
 任务状态独立于会话消息持久化，不受上下文压缩影响。工具把 Task 领域能力
 暴露给模型，让模型能够：
 
-- ``task_create``：判断工作复杂、需要跟踪进度，或用户提出多个工作时创建任务；
+- ``task_create``：为一个整体目标创建任务，并把目标内的子工作拆成步骤；
 - ``task_update``：步骤完成、状态变化、补充约束/事实或关联执行记录时更新任务；
 - ``task_get``：需要重新确认单个任务当前状态时获取详情；
 - ``task_list``：需要总览任务（含用户明确要求列出）时获取列表。
@@ -43,9 +43,11 @@ class TaskCreateTool(BaseTool):
         return ToolDefinition(
             name="task_create",
             description=(
-                "创建一个任务用于长期跟踪进度。当用户提出多个工作、工作复杂需要"
-                "拆解步骤、或用户明确要求记录任务时调用。任务状态独立于对话保存，"
-                "不会因上下文压缩而丢失。"
+                "创建一个任务用于长期跟踪一个整体目标。当工作复杂需要拆解、跨多轮"
+                "跟踪，或用户明确要求记录任务时调用。同一整体目标中的阶段、模块和"
+                "动作应放入本任务的 steps，不要分别创建多个任务；只有彼此独立、可"
+                "分别完成和关闭的目标才创建多个任务。任务状态独立于对话保存，不会"
+                "因上下文压缩而丢失。priority 只能是 low、normal、high、urgent。"
             ),
             parameters={
                 "type": "object",
@@ -157,14 +159,18 @@ class TaskUpdateTool(BaseTool):
             description=(
                 "更新一个已有任务。当某个步骤完成、任务状态变化、需要补充用户"
                 "约束或关键事实时调用。当前会话和运行由系统自动关联；至少提供 "
-                "task_id 与一个更新字段。"
+                "task_id 与一个更新字段。更新系统注入的当前活动任务时，优先把 "
+                "task_id 设为 current，避免转录长 ID；其他任务仍使用精确 ID 或"
+                "唯一前缀。"
             ),
             parameters={
                 "type": "object",
                 "properties": {
                     "task_id": {
                         "type": "string",
-                        "description": "任务 ID 或唯一前缀。",
+                        "description": (
+                            "任务 ID、唯一前缀，或当前活动任务句柄 current。"
+                        ),
                     },
                     "status": {
                         "type": "string",
@@ -420,14 +426,17 @@ class TaskGetTool(BaseTool):
             name="task_get",
             description=(
                 "获取一个任务的完整详情（目标、状态、步骤、约束、关键事实与关联"
-                "记录）。当模型需要重新确认某个任务的当前状态时调用。"
+                "记录）。当模型需要重新确认当前活动任务时，优先使用 current；"
+                "其他任务使用精确 ID 或唯一前缀。"
             ),
             parameters={
                 "type": "object",
                 "properties": {
                     "task_id": {
                         "type": "string",
-                        "description": "任务 ID 或唯一前缀。",
+                        "description": (
+                            "任务 ID、唯一前缀，或当前活动任务句柄 current。"
+                        ),
                     }
                 },
                 "required": ["task_id"],
@@ -551,7 +560,7 @@ def _task_full(task: Task) -> dict[str, Any]:
 async def _resolve_owned(
     store: FileTaskStore,
     task_id: str,
-    conversation_id: str | None,
+    conversation_id: str,
 ) -> Task:
     """先按当前会话归属过滤，再解析任务 ID 或唯一前缀。
 
@@ -559,10 +568,14 @@ async def _resolve_owned(
     其他会话中任务的存在性。
     """
 
-    task = await store.resolve(
-        task_id,
-        owner_conversation_id=conversation_id,
-    )
+    normalized = task_id.strip()
+    if normalized.lower() == "current":
+        task = await store.active_for_conversation(conversation_id)
+    else:
+        task = await store.resolve(
+            normalized,
+            owner_conversation_id=conversation_id,
+        )
     if task is None:
         raise KeyError(f"任务不存在：{task_id}")
     return task
