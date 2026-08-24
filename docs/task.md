@@ -2595,3 +2595,103 @@ Automation ─┤  → ConversationService.dispatch(conversation_id, content, tr
 - [x] Desktop `npm test`：240 passed
 - [x] Desktop `typecheck`、生产构建：通过
 - [x] 使用真实 Desktop 页面检查设置分类、当前模型与旧 Host 兼容提示
+
+### 完成：Agent 综合评测 V1 · 统一结果与基线层
+
+#### 统一架构
+
+- [x] 审计现有57条Core/Skill场景、10条Memory场景和Skill Learning Judge，不重复创建第四套Harness
+- [x] 新增不可变`EvalSampleRecord`，统一Scenario/Phase、检查项、停止原因、工具失败、耗时、Usage与证据路径
+- [x] Core与Memory直接复用生产`RunUsageSummary`；Skill Learning保留独立Judge并映射真实Mining/Distillation Usage
+- [x] 每个Agent/Memory样本保存`trace.json`和`sample.json`；Learning保存独立`sample.json`
+- [x] 综合报告同时输出结构化`report.json`与可读`report.md`
+
+#### 稳定性、成本与Baseline
+
+- [x] 区分样本通过率与稳定通过率；同一Scenario/Phase/Mode多次运行必须全部成功才算稳定
+- [x] 报告Main Agent、Context Summary、Reflection、Maintenance、Provider Total、可计费Token、缓存命中率与P95成本
+- [x] 缓存细分缺失时保持未知，不把未报告数据伪装为0
+- [x] Baseline绑定Provider、Model、Suite、Tier、场景集合与SHA-256场景定义摘要
+- [x] 安全失败和稳定场景退化作为阻断；平均可计费Token增加超过20%只告警
+
+#### 运行入口
+
+- [x] 新增`python -m tests.eval.run_suite`，支持Core、Memory、Learning，支持Smoke/Regression/Manual、重复运行、Memory OFF对照和Baseline比较
+- [x] 显式标记9条Core、2条Memory、3条Learning Smoke场景；Regression继续包含Smoke与原完整题集
+- [x] 统一CLI读取设置中心生效配置与Keychain，不退回只读取`.env`的旧配置口径
+- [x] 真实API评测不进入pytest；Computer、外部MCP和真实审批浮窗仍保持手动E2E边界
+
+#### 验证
+
+- [x] 新增统一记录、JSON往返、稳定性、缓存未知、安全阻断、成本警告、场景摘要和CLI离线端到端测试
+- [x] Core、Memory、Skill Learning相关离线回归：36 passed
+- [x] Backend全量`pytest`：964 passed；`ruff`、`compileall`通过
+
+### 完成：综合评测 V1 首轮真实 Baseline 收口
+
+#### 语义与可诊断性
+
+- [x] Memory Store 断言增加 `summary_contains_any`，允许同一事实使用“容量 / 最多 25 条 / 上限”等等价表达，不再要求模型逐字复述单一关键词
+- [x] 综合 Learning `sample.json` 保存 Pattern Mining 扫描数、完整 Cluster 与每个 Distillation 的 action/reason/related skills/error；失败报告可直接定位卡在 Mining 还是 Distillation
+- [x] Learning 旧 Trace fixture 补齐 Task ID；Harness 对未显式声明的工具事件按工具轮推导 Agent Step，确保生产 `TaskTraceSelector` 能读取真实证据
+- [x] `memory-05` 改为明确的 Atlas 项目专属历史决定，避免与 Core Memory 的全局长期约束职责混淆
+- [x] Task 系统提示与 `task_create` Schema 明确“一整体目标一 Task，子工作使用 Steps；独立目标才拆多个 Task”，并列出合法 priority
+- [x] `eval-04` 明确三个部分共同属于同一里程碑，消除“一目标还是三目标”的题意歧义
+
+#### 真实模型结果
+
+- [x] 四条问题样本最终复测 3 次：Task 3/3、Memory UPDATE 2/3、Learning CREATE 3/3、Learning UPDATE 2/3，总计 10/12
+- [x] 完整 Smoke：45 个阶段样本，43/45 通过（95.6%）；稳定通过率 86.7%；安全场景 100%；Core 与 Learning 本轮全部通过
+- [x] 首份 Baseline 保存到 `tests/eval/reports/baselines/deepseek-smoke.json`，Schema V2，绑定 Provider/Model、题集摘要和工作树版本标识
+
+#### 新 Bad Case
+
+- [ ] `memory-01` run#2：主模型把项目架构决定写入 Core，而专项场景期望 Ordinary Memory create→read；事实跨会话仍可回答，但暴露 Core / Ordinary 分类边界的概率性不稳定
+- [ ] Reflection Provider 偶发返回空 content 时会 fail closed；本轮未丢失已写 Core 事实，但 Ordinary Memory 专项链路因此无法完成
+- [ ] 当前 Baseline 基于尚未提交的工作树，版本标记为 `35c7a84d+working-tree`；提交后应重跑一次生成可由单一 commit 完整复现的发布基线
+
+#### 最终验证
+
+- [x] Backend 全量 `pytest`：965 passed
+- [x] Backend `ruff check .`：通过
+- [x] Backend `python -m compileall -q app tests`：通过
+- [x] `git diff --check`：通过
+
+### 完成：综合评测 Regression ×3 与稳定性收口
+
+#### 框架与真实评测
+
+- [x] 统一 Core、Memory、Skill Learning 的 Sample Record、Usage、报告与 Baseline 口径
+- [x] 完整 Regression：68 个稳定性单元 × 3，共 204 样本，192/204（94.1%）
+- [x] 保存 Mining、Distillation 和 Skill overlap 裁决原始输出
+- [x] 对 11 条问题场景各复测 3 次；修正后的 `learning-05a` 再次 Live 3/3
+
+#### 生产修复
+
+- [x] 空 assistant、文本 DSML 有界修复且不污染历史
+- [x] Prefix 越过压缩线时回退 canonical history 生成滚动摘要
+- [x] Host 默认系统提示请求态注入并去重，补充工具必要性规则
+- [x] Core deferred tool 搜索闭环；Reflection 禁止 Ordinary 补偿 Core
+- [x] Skill CREATE 与相关 Skill 冲突时增加 task-family overlap 裁决
+- [x] 流在首个可见 delta 前中断时安全重试，交付 delta 后禁止重放
+
+#### Eval 修复与未完成边界
+
+- [x] 修复同义 Memory 断言、Learning Trace Anchor、未知危险工具断言和混测场景
+- [x] 修复 `eval-05` 不合理输出预留与 `learning-05a` 自相矛盾 Fixture
+- [ ] 用户要求停止继续增加 API 开销；`eval-05`、`memory-03` 最后修复尚未再次 Live 复验
+- [ ] 代码提交后再跑完整 Regression ×3，生成绑定单一 commit 的发布 Baseline
+
+#### 最终验证
+
+- [x] Backend 全量 `pytest`：1004 passed
+- [x] `ruff check .`：通过
+- [x] `python -m compileall -q app tests`：通过
+- [x] `git diff --check`：通过
+
+### 完成：综合 Eval 设计与优化故事文档化
+
+- [x] 新增 `docs/eval.md`，记录本轮 Eval 的目标、范围、Harness、Sample、断言、稳定性、成本和 Baseline 机制
+- [x] 按时间线记录初始 Smoke、问题样本定向迭代、Smoke 收口、Regression 和最终 204 样本结果
+- [x] 区分生产修复、Eval 修复、模型波动与 Provider 故障，保留不能严格 A/B 和尚未 Live 复验的边界
+- [x] 记录日常离线、定向 Live 和发布前完整 Regression 的分层执行方式

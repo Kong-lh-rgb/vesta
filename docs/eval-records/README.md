@@ -5,6 +5,7 @@
 > 代码在 `backend/tests/`；Eval 基建：
 > - Agent Runtime / Skill Learning → `backend/tests/eval/`
 > - 长期记忆 → `backend/tests/memory_eval/`
+> - 综合入口 → `backend/tests/eval/run_suite.py`
 > 原始时间戳报告保留在各 `reports/` 子目录。
 
 ## 目录
@@ -12,10 +13,53 @@
 | 文件 | 内容 | 来源 |
 | --- | --- | --- |
 | `runtime-agent-evaluation.md` | Agent Runtime 通用测评（场景库/基线/压缩稳定性）+ 长期记忆测评结果 | 原根目录 `evaluation.md` |
+| `agent-eval-optimization-story.md` | 2026-08-23 综合 Eval 框架、真实 Bad Case、优化过程、结果与诚实边界 | 本轮综合评测收口 |
 | `memory-evaluation-design.md` | 长期记忆测评设计（确定性不变量 + 真实模型语义测评分层、场景结构、运行方式） | 原 `docs/memory-evaluation.md` |
 | `skill-learning-eval-history.md` | Skill Learning V1 各阶段 Bad Case、Eval 指标与提升历史（阶段一~四） | 原根目录 `skill-learning-eval-history.md` |
 | `backend/tests/eval/reports/` | Agent Runtime / Skill Learning 的 Live Eval 原始报告（时间戳） | 代码库 |
 | `backend/tests/memory_eval/reports/` | 长期记忆 Live Eval 原始报告 | 代码库 |
+
+## Agent 综合评测 V1
+
+综合入口不替换现有 Harness，而是把 Core、Memory、Skill Learning 转换为统一的
+`EvalSampleRecord`。三套评测继续使用自己的环境、断言和 Judge，但共享以下输出口径：
+
+- 样本通过率与多次运行的稳定通过率；
+- Main Agent、Context Summary、Memory Reflection、Maintenance 和 Provider Total；
+- Cached / Uncached Input、可计费 Token、模型调用次数与耗时；
+- 单样本 `sample.json`、Agent 类评测的 `trace.json`、综合 `report.json` 和 `report.md`；
+- 同 Provider、Model、Suite、Tier、场景集合和场景定义摘要下的 Baseline 比较。
+
+Smoke 场景只覆盖关键路径，Regression 包含全部非 Manual 场景。真实模型评测会产生 API
+成本，必须显式运行，不进入普通 `pytest`：
+
+```bash
+cd backend
+
+# Core Smoke
+.venv/bin/python -m tests.eval.run_suite \
+  --suite core --tier smoke --runs 1 --print
+
+# 三套综合 Smoke；建议建立正式基线时每条运行 3 次
+.venv/bin/python -m tests.eval.run_suite \
+  --suite core --suite memory --suite learning \
+  --tier smoke --runs 3 \
+  --save-baseline tests/eval/reports/baselines/deepseek-smoke.json
+
+# 使用相同模型和完全相同题集比较
+.venv/bin/python -m tests.eval.run_suite \
+  --suite core --suite memory --suite learning \
+  --tier smoke --runs 3 \
+  --baseline tests/eval/reports/baselines/deepseek-smoke.json
+```
+
+Baseline V1 将安全场景失败、原本稳定通过场景退化作为阻断项；平均可计费 Token 增长超过
+20% 只产生警告。不同模型、不同题集或场景定义发生变化时拒绝直接比较，避免生成没有意义的
+升降结论。
+
+RunManager / Recovery、Automation、MCP、Computer 和真实审批浮窗目前继续由离线集成测试与
+macOS 手动 E2E 负责。它们不伪装成普通 Live 场景，也不会在 CI 中自动控制电脑或连接外部
+MCP；后续应以独立 Integration / Manual Suite 接入同一 Sample Record。
 
 > 合并说明：根目录 `evaluation.md`、`skill-learning-eval-history.md` 与
 > `docs/memory-evaluation.md` 均通过 `git mv` 移入本目录（保留 Git 历史），

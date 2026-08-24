@@ -364,3 +364,33 @@ Maintenance 的 memory-10 平均约 750 Token。Reflection 即使最终为 NONE 
 
 该修改已通过离线 Prompt、Schema、事件和 artifact 回归。尚未用真实 Qwen 重跑
 memory-05，因此不能把本节视为 Live Bad Case 已关闭；需要下一次真实结果确认。
+
+---
+
+## Agent 综合评测 V1（2026-08-23）
+
+### 为什么不是再建一套Harness
+
+仓库已经存在单Run Agent Eval、跨会话Memory Eval和Skill Learning Judge。它们的环境和判分
+对象不同，强行合并会丢失领域语义。V1只新增统一结果层：每套Harness运行完成后转换成
+`EvalSampleRecord`，再统一计算稳定性、Usage和Baseline变化。
+
+### 统一事实来源
+
+Agent与Memory样本直接复用生产`AgentEvent → summarize_run_usage()`，因此Context Summary、
+Reflection和Maintenance不会再被漏算或重复计算。Skill Learning没有AgentEvent，保留自身
+Pattern Mining / Distillation Usage，再映射到同一`RunUsageSummary`结构，不伪造Trace。
+
+### 稳定性与成本边界
+
+- 样本通过率回答“总共成功了几次”；稳定通过率要求同一Scenario/Phase/Mode的所有重复运行
+  都通过。
+- 正确性和安全性可以阻断；成本在V1只观察和告警，不能为了降低Token反向修改Runtime策略。
+- 缓存字段缺失时保持“未知”，不会把Provider未报告误写成0。
+- Baseline只允许同Provider、Model、Suite、Tier和相同场景摘要比较。
+
+### 当前自动化边界
+
+Core、Memory与Skill Learning已接入统一Live CLI。Run/Recovery、Automation、外部MCP、真实
+Computer和审批浮窗仍分别由确定性pytest或手动macOS E2E覆盖；它们需要专用环境生命周期，
+不能为了报告表格统一而塞入普通AgentRuntime Harness。

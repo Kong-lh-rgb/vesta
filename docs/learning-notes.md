@@ -2310,3 +2310,94 @@ Provider Total      Main + Summary + Reflection + Maintenance
    不代表预算豁免。
 5. 摘要失败时原始聊天历史仍保存在数据库中，Reducer也保留原请求上下文。Trace展示“失败”和
    已产生Usage，不能把失败误显示成“未运行”或零成本。
+
+## 63. 综合评测应该统一结果，不应该抹平领域Harness（2026-08-23）
+
+单Run工具调用、跨会话长期记忆和Skill Learning Pattern Mining的最小评测单位不同：前者是
+一次AgentResult，Memory是共享Store的多个Phase，Learning则是Task簇、Distillation和Human
+Gate。把它们塞进同一个Runner会迫使领域事实失真。
+
+更稳定的分层是：
+
+```text
+领域Harness：负责准备真实环境、执行和领域判分
+Adapter：     只把既有结果转换成EvalSampleRecord
+Report：      统一稳定性、Usage、证据路径和Baseline比较
+```
+
+这样统一的是“如何比较结果”，不是“所有能力必须怎样执行”。没有AgentEvent的Learning不能
+伪造Trace；需要真实macOS的Computer也不能为了进入CI改成Fake后声称真机通过。
+
+## 64. Baseline必须绑定题集身份，成本变化不能直接等价为质量退化（2026-08-23）
+
+两个报告只有在Provider、Model、Suite、Tier和场景定义完全一致时才有直接比较价值。只比较
+场景ID仍不够：同一个ID的输入或断言改变后已经是另一道题，因此Vesta对选中场景的规范化JSON
+计算SHA-256摘要，摘要不同就拒绝比较。
+
+V1将退化分成两类：
+
+1. 安全场景失败，或Baseline中稳定通过的语义场景变为失败/波动，属于阻断回归。
+2. 可计费Token或耗时增长属于效率信号。Provider缓存、模型版本和回答长度都可能造成波动，
+   因此超过20%先告警并保留证据，不自动判定产品能力失败。
+
+稳定通过率也不能用总样本通过率替代。例如同一场景3次成功2次，样本通过率是66.7%，但它还
+不是一个可以依赖的稳定能力，`stable_pass=false`。
+
+## 65. 语义断言、证据链和模型判断必须分开诊断（2026-08-23）
+
+真实模型评测失败不一定等于生产功能失败。Vesta 首轮综合 Baseline 收口时遇到了三类不同问题：
+
+1. **字面断言假阴性**：Memory 摘要写“最多 25 条”与写“容量 25 条”语义一致，逐字要求“容量”会误判。适合用 `contains_any` 表达一组可接受说法，但仍保留数字、否定关系和 revision 等不可放宽事实。
+2. **Fixture 没有满足生产契约**：Learning Trace 缺少 `task_id` 和 Agent Step，导致 `TaskTraceSelector` 正确地拒绝这些事件，Distiller 只能看到 Task-only fallback。修复方法是让 fixture 产生符合真实 Trace 的锚点，不能为了过测评放宽生产 Selector。
+3. **模型的真实分类波动**：同一项目决定有时进入 Core、有时由 Reflection 写入 Ordinary Memory。两条路径都可能保留事实，但专项场景测试的是 Ordinary create→read，因此走 Core 仍应记录为该能力失败。
+
+Learning 的结构化中间结果是判断边界的关键：
+
+```text
+Completed Tasks
+      ↓
+Pattern Mining：scanned / clusters / task_ids
+      ↓
+Distillation：action / reason / related skills / error
+      ↓
+Candidate
+```
+
+如果 `clusters=[]`，问题在模式发现；如果有 Cluster 但 `action=none`，问题在证据质量或蒸馏判断；如果 action 正确但 Candidate 不存在，才继续查转换、校验或存储。报告必须保存这些事实，不能只留下“candidate_count=0”。
+
+首轮完整 Smoke 的 45 个阶段样本中通过 43 个，样本通过率 95.6%，但稳定通过率只有 86.7%。这说明“总体看起来很好”与“每项能力可重复依赖”不是同一结论。Baseline 的价值正是固定当前真实状态，包括尚未解决的坏案例，而不是只保存一份全绿成绩单。
+
+## 66. 真实 Agent Eval 的第一步是归因，不是立刻改 Prompt（2026-08-23）
+
+一次失败至少可能来自生产代码、模型概率波动、Provider 基础设施、Fixture 或 Judge。若不先看
+Trace 和中间结构，只按最终红绿修改 Prompt，测试策略会被少数样本牵着走。
+
+本轮形成的最小诊断顺序是：
+
+1. 先确认样本完整、模型与题集摘要一致；
+2. 查看停止原因和模型请求，排除上下文预算、空响应、伪工具协议和网络中断；
+3. 查看工具结果、Task/Memory 文件等确定性事实；
+4. Learning 再按 Mining → Evidence → Distillation → Candidate 逐层定位；
+5. 最后判断应修生产、增加有界复核，还是修正断言与 Fixture。
+
+同义断言只能放宽表达，不能放宽事实；例如“先给结论”和“先给出结论”可以是一组语义候选，
+但数字上限、否定关系、revision 和成功 ToolResult 仍必须严格。模型已经合理执行时，不应要求
+零诊断工具或完全固定调用轨迹；模型违反安全、持久化和状态机契约时，也不能为了通过率修改
+Judge。
+
+完整 Live Regression 成本高，应采用“离线全量常跑、问题样本重复 3 次、提交后才做完整
+Regression ×3”的漏斗。停止额外 API 调用后，要明确标注哪些修复只有离线验证，不能把推测
+结果写成最终 100%。
+
+## 67. Eval 报告必须同时讲清能力、稳定性与证据版本（2026-08-24）
+
+“192/204 通过”描述的是所有单次运行，“稳定通过率 83.8%”描述的是同一场景连续三次
+全部成功。前者高并不意味着每项能力都可以稳定依赖，二者必须一起展示。
+
+评测指标的变化也只有在 Provider、Model、场景集合、Runs 和 Scenario Digest 一致时，
+才能作为严格 A/B。题目或 Fixture 修正后的前后分数只能称为工程演进趋势。报告既要记录
+改进，也要明确哪些收益来自生产修复、哪些来自评测假阴性修复，以及哪些结论尚未完成 Live
+复验。
+
+完整 Eval 的合理使用方式是分层漏斗：日常运行离线测试，模块修改后只重复相关问题样本，
+版本里程碑才运行完整 Regression 并保存绑定单一 Commit 的 Baseline。
