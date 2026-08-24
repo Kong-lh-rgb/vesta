@@ -213,6 +213,45 @@ async def test_existing_task_is_not_mistaken_for_new_task(tmp_path) -> None:
     assert task_check.ok is True
 
 
+async def test_prepare_environment_persists_complete_initial_task(
+    tmp_path,
+) -> None:
+    scenario = Scenario.model_validate(
+        {
+            "id": "initial-task-fields",
+            "group": "task",
+            "name": "预置任务完整字段",
+            "initial_tasks": [
+                {
+                    "alias": "current",
+                    "title": "诊断发布失败",
+                    "description": "保留完整的评测任务事实",
+                    "goal": "恢复发布流程",
+                    "status": "active",
+                    "constraints": ["不能跳过测试", "保持回滚能力"],
+                    "key_facts": ["失败发生在打包阶段"],
+                    "run_ids": ["run-a", "run-b"],
+                }
+            ],
+            "user_input": "继续处理。",
+            "expect": {},
+        }
+    )
+
+    environment = await harness.prepare_environment(
+        scenario,
+        root=tmp_path / scenario.id,
+    )
+    task = await environment.task_store.get(environment.initial_task_ids[0])
+
+    assert task is not None
+    assert task.description == "保留完整的评测任务事实"
+    assert task.constraints == ("不能跳过测试", "保持回滚能力")
+    assert task.key_facts == ("失败发生在打包阶段",)
+    assert task.run_ids == ("run-a", "run-b")
+    assert task.status.value == "active"
+
+
 async def test_eval03_checks_failed_tool_and_blocked_step(
     scenarios: tuple[Scenario, ...],
     tmp_path,

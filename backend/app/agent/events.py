@@ -114,6 +114,8 @@ class AgentEvent(BaseModel):
     reflection_triggered: bool | None = None
     reflection_action: str | None = None
     reflection_duration_ms: float | None = Field(default=None, ge=0.0)
+    reflection_attempts: int | None = Field(default=None, ge=0)
+    reflection_finish_reason: str | None = None
     reflection_error: str | None = None
     reflection_skip_reason: str | None = None
     reflection_memory_id: str | None = None

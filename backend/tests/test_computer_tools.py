@@ -275,7 +275,10 @@ async def test_textual_tool_call_in_finalization_is_not_completed() -> None:
     ).run("输入 123")
 
     assert result.ok is False
-    assert result.stop_reason.value == "max_steps"
+    assert result.stop_reason.value == "model_error"
+    assert result.error is not None
+    assert result.error.type == "ModelInvocationError"
+    assert "textual tool call" in result.error.message
     assert len(adapter.requests) == 2
 
 

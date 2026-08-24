@@ -119,6 +119,20 @@ _RUN_BUDGET_WARNING_MESSAGE = (
     "本 Run 的累计 Main Agent 用量已进入预警区。请减少不必要的重复调查和工具"
     "调用，优先完成当前目标；仍可在确有必要时继续使用工具。"
 )
+_TOOL_ROUND_LIMIT_FALLBACK_MESSAGE = (
+    "已达到本 Run 的工具调用轮次上限，系统已停止继续执行工具。已有工具结果"
+    "仍保留在本轮记录中，但模型未能在无工具模式下生成可靠总结；如需继续，"
+    "请基于当前结果提出下一步要求。"
+)
+_EMPTY_FINAL_RETRY_MESSAGE = (
+    "上一条模型响应没有可展示文本，也没有工具调用。请基于已有上下文给出一条"
+    "完整、可直接展示给用户的最终回答；不要只输出内部思考。"
+)
+_TEXTUAL_TOOL_CALL_RETRY_MESSAGE = (
+    "上一条模型响应把工具调用协议作为普通文本输出，系统不会执行这类文本。"
+    "如需调用工具，必须使用 Provider 的结构化 tool_calls；否则请直接给出一条"
+    "完整、可展示给用户的最终回答，不要输出 DSML、XML 或其他工具协议标记。"
+)
 
 
 @dataclass(frozen=True)
@@ -159,6 +173,7 @@ class AgentRuntime:
         *,
         provider: ModelProvider | str | None = None,
         model: str | None = None,
+        system_prompt: str | None = None,
         max_steps: int = 10,
         max_tool_rounds: int | None = None,
         max_output_tokens: int | None = None,
@@ -184,6 +199,8 @@ class AgentRuntime:
             raise ValueError("max_output_tokens must be at least 1")
         if max_tool_rounds is not None and max_tool_rounds < 1:
             raise ValueError("max_tool_rounds must be at least 1")
+        if system_prompt is not None and not isinstance(system_prompt, str):
+            raise TypeError("system_prompt must be a string or None")
         if memory_reflector is not None and memory_manager is None:
             raise ValueError("memory_reflector requires memory_manager")
         if memory_maintenance_reflector is not None and memory_manager is None:
@@ -195,6 +212,11 @@ class AgentRuntime:
         self._tool_registry = tool_registry
         self._provider = provider
         self._model = model
+        self._system_prompt = (
+            system_prompt
+            if system_prompt is not None and system_prompt.strip()
+            else None
+        )
         self._max_steps = max_steps
         self._max_tool_rounds = max_tool_rounds
         self._max_output_tokens = max_output_tokens
@@ -361,6 +383,23 @@ class AgentRuntime:
         # 原始消息用于 AgentResult 和数据库持久化，始终保留完整工具协议。
         historical_message_count = len(history)
         messages = [*history, user_message]
+        transformed_history = tuple(
+            _without_legacy_fixed_date(message) for message in history
+        )
+        request_system_message = (
+            Message(role=MessageRole.SYSTEM, content=self._system_prompt)
+            if self._system_prompt is not None
+            and not any(
+                message.role is MessageRole.SYSTEM
+                and message.content == self._system_prompt
+                for message in transformed_history
+            )
+            else None
+        )
+        request_history_offset = 1 if request_system_message is not None else 0
+        request_historical_message_count = (
+            historical_message_count + request_history_offset
+        )
         previous_signature: str | None = None
         repeated_count = 0
         tool_rounds: list[ToolRound] = []
@@ -385,6 +424,9 @@ class AgentRuntime:
         computer_halted = False
         budget_warning_emitted = False
         budget_finalization_attempted = False
+        empty_final_retry_used = False
+        textual_tool_call_retry_used = False
+        response_repair_message: Message | None = None
         request_prefix_state: _RequestPrefixState | None = None
 
         await emitter.emit(
@@ -412,6 +454,26 @@ class AgentRuntime:
                 tool_calls=tool_calls,
                 usage=usage,
                 error=error,
+                summary_state=current_summary_state,
+            )
+
+        def stop_at_tool_round_limit(*, step: int) -> AgentResult:
+            """模型拒绝无工具收尾时，由 Harness 给出诚实且确定性的边界说明。"""
+
+            final_message = Message(
+                role=MessageRole.ASSISTANT,
+                content=_TOOL_ROUND_LIMIT_FALLBACK_MESSAGE,
+            )
+            messages[-1] = final_message
+            return self._result(
+                run_id=run_id,
+                final_message=final_message,
+                messages=messages,
+                steps=step,
+                stop_reason=AgentStopReason.FINAL_ANSWER,
+                tool_rounds=tool_rounds,
+                tool_calls=tool_calls,
+                usage=usage,
                 summary_state=current_summary_state,
             )
 
@@ -473,18 +535,33 @@ class AgentRuntime:
                 )
             if self._checkpoint_store is not None:
                 await self._checkpoint_store.before_model(run_id, step=step)
+            tool_round_limit_reached = (
+                self._max_tool_rounds is not None
+                and len(tool_rounds) >= self._max_tool_rounds
+            )
             force_final_answer = (
                 finalization_step
                 or computer_halted
                 or budget_forces_final
-                or (
-                    self._max_tool_rounds is not None
-                    and len(tool_rounds) >= self._max_tool_rounds
-                )
+                or tool_round_limit_reached
             )
             # 原始历史保持不变；模型请求视图会移除旧版持久提示词中的固定日期。
-            source_messages = tuple(
+            raw_source_messages = tuple(
                 _without_legacy_fixed_date(message) for message in messages
+            )
+            if response_repair_message is not None:
+                raw_source_messages = (
+                    *raw_source_messages,
+                    response_repair_message,
+                )
+            source_messages = (
+                (request_system_message, *raw_source_messages)
+                if request_system_message is not None
+                else raw_source_messages
+            )
+            request_summary_state = _offset_summary_state(
+                current_summary_state,
+                request_history_offset,
             )
             request_messages = source_messages
             request_tools = (
@@ -583,9 +660,9 @@ class AgentRuntime:
                 context_messages = tuple(ephemeral_messages)
                 if context_messages:
                     request_messages = (
-                        *request_messages[:historical_message_count],
+                        *request_messages[:request_historical_message_count],
                         *context_messages,
-                        *request_messages[historical_message_count:],
+                        *request_messages[request_historical_message_count:],
                     )
                 if force_final_answer:
                     if computer_halted:
@@ -634,10 +711,12 @@ class AgentRuntime:
             )
             context_input_messages = continuation_messages or request_messages
             context_history_count = (
-                0 if continuation_messages is not None else historical_message_count
+                0
+                if continuation_messages is not None
+                else request_historical_message_count
             )
             context_summary_state = (
-                None if continuation_messages is not None else current_summary_state
+                None if continuation_messages is not None else request_summary_state
             )
             try:
                 context_decision = await self._context_manager.prepare(
@@ -649,6 +728,28 @@ class AgentRuntime:
                     history_count=context_history_count,
                     summary_state=context_summary_state,
                 )
+                if (
+                    continuation_messages is not None
+                    and current_summary_state is None
+                    and context_decision.requires_compaction
+                    and context_decision.needs_next_compaction_stage
+                ):
+                    # Prefix continuation 只携带已经发送过的模型上下文，无法可靠
+                    # 标出原始历史边界。它在越过压缩线后若仍未达到目标，必须回到
+                    # canonical request 重新准备，才能让首次滚动摘要读取真实历史。
+                    # 已存在摘要时，sent prefix 已经携带同一摘要，不应反复重建。
+                    continuation_messages = None
+                    cache_prefix_reused = False
+                    cache_prefix_message_count = 0
+                    context_decision = await self._context_manager.prepare(
+                        request_messages,
+                        tools=request_tools,
+                        model=resolved_model,
+                        provider=resolved_provider,
+                        max_output_tokens=effective_max_output_tokens,
+                        history_count=request_historical_message_count,
+                        summary_state=request_summary_state,
+                    )
             except Exception as exc:
                 return await stop_with_error(
                     ContextPreparationError(f"{type(exc).__name__}: {exc}"),
@@ -661,7 +762,7 @@ class AgentRuntime:
                 # 的持久化水位，避免一次“无需重建”的 Step 把 Summary State 清空。
                 context_decision = replace(
                     context_decision,
-                    summary_state=current_summary_state,
+                    summary_state=request_summary_state,
                 )
                 previous_prefix = request_prefix_state.sent_messages
                 cache_prefix_reused = (
@@ -671,7 +772,10 @@ class AgentRuntime:
                 if not cache_prefix_reused:
                     cache_prefix_message_count = 0
 
-            current_summary_state = context_decision.summary_state
+            current_summary_state = _offset_summary_state(
+                context_decision.summary_state,
+                -request_history_offset,
+            )
             usage = _add_usage(usage, context_decision.summary_usage)
             main_model_calls += _usage_call_count(context_decision.summary_usage)
             budget_chargeable_tokens += chargeable_tokens(
@@ -888,6 +992,9 @@ class AgentRuntime:
             assistant_message = response.message.model_copy(
                 update={"reasoning": None}
             )
+            # 单次响应修复提示只属于刚完成的 ModelRequest；无论模型返回文本
+            # 还是工具调用，都不能进入原始聊天历史或后续请求。
+            response_repair_message = None
             messages.append(assistant_message)
             await emitter.emit(
                 AgentEventType.MODEL_COMPLETED,
@@ -908,23 +1015,95 @@ class AgentRuntime:
                         AgentStopReason.RUN_BUDGET,
                         step=step,
                     )
-                break
+                if tool_round_limit_reached:
+                    return stop_at_tool_round_limit(step=step)
+                return await stop_with_error(
+                    ModelInvocationError(
+                        "model attempted a tool call during forced finalization"
+                    ),
+                    AgentStopReason.MODEL_ERROR,
+                    step=step,
+                )
             if not tool_calls_in_message:
-                if force_final_answer and _looks_like_textual_tool_call(
-                    assistant_message.content
-                ):
-                    # 部分模型在 tools=() 时仍会把 Provider 工具协议作为普通文本
-                    # 输出。它没有被执行，不能因此把 Run 标为 completed。
+                if not (assistant_message.content or "").strip():
+                    if tool_round_limit_reached:
+                        return stop_at_tool_round_limit(step=step)
+                    # 空 assistant 不是合法 Provider 历史消息。所有非 fallback
+                    # 路径都先移除，避免失败结果或后续会话携带非法协议消息。
+                    messages.pop()
                     if budget_forces_final:
                         return await stop_with_error(
                             RunBudgetExceededError(
-                                "model emitted a textual tool call during budget "
+                                "model returned empty content during budget "
                                 "finalization"
                             ),
                             AgentStopReason.RUN_BUDGET,
                             step=step,
                         )
-                    break
+                    if force_final_answer:
+                        return await stop_with_error(
+                            ModelInvocationError(
+                                "model returned empty content during forced "
+                                "finalization"
+                            ),
+                            AgentStopReason.MODEL_ERROR,
+                            step=step,
+                        )
+                    if not empty_final_retry_used:
+                        empty_final_retry_used = True
+                        response_repair_message = Message(
+                            role=MessageRole.SYSTEM,
+                            content=_EMPTY_FINAL_RETRY_MESSAGE,
+                        )
+                        continue
+                    return await stop_with_error(
+                        ModelInvocationError(
+                            "model returned empty content twice without tool calls"
+                        ),
+                        AgentStopReason.MODEL_ERROR,
+                        step=step,
+                    )
+                if _looks_like_textual_tool_call(assistant_message.content):
+                    # 部分模型在 tools=() 时仍会把 Provider 工具协议作为普通文本
+                    # 输出。它没有被执行，不能因此把 Run 标为 completed。
+                    if force_final_answer:
+                        if budget_forces_final:
+                            return await stop_with_error(
+                                RunBudgetExceededError(
+                                    "model emitted a textual tool call during "
+                                    "budget finalization"
+                                ),
+                                AgentStopReason.RUN_BUDGET,
+                                step=step,
+                            )
+                        if tool_round_limit_reached:
+                            return stop_at_tool_round_limit(step=step)
+                        return await stop_with_error(
+                            ModelInvocationError(
+                                "model emitted a textual tool call during forced "
+                                "finalization"
+                            ),
+                            AgentStopReason.MODEL_ERROR,
+                            step=step,
+                        )
+                    # 普通响应里的文本协议既不能执行，也不能作为最终答案持久化。
+                    # 只允许一次有界修复，避免模型在协议文本中无限循环。
+                    messages.pop()
+                    if not textual_tool_call_retry_used:
+                        textual_tool_call_retry_used = True
+                        response_repair_message = Message(
+                            role=MessageRole.SYSTEM,
+                            content=_TEXTUAL_TOOL_CALL_RETRY_MESSAGE,
+                        )
+                        continue
+                    return await stop_with_error(
+                        ModelInvocationError(
+                            "model emitted a textual tool call twice without "
+                            "structured tool_calls"
+                        ),
+                        AgentStopReason.MODEL_ERROR,
+                        step=step,
+                    )
                 if computer_verification_pending and not computer_halted:
                     messages.append(
                         Message(
@@ -1186,8 +1365,18 @@ class AgentRuntime:
         """尝试把 skill_read 命中的 skill 加入本 run 的 active set（受预算约束）。"""
         if self._skill_store is None or self._skill_context_provider is None:
             return
-        skill_name = _skill_read_activated_name(result.output)
-        if not skill_name or skill_name in active_skills:
+        skill_name, found = _skill_read_outcome(result.output)
+        if not skill_name:
+            return
+        if not found:
+            await emitter.emit(
+                AgentEventType.SKILL_ACTIVATION_FAILED,
+                step=step,
+                skill_name=skill_name,
+                skill_error="skill not found",
+            )
+            return
+        if skill_name in active_skills:
             return
         skill = await self._skill_store.load(skill_name)
         if skill is None:
@@ -1444,6 +1633,12 @@ class AgentRuntime:
                     else None
                 ),
                 reflection_duration_ms=duration_ms,
+                reflection_attempts=(
+                    proposal.attempts if proposal is not None else None
+                ),
+                reflection_finish_reason=(
+                    proposal.finish_reason if proposal is not None else None
+                ),
                 reflection_error=f"{type(exc).__name__}: {exc}",
                 reflection_memory_id=(
                     proposal.decision.memory_id
@@ -1482,6 +1677,8 @@ class AgentRuntime:
             reflection_triggered=True,
             reflection_action=proposal.decision.action.value,
             reflection_duration_ms=proposal.duration_ms,
+            reflection_attempts=proposal.attempts,
+            reflection_finish_reason=proposal.finish_reason,
             reflection_memory_id=memory_id,
             reflection_mutation_applied=mutation_applied,
             reflection_maintenance_required=maintenance_required,
@@ -1898,21 +2095,37 @@ def _looks_like_textual_tool_call(content: str | None) -> bool:
     )
 
 
-def _skill_read_activated_name(output: object) -> str | None:
-    """从 skill_read 的工具结果中提取被命中激活的 skill 名。"""
+def _offset_summary_state(
+    state: ConversationSummaryState | None,
+    offset: int,
+) -> ConversationSummaryState | None:
+    """在 request-only 系统消息坐标与原始历史坐标之间转换摘要水位。"""
+
+    if state is None or offset == 0:
+        return state
+    covered_message_count = state.covered_message_count + offset
+    if covered_message_count < 0:
+        raise ValueError("summary offset moved covered_message_count below zero")
+    return state.model_copy(
+        update={"covered_message_count": covered_message_count}
+    )
+
+
+def _skill_read_outcome(output: object) -> tuple[str | None, bool]:
+    """解析 skill_read 结果，保留“查询成功但未找到”的失败语义。"""
+
     if isinstance(output, str):
         try:
             payload = json.loads(output)
         except (ValueError, TypeError):
-            return None
+            return None, False
     elif isinstance(output, dict):
         payload = output
     else:
-        return None
-    if not payload.get("found"):
-        return None
+        return None, False
     name = payload.get("name")
-    return name if isinstance(name, str) and name else None
+    normalized_name = name if isinstance(name, str) and name else None
+    return normalized_name, payload.get("found") is True
 
 
 def _plan_failure_message(message: Message, prefix: str) -> Message:

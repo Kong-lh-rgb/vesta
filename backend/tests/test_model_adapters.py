@@ -12,6 +12,7 @@ from app.models import (
     ApiStyle,
     Message,
     MessageRole,
+    ModelAdapterError,
     ModelProvider,
     ModelRequest,
     ModelSettings,
@@ -33,6 +34,19 @@ class AsyncRecorder:
         return self.response
 
 
+class AsyncSequenceRecorder:
+    def __init__(self, responses: list[Any]) -> None:
+        self.responses = iter(responses)
+        self.call_count = 0
+
+    async def create(self, **_: Any) -> Any:
+        self.call_count += 1
+        response = next(self.responses)
+        if isinstance(response, BaseException):
+            raise response
+        return response
+
+
 class AsyncStream:
     def __init__(self, items: list[Any]) -> None:
         self._items = items
@@ -43,9 +57,12 @@ class AsyncStream:
 
     async def __anext__(self) -> Any:
         try:
-            return next(self._iterator)
+            item = next(self._iterator)
         except StopIteration as exc:
             raise StopAsyncIteration from exc
+        if isinstance(item, BaseException):
+            raise item
+        return item
 
 
 class FakeAnthropicMessageStream:
@@ -106,12 +123,15 @@ def provider_config(
     provider: str,
     api_style: ApiStyle,
     model: str,
+    *,
+    max_retries: int = 2,
 ) -> ProviderConfig:
     return ProviderConfig(
         provider=provider,
         model=model,
         api_key=SecretStr("test-key"),
         api_style=api_style,
+        max_retries=max_retries,
     )
 
 
@@ -338,6 +358,256 @@ async def test_openai_chat_stream_rebuilds_text_and_tool_calls() -> None:
     assert response.message.tool_calls[0].arguments == {"query": "Vesta"}
     assert response.message.reasoning == "思考中"
     assert response.usage.total_tokens == 8
+
+
+@pytest.mark.asyncio
+async def test_openai_responses_stream_retries_before_visible_delta() -> None:
+    final = SimpleNamespace(
+        id="resp-retried",
+        model="gpt-test",
+        output_text="完成",
+        output=[],
+        status="completed",
+        usage=SimpleNamespace(input_tokens=4, output_tokens=2, total_tokens=6),
+    )
+    recorder = AsyncSequenceRecorder(
+        [
+            AsyncStream([RuntimeError("incomplete chunked read")]),
+            AsyncStream(
+                [
+                    SimpleNamespace(type="response.output_text.delta", delta="完成"),
+                    SimpleNamespace(type="response.completed", response=final),
+                ]
+            ),
+        ]
+    )
+    client = FakeOpenAIClient()
+    client.responses = recorder
+    adapter = OpenAICompatibleAdapter(
+        provider_config(
+            "openai",
+            ApiStyle.RESPONSES,
+            "gpt-test",
+            max_retries=1,
+        ),
+        client=client,
+    )
+    deltas: list[str] = []
+
+    response = await adapter.complete_stream(
+        ModelRequest(messages=(Message(role=MessageRole.USER, content="hello"),)),
+        on_text_delta=capture_deltas(deltas),
+    )
+
+    assert recorder.call_count == 2
+    assert deltas == ["完成"]
+    assert response.message.content == "完成"
+
+
+@pytest.mark.asyncio
+async def test_openai_chat_stream_does_not_retry_after_text_delta() -> None:
+    first_stream = AsyncStream(
+        [
+            SimpleNamespace(
+                id="chat-first",
+                model="deepseek-test",
+                usage=None,
+                choices=[
+                    SimpleNamespace(
+                        finish_reason=None,
+                        delta=SimpleNamespace(
+                            content="半",
+                            reasoning_content=None,
+                            tool_calls=None,
+                        ),
+                    )
+                ],
+            ),
+            RuntimeError("incomplete chunked read"),
+        ]
+    )
+    recorder = AsyncSequenceRecorder([first_stream, AsyncStream([])])
+    client = FakeOpenAIClient()
+    client.chat.completions = recorder
+    adapter = OpenAICompatibleAdapter(
+        provider_config(
+            "deepseek",
+            ApiStyle.CHAT_COMPLETIONS,
+            "deepseek-test",
+            max_retries=2,
+        ),
+        client=client,
+    )
+    deltas: list[str] = []
+
+    with pytest.raises(ModelAdapterError, match="incomplete chunked read"):
+        await adapter.complete_stream(
+            ModelRequest(messages=(Message(role=MessageRole.USER, content="hello"),)),
+            on_text_delta=capture_deltas(deltas),
+        )
+
+    assert recorder.call_count == 1
+    assert deltas == ["半"]
+
+
+@pytest.mark.asyncio
+async def test_openai_chat_stream_does_not_retry_after_reasoning_delta() -> None:
+    first_stream = AsyncStream(
+        [
+            SimpleNamespace(
+                id="chat-first",
+                model="deepseek-test",
+                usage=None,
+                choices=[
+                    SimpleNamespace(
+                        finish_reason=None,
+                        delta=SimpleNamespace(
+                            content=None,
+                            reasoning_content="正在分析",
+                            tool_calls=None,
+                        ),
+                    )
+                ],
+            ),
+            RuntimeError("stream interrupted"),
+        ]
+    )
+    recorder = AsyncSequenceRecorder([first_stream, AsyncStream([])])
+    client = FakeOpenAIClient()
+    client.chat.completions = recorder
+    adapter = OpenAICompatibleAdapter(
+        provider_config(
+            "deepseek",
+            ApiStyle.CHAT_COMPLETIONS,
+            "deepseek-test",
+            max_retries=2,
+        ),
+        client=client,
+    )
+    reasoning_deltas: list[str] = []
+
+    with pytest.raises(ModelAdapterError, match="stream interrupted"):
+        await adapter.complete_stream(
+            ModelRequest(messages=(Message(role=MessageRole.USER, content="hello"),)),
+            on_text_delta=capture_deltas([]),
+            on_reasoning_delta=capture_deltas(reasoning_deltas),
+        )
+
+    assert recorder.call_count == 1
+    assert reasoning_deltas == ["正在分析"]
+
+
+@pytest.mark.asyncio
+async def test_openai_chat_stream_retries_after_only_tool_deltas() -> None:
+    first_stream = AsyncStream(
+        [
+            SimpleNamespace(
+                id="chat-first",
+                model="deepseek-test",
+                usage=None,
+                choices=[
+                    SimpleNamespace(
+                        finish_reason=None,
+                        delta=SimpleNamespace(
+                            content=None,
+                            reasoning_content=None,
+                            tool_calls=[
+                                SimpleNamespace(
+                                    index=0,
+                                    id="old-call",
+                                    function=SimpleNamespace(
+                                        name="old_tool",
+                                        arguments='{"old":true}',
+                                    ),
+                                )
+                            ],
+                        ),
+                    )
+                ],
+            ),
+            RuntimeError("stream interrupted"),
+        ]
+    )
+    second_stream = AsyncStream(
+        [
+            SimpleNamespace(
+                id="chat-second",
+                model="deepseek-test",
+                usage=None,
+                choices=[
+                    SimpleNamespace(
+                        finish_reason="tool_calls",
+                        delta=SimpleNamespace(
+                            content=None,
+                            reasoning_content=None,
+                            tool_calls=[
+                                SimpleNamespace(
+                                    index=0,
+                                    id="new-call",
+                                    function=SimpleNamespace(
+                                        name="search",
+                                        arguments='{"query":"Vesta"}',
+                                    ),
+                                )
+                            ],
+                        ),
+                    )
+                ],
+            )
+        ]
+    )
+    recorder = AsyncSequenceRecorder([first_stream, second_stream])
+    client = FakeOpenAIClient()
+    client.chat.completions = recorder
+    adapter = OpenAICompatibleAdapter(
+        provider_config(
+            "deepseek",
+            ApiStyle.CHAT_COMPLETIONS,
+            "deepseek-test",
+            max_retries=1,
+        ),
+        client=client,
+    )
+
+    response = await adapter.complete_stream(
+        ModelRequest(messages=(Message(role=MessageRole.USER, content="search"),)),
+        on_text_delta=capture_deltas([]),
+    )
+
+    assert recorder.call_count == 2
+    assert len(response.message.tool_calls) == 1
+    assert response.message.tool_calls[0].id == "new-call"
+    assert response.message.tool_calls[0].name == "search"
+
+
+@pytest.mark.asyncio
+async def test_openai_chat_stream_retry_count_uses_provider_config() -> None:
+    recorder = AsyncSequenceRecorder(
+        [
+            AsyncStream([RuntimeError("first interruption")]),
+            AsyncStream([RuntimeError("second interruption")]),
+            AsyncStream([]),
+        ]
+    )
+    client = FakeOpenAIClient()
+    client.chat.completions = recorder
+    adapter = OpenAICompatibleAdapter(
+        provider_config(
+            "deepseek",
+            ApiStyle.CHAT_COMPLETIONS,
+            "deepseek-test",
+            max_retries=1,
+        ),
+        client=client,
+    )
+
+    with pytest.raises(ModelAdapterError, match="second interruption"):
+        await adapter.complete_stream(
+            ModelRequest(messages=(Message(role=MessageRole.USER, content="hello"),)),
+            on_text_delta=capture_deltas([]),
+        )
+
+    assert recorder.call_count == 2
 
 
 @pytest.mark.asyncio

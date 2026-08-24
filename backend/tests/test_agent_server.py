@@ -23,7 +23,7 @@ import pytest
 from fastapi.testclient import TestClient
 from pydantic import SecretStr
 
-from app.application import Application
+from app.application import DEFAULT_SYSTEM_PROMPT, Application
 from app.memory import (
     MemoryMaintenanceConfig,
     MemoryReflectionConfig,
@@ -434,7 +434,7 @@ def test_conversation_rename_and_delete(make_app) -> None:
 
 
 def test_conversation_send_goes_through_service_and_writes_back(make_app) -> None:
-    app, application, _ = make_app()
+    app, application, adapter = make_app()
     with TestClient(app) as client:
         with client.websocket_connect("/rpc") as websocket:
             conversation_id = _require_result(
@@ -462,6 +462,14 @@ def test_conversation_send_goes_through_service_and_writes_back(make_app) -> Non
             assert result["run"]["conversation_id"] == conversation_id
             assert result["content"] == "已完成"
             assert calls and calls[0]["conversation_id"] == conversation_id
+            assert adapter.requests
+            request = adapter.requests[0]
+            assert request.messages[0].role is MessageRole.SYSTEM
+            assert request.messages[0].content == DEFAULT_SYSTEM_PROMPT
+            assert sum(
+                message.content == DEFAULT_SYSTEM_PROMPT
+                for message in request.messages
+            ) == 1
 
             # 执行期间收到 agent.event notification。
             agent_types = {
@@ -484,6 +492,7 @@ def test_conversation_send_goes_through_service_and_writes_back(make_app) -> Non
             assert detail["conversation"]["title"] == "帮我总结进度"
             roles = [msg["role"] for msg in detail["messages"]]
             assert "user" in roles and "assistant" in roles
+            assert "system" not in roles
 
 
 def test_conversation_send_missing_conversation(make_app) -> None:

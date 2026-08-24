@@ -436,6 +436,82 @@ async def test_task_get_missing(store: FileTaskStore) -> None:
         await _execute(tool, {"task_id": "0" * 32})
 
 
+async def test_task_current_handle_resolves_only_conversation_active_task(
+    store: FileTaskStore,
+) -> None:
+    """current 只解析当前会话最近活动的任务，不泄露其他会话任务。"""
+
+    task_a = await store.create(
+        title="A 当前任务",
+        owner_conversation_id="conv-a",
+    )
+    task_b = await store.create(
+        title="B 当前任务",
+        owner_conversation_id="conv-b",
+    )
+    await store.set_status(task_a.id, TaskStatus.ACTIVE)
+    await store.set_status(task_b.id, TaskStatus.ACTIVE)
+    tool = TaskGetTool(store)
+
+    result_a = await _execute(
+        tool,
+        {"task_id": "current"},
+        conversation_id="conv-a",
+    )
+    result_b = await _execute(
+        tool,
+        {"task_id": "CURRENT"},
+        conversation_id="conv-b",
+    )
+
+    assert result_a["id"] == task_a.id
+    assert result_b["id"] == task_b.id
+
+
+async def test_task_update_current_handle_advances_active_task(
+    store: FileTaskStore,
+) -> None:
+    """模型可用 current 更新注入上下文中的活动任务，避免转录长 ID。"""
+
+    created = await store.create(
+        title="当前任务",
+        owner_conversation_id=_OWNER,
+        steps=(TaskStep(id="s1", title="完成实现"),),
+    )
+    await store.set_status(created.id, TaskStatus.ACTIVE)
+    await store.set_step_status(
+        created.id,
+        "s1",
+        TaskStepStatus.IN_PROGRESS,
+    )
+
+    result = await _execute(
+        TaskUpdateTool(store),
+        {
+            "task_id": "current",
+            "status": "completed",
+            "step_id": "s1",
+            "step_status": "done",
+            "step_note": "相关测试通过",
+        },
+    )
+
+    assert result["id"] == created.id
+    assert result["status"] == "completed"
+    assert result["steps"][0]["status"] == "done"
+
+
+async def test_task_current_handle_missing_without_active_task(
+    store: FileTaskStore,
+) -> None:
+    """没有当前活动任务时，current 与普通未知 ID 一样表现为不存在。"""
+
+    await store.create(title="待接受计划", owner_conversation_id=_OWNER)
+
+    with pytest.raises(KeyError, match="任务不存在"):
+        await _execute(TaskGetTool(store), {"task_id": "current"})
+
+
 async def test_task_list_filters_and_briefs(store: FileTaskStore) -> None:
     tool = TaskListTool(store)
     active = await store.create(title="进行中", owner_conversation_id=_OWNER)

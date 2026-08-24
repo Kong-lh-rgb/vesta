@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 from collections.abc import Awaitable, Callable
+from dataclasses import dataclass
 from typing import Any
 
 from openai import AsyncOpenAI
@@ -66,18 +67,39 @@ class OpenAICompatibleAdapter(ModelAdapter):
     ) -> ModelResponse:
         """使用 Provider 原生流，同时在结束时还原完整 ``ModelResponse``。"""
 
-        try:
-            if self.config.api_style is ApiStyle.RESPONSES:
-                return await self._stream_responses(request, on_text_delta)
-            return await self._stream_chat(
-                request, on_text_delta, on_reasoning_delta
-            )
-        except ModelAdapterError:
-            raise
-        except Exception as exc:
-            raise ModelAdapterError(
-                f"{self.provider} model stream failed: {exc}"
-            ) from exc
+        retries = 0
+        while True:
+            attempt = _StreamAttemptState()
+            try:
+                if self.config.api_style is ApiStyle.RESPONSES:
+                    return await self._stream_responses(
+                        request,
+                        on_text_delta,
+                        attempt=attempt,
+                    )
+                return await self._stream_chat(
+                    request,
+                    on_text_delta,
+                    on_reasoning_delta,
+                    attempt=attempt,
+                )
+            except Exception as exc:
+                # SDK 只能重试“建立请求”阶段。流式迭代已经开始后，连接仍可能
+                # 因 incomplete chunked read 等网络错误中断，因此在这里补一层
+                # 有严格边界的重试：必须已经拿到流，且尚未向 UI 发出可见增量。
+                can_retry = (
+                    attempt.stream_opened
+                    and not attempt.visible_delta_emitted
+                    and retries < self.config.max_retries
+                )
+                if can_retry:
+                    retries += 1
+                    continue
+                if isinstance(exc, ModelAdapterError):
+                    raise
+                raise ModelAdapterError(
+                    f"{self.provider} model stream failed: {exc}"
+                ) from exc
 
     async def close(self) -> None:
         await self._client.close()
@@ -154,6 +176,8 @@ class OpenAICompatibleAdapter(ModelAdapter):
         self,
         request: ModelRequest,
         on_text_delta: Callable[[str], Awaitable[None]],
+        *,
+        attempt: _StreamAttemptState,
     ) -> ModelResponse:
         kwargs: dict[str, Any] = {
             "model": request.model or self.default_model,
@@ -172,12 +196,15 @@ class OpenAICompatibleAdapter(ModelAdapter):
             kwargs["extra_body"] = request.extra_body
 
         stream = await self._client.responses.create(**kwargs)
+        attempt.stream_opened = True
         final_response: Any | None = None
         async for event in stream:
             event_type = getattr(event, "type", None)
             if event_type == "response.output_text.delta":
                 delta = getattr(event, "delta", "")
                 if delta:
+                    # 在调用回调前标记，回调自身失败时也不能重放已经交付的内容。
+                    attempt.visible_delta_emitted = True
                     await on_text_delta(delta)
             elif event_type == "response.completed":
                 final_response = getattr(event, "response", None)
@@ -193,6 +220,8 @@ class OpenAICompatibleAdapter(ModelAdapter):
         request: ModelRequest,
         on_text_delta: Callable[[str], Awaitable[None]],
         on_reasoning_delta: Callable[[str], Awaitable[None]] | None = None,
+        *,
+        attempt: _StreamAttemptState,
     ) -> ModelResponse:
         kwargs: dict[str, Any] = {
             "model": request.model or self.default_model,
@@ -212,6 +241,7 @@ class OpenAICompatibleAdapter(ModelAdapter):
             kwargs["extra_body"] = request.extra_body
 
         stream = await self._client.chat.completions.create(**kwargs)
+        attempt.stream_opened = True
         response_id = ""
         response_model = request.model or self.default_model
         finish_reason: str | None = None
@@ -235,11 +265,13 @@ class OpenAICompatibleAdapter(ModelAdapter):
             content = getattr(delta, "content", None)
             if content:
                 text_parts.append(content)
+                attempt.visible_delta_emitted = True
                 await on_text_delta(content)
             reasoning = getattr(delta, "reasoning_content", None)
             if reasoning:
                 reasoning_parts.append(reasoning)
                 if on_reasoning_delta is not None:
+                    attempt.visible_delta_emitted = True
                     await on_reasoning_delta(reasoning)
             for call in getattr(delta, "tool_calls", None) or ():
                 index = int(getattr(call, "index", 0) or 0)
@@ -275,6 +307,14 @@ class OpenAICompatibleAdapter(ModelAdapter):
             usage=_chat_usage(usage),
             raw=None,
         )
+
+
+@dataclass
+class _StreamAttemptState:
+    """记录单次流尝试是否已越过可安全重放的边界。"""
+
+    stream_opened: bool = False
+    visible_delta_emitted: bool = False
 
 
 def _arguments_json(arguments: dict[str, Any] | str) -> str:
