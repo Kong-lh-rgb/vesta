@@ -143,6 +143,34 @@ def test_tool_reducer_shortens_only_unprotected_old_results() -> None:
     assert original[1].content == "H" * 500 + "T" * 500
 
 
+def test_tool_reducer_never_truncates_two_most_recent_rounds() -> None:
+    older = _tool_round("old", "O" * 1_000)
+    recent_one = _tool_round("recent-1", "R" * 1_000)
+    recent_two = _tool_round("recent-2", "S" * 1_000)
+    original = (*older, *recent_one, *recent_two)
+
+    result = ToolReducer(
+        keep_recent_tool_rounds=2,
+        max_tool_result_chars=100,
+        tool_result_head_chars=20,
+        tool_result_tail_chars=20,
+    ).project(
+        original,
+        tool_result_budget_tokens=1,
+        estimate_request=_estimate,
+        estimate_tool_results=_estimate,
+    )
+
+    assert result.compacted_tool_results == 1
+    assert result.removed_tool_rounds == 1
+    assert result.reached_target is False
+    assert recent_one[0] in result.messages
+    assert recent_one[1] in result.messages
+    assert recent_two[0] in result.messages
+    assert recent_two[1] in result.messages
+    assert result.messages[-1].content == "S" * 1_000
+
+
 def test_computer_observation_compaction_keeps_valid_semantic_json() -> None:
     payload = {
         "id": "obs-1",

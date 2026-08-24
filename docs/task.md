@@ -2757,3 +2757,23 @@ Automation ─┤  → ConversationService.dispatch(conversation_id, content, tr
 - [x] Closing / Tool / Task / Artifact 定向测试：120 passed
 - [x] Backend 全量离线测试：1008 passed
 - [x] Ruff、compileall 与 `git diff --check`：通过
+
+### 完成：最近两轮工具结果完整保护
+
+- [x] 工具结果清理只截断更早的工具轮
+- [x] 最近两轮工具结果既不截断，也不整轮删除
+- [x] 受保护结果导致工具预算无法达标时如实保留 `needs_next_compaction_stage`
+- [x] 上下文压缩 / AgentRuntime 定向测试：65 passed
+- [x] Backend 全量离线测试：1009 passed
+- [x] Ruff 与 compileall：通过
+
+### 完成：Max Steps 与 Run Budget 职责解耦
+
+- [x] AgentRuntime、Application 与 CLI 默认 `max_steps` 从 10 调整为 12
+- [x] Run Budget 默认不再按模型调用次数触发 Warning / Closing
+- [x] 调用次数只保留 15 次 Hard Limit，覆盖摘要等额外模型请求异常
+- [x] Token Budget 保持 80K Warning / 120K Closing / 160K Hard Limit
+- [x] 保留旧调用阈值环境变量和显式配置兼容能力
+- [x] Run Budget / Runtime / Trace 定向测试：64 passed
+- [x] Backend 全量离线测试：1010 passed
+- [x] Ruff 与 compileall：通过

@@ -102,9 +102,9 @@ class ToolReducer:
                 tool_result_budget_tokens=tool_result_budget_tokens,
             )
 
-        # 只要工具结果总量超限，所有超长结果都先做确定性截短；最近轮只免于
-        # 整轮删除，不免于单条输出上限，避免一个新结果撑爆整次请求。
-        for block_index in tool_indices:
+        # 最近若干轮既不删除也不截短，确保模型在下一步仍能读取完整的新证据。
+        # 如果仅靠旧轮无法达到预算，交给后续压缩阶段或硬窗口保护处理。
+        for block_index in candidates:
             block = working[block_index]
             if not isinstance(block, ToolRoundBlock):  # pragma: no cover
                 continue
