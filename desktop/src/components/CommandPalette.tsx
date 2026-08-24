@@ -82,7 +82,7 @@ export default function CommandPalette({
         className="command-palette"
         role="dialog"
         aria-modal="true"
-        aria-label="Vesta commands"
+        aria-label="Vesta 快捷命令"
         onMouseDown={(event) => event.stopPropagation()}
       >
         <div className="command-palette__search">
@@ -90,8 +90,8 @@ export default function CommandPalette({
           <input
             ref={inputRef}
             value={query}
-            placeholder="Search commands…"
-            aria-label="Search commands"
+            placeholder="搜索命令…"
+            aria-label="搜索命令"
             onChange={(event) => setQuery(event.target.value)}
             onKeyDown={(event) => {
               if (event.key === 'Escape') {
@@ -113,7 +113,7 @@ export default function CommandPalette({
         </div>
         <div className="command-palette__list" role="listbox">
           {filtered.length === 0 ? (
-            <div className="command-palette__empty">No matching commands</div>
+            <div className="command-palette__empty">没有匹配的命令</div>
           ) : filtered.map((command, index) => (
             <button
               key={command.id}
@@ -132,8 +132,8 @@ export default function CommandPalette({
           ))}
         </div>
         <footer className="command-palette__footer">
-          <span><kbd>↑</kbd><kbd>↓</kbd> navigate</span>
-          <span><kbd>↵</kbd> open</span>
+          <span><kbd>↑</kbd><kbd>↓</kbd> 选择</span>
+          <span><kbd>↵</kbd> 打开</span>
         </footer>
       </div>
     </div>
