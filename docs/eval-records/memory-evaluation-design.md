@@ -179,7 +179,7 @@ Memory ON：启用完整长期记忆闭环
 
 当前已经完成：
 
-1. 独立 `tests/memory_eval/`，包含多阶段 Scenario、Loader、Runner、断言和快照采集；
+1. 独立 `tests/eval_legacy/memory/`，包含多阶段 Scenario、Loader、Runner、断言和快照采集；
 2. 10 条不依赖 Judge 的基础语义场景；
 3. Memory ON/OFF 对照开关和 Main/Reflection/Maintenance 分模型 Token 统计；
 4. Markdown 报告与可复现运行现场。
@@ -188,13 +188,13 @@ Memory ON：启用完整长期记忆闭环
 
 ```bash
 cd backend
-.venv/bin/python -m tests.memory_eval.run_live --runs 3 --print
+.venv/bin/python -m tests.eval_legacy.memory.run_live --runs 3 --print
 ```
 
 只跑召回组并启用 OFF 对照：
 
 ```bash
-.venv/bin/python -m tests.memory_eval.run_live \
+.venv/bin/python -m tests.eval_legacy.memory.run_live \
   --tag recall --runs 3 --compare-off --print
 ```
 

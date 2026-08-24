@@ -8,22 +8,22 @@ import pytest
 from pydantic import ValidationError
 
 from app.agent.events import InMemoryEventHandler
-from tests.eval import harness
-from tests.eval.assertions import run_checks
-from tests.eval.loader import load_scenarios
-from tests.eval.metrics import (
+from tests.eval_legacy import harness
+from tests.eval_legacy.assertions import run_checks
+from tests.eval_legacy.loader import load_scenarios
+from tests.eval_legacy.metrics import (
     EvalReport,
     ScenarioMetric,
     metric_from_outcome,
     render_report,
 )
-from tests.eval.mocks import (
+from tests.eval_legacy.mocks import (
     fake_registry,
     history_messages,
     model_response,
     text_tool_call,
 )
-from tests.eval.scenario import Scenario
+from tests.eval_legacy.scenario import Scenario
 
 
 @pytest.fixture
@@ -406,7 +406,7 @@ def test_metric_rate_excludes_non_applicable_checks() -> None:
 
 
 def harness_check(name: str, ok: bool, *, applicable: bool = True):
-    from tests.eval.assertions import CheckResult
+    from tests.eval_legacy.assertions import CheckResult
 
     return CheckResult(name, ok, applicable=applicable)
 

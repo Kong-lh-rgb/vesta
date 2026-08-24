@@ -16,10 +16,10 @@ from pathlib import Path
 from app.model_settings import load_effective_model_configuration
 from app.models.config import ModelSettings
 from app.models.registry import ModelAdapterRegistry
-from tests.memory_eval.assertions import check_phase
-from tests.memory_eval.harness import run_scenario as run_memory_scenario
-from tests.memory_eval.loader import load_scenarios as load_memory_scenarios
-from tests.memory_eval.scenario import MemoryEvalScenario
+from tests.eval_legacy.memory.assertions import check_phase
+from tests.eval_legacy.memory.harness import run_scenario as run_memory_scenario
+from tests.eval_legacy.memory.loader import load_scenarios as load_memory_scenarios
+from tests.eval_legacy.memory.scenario import MemoryEvalScenario
 
 from . import harness
 from .adapters import (

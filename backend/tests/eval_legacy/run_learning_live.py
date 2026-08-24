@@ -3,11 +3,12 @@
 用法（在 backend 目录）：
 
     # 默认 provider（.env MODEL_DEFAULT_PROVIDER）+ model，跑 learning 组
-    .venv/bin/python -m tests.eval.run_learning_live --runs 3 --print
+    .venv/bin/python -m tests.eval_legacy.run_learning_live --runs 3 --print
 
     # 指定 provider / 报告路径
-    .venv/bin/python -m tests.eval.run_learning_live --provider deepseek --runs 3 \\
-        --out tests/eval/reports/skill_learning_live_20260818.md --print
+    .venv/bin/python -m tests.eval_legacy.run_learning_live \\
+        --provider deepseek --runs 3 \\
+        --out tests/eval_legacy/reports/skill_learning_live_20260818.md --print
 
 与 run_live 不同：learning 组不走普通 Agent Run，而是用真实模型驱动
 SkillLearningService（Pattern Mining + Procedure Distillation），并记录
@@ -50,7 +51,10 @@ def _parse_args() -> argparse.Namespace:
         "--out",
         type=Path,
         default=None,
-        help="报告输出路径（默认 tests/eval/reports/skill_learning_live_<日期>.md）。",
+        help=(
+            "报告输出路径（默认 "
+            "tests/eval_legacy/reports/skill_learning_live_<日期>.md）。"
+        ),
     )
     parser.add_argument(
         "--print",

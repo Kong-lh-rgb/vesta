@@ -183,8 +183,8 @@ Vesta 已建立统一的 Core、Memory 和 Skill Learning Eval：
 - 平均可计费 Token 2767，平均缓存命中率 75.5%。
 
 完整设计、指标演进和诚实边界见 [docs/eval.md](docs/eval.md)。正式报告位于
-`backend/tests/eval/reports/comprehensive/`，Baseline 位于
-`backend/tests/eval/reports/baselines/`。
+`backend/tests/eval_legacy/reports/comprehensive/`，Baseline 位于
+`backend/tests/eval_legacy/reports/baselines/`。
 
 > Live Eval 结果绑定当时的模型、场景定义和工作树状态，不代表所有 Provider 或后续版本
 > 自动拥有相同结果。

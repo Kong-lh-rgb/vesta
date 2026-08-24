@@ -8,16 +8,16 @@ from pathlib import Path
 import pytest
 
 from app.models.types import ToolCall
-from tests.eval.mocks import fake_registry, model_response
-from tests.memory_eval.assertions import check_phase
-from tests.memory_eval.harness import run_scenario
-from tests.memory_eval.loader import load_scenarios
-from tests.memory_eval.metrics import (
+from tests.eval_legacy.memory.assertions import check_phase
+from tests.eval_legacy.memory.harness import run_scenario
+from tests.eval_legacy.memory.loader import load_scenarios
+from tests.eval_legacy.memory.metrics import (
     MemoryEvalReport,
     metric_from_phase,
     render_report,
 )
-from tests.memory_eval.scenario import MemoryEvalScenario
+from tests.eval_legacy.memory.scenario import MemoryEvalScenario
+from tests.eval_legacy.mocks import fake_registry, model_response
 
 
 def _scenario() -> MemoryEvalScenario:
@@ -263,7 +263,7 @@ def test_report_separates_main_reflection_and_maintenance_usage() -> None:
     report = MemoryEvalReport(provider="fake", model="fake-model")
     scenario = _scenario()
     phase = scenario.phases[0]
-    from tests.memory_eval.harness import MemoryEvalPhaseOutcome  # noqa: PLC0415
+    from tests.eval_legacy.memory.harness import MemoryEvalPhaseOutcome  # noqa: PLC0415
 
     metric = metric_from_phase(
         scenario.id,

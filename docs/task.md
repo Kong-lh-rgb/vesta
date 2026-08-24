@@ -867,9 +867,9 @@ Automation ─┤  → ConversationService.dispatch(conversation_id, content, tr
 #### 测试结果
 - [x] `pytest` 467 通过（修复前 460 + 新增 7）、`ruff`、`compileall`、`git diff --check` 全绿
 - [x] 修改文件：`app/skills/tools.py`、`context.py`、`config.py`、`parser.py`、`models.py`、
-  `app/agent/runtime.py`、`events.py`、`app/models/chat.py`、`tests/eval/harness.py`、
-  `assertions.py`、`tests/test_skills.py`、`tests/test_skills_eval.py`、
-  `tests/eval/scenarios/skill/skill-15_*.yaml`
+  `app/agent/runtime.py`、`events.py`、`app/models/chat.py`、`tests/eval_legacy/harness.py`、
+  `assertions.py`、`tests/test_skills.py`、`tests/eval_legacy/tests/test_skills_eval.py`、
+  `tests/eval_legacy/scenarios/skill/skill-15_*.yaml`
 
 ### 完成：Skill Runtime V2（Agent Skills compatible + Progressive Disclosure）
 
@@ -901,7 +901,7 @@ Automation ─┤  → ConversationService.dispatch(conversation_id, content, tr
 - [x] `app/models/chat.py`：装配 `SkillStore` + `SkillContextProvider(SkillSettings)`，`register_skill_tools` 后传入 `AgentRuntime`
 - [x] 示例 Skills 迁移到目录式：`debug-python`、`code-review`、`structured-research`（带 `references/template.md`）
 - [x] 单元测试重写 `tests/test_skills.py`（54 例：名称校验/解析/路径安全/双层发现/坏 Skill 降级/资源清单/Context Provider budget/Runtime 集成激活与失败）
-- [x] Eval：新增 `skill` 组 15 场景（6 触发 / 4 不触发 / 2 相似 / 2 遵循 / 1 压缩后 Active 保留），scenario.py 加 InitialSkill/SkillExpectation，harness.py 装配 skill，assertions.py 加 `_check_skill`；离线冒烟 `tests/test_skills_eval.py`（3 例）验证 Harness 与断言
+- [x] Eval：新增 `skill` 组 15 场景（6 触发 / 4 不触发 / 2 相似 / 2 遵循 / 1 压缩后 Active 保留），scenario.py 加 InitialSkill/SkillExpectation，harness.py 装配 skill，assertions.py 加 `_check_skill`；离线冒烟 `tests/eval_legacy/tests/test_skills_eval.py`（3 例）验证 Harness 与断言
 
 #### 安全边界
 - [x] Skill name 必须先过严格校验再参与路径计算；目录/文件/资源一律 `resolve()` 后确认仍在 Skill 根内
@@ -986,7 +986,7 @@ Automation ─┤  → ConversationService.dispatch(conversation_id, content, tr
 
 #### 测试与 Eval
 - [x] 单元测试 `tests/test_skill_learning.py`（12 例）：TaskCard 投影、Trigger 19/20、已处理不重复计数、watermark 重启、无 cluster 无候选、相似任务出 candidate、机械操作不沉淀、Evidence 提取失败工具/task_update、缺失 Trace 降级、Candidate 字段与去重、pending/reject/accept Human Gate
-- [x] Eval：scenario.py 加 `learning` 组 + InitialTask 扩展（description/run_ids/constraints/key_facts）+ InitialTraceRun + SkillLearningExpectation；新增 `tests/eval/learning_harness.py`；8 个场景（learning-01..08：无关无候选 / 相似 CREATE / 机械 rename 无候选 / 失败→成功 pitfalls / 已有 Skill UPDATE / pending 不可见 / accept discover / reject 无 Skill）；离线 `tests/test_skill_learning_eval.py`（8 例）
+- [x] Eval：scenario.py 加 `learning` 组 + InitialTask 扩展（description/run_ids/constraints/key_facts）+ InitialTraceRun + SkillLearningExpectation；新增 `tests/eval_legacy/learning_harness.py`；8 个场景（learning-01..08：无关无候选 / 相似 CREATE / 机械 rename 无候选 / 失败→成功 pitfalls / 已有 Skill UPDATE / pending 不可见 / accept discover / reject 无 Skill）；离线 `tests/eval_legacy/tests/test_skill_learning_eval.py`（8 例）
 - [x] 全量验证：`pytest` 487 通过（487 = 467 + 20 learning）、`ruff`、`compileall`、`git diff --check` 全部通过
 
 #### 尚未支持
@@ -1038,9 +1038,9 @@ Automation ─┤  → ConversationService.dispatch(conversation_id, content, tr
   CLI 输出：tasks scanned / clusters / candidates / model calls / tokens / latency
 
 #### 真实模型 Live Eval（deepseek / deepseek-v4-flash，3 runs × 9 场景）
-- [x] 新增正式 runner `tests/eval/run_learning_live.py`（非手工脚本）+ `tests/eval/learning_judge.py`
+- [x] 新增正式 runner `tests/eval_legacy/run_learning_live.py`（非手工脚本）+ `tests/eval_legacy/learning_judge.py`
   （Cluster Precision/Recall、Action Accuracy、False Positive、Duplicate、Pitfall Recall）
-- [x] 报告 `tests/eval/reports/skill_learning_live_20260818.md`：**pass rate 67% (18/27)**；
+- [x] 报告 `tests/eval_legacy/reports/historical/skill_learning/skill_learning_live_20260818.md`：**pass rate 67% (18/27)**；
   Cluster Precision=1.00、Recall=1.00、Action Accuracy=1.00、False Positive=0%、
   Duplicate=0%；45 calls / 51,918 tokens / 128.8s；平均每 20-Task batch 约 1,923 tokens、
   4.8s
@@ -1069,7 +1069,7 @@ Automation ─┤  → ConversationService.dispatch(conversation_id, content, tr
 > 不修改主架构、不调 Prompt。目标是测清楚"模型到底卡在 Pattern Mining 还是 Distillation"，
 > 并让 Human Gate 机制测试与模型随机性解耦。
 
-#### 1. Eval 指标修正（`tests/eval/learning_judge.py`）
+#### 1. Eval 指标修正（`tests/eval_legacy/learning_judge.py`）
 - [x] **Pattern Detection Recall**：positive 场景（`expected_pattern_task_aliases` 非空）
   没发现 cluster 记 0，不再跳过（场景级 0/1，聚合 = detected/positive runs）
 - [x] **Action Accuracy**：只看 `expected_action`（CREATE/UPDATE/NONE），不依赖 Skill 名
@@ -1099,7 +1099,7 @@ Automation ─┤  → ConversationService.dispatch(conversation_id, content, tr
 - [x] avg tokens / eval batch、avg tokens / scanned task、真正 20-Task 场景单独统计
 
 #### 真实模型 Live Eval（deepseek / deepseek-v4-flash，3 runs × 10 场景）
-- [x] 报告 `tests/eval/reports/skill_learning_live_20260818b.md`：**pass rate 87% (26/30)**
+- [x] 报告 `tests/eval_legacy/reports/historical/skill_learning/skill_learning_live_20260818b.md`：**pass rate 87% (26/30)**
 - [x] Pattern Detection Recall **0.93 (14/15)**：唯一未检测 = learning-05a run2（mining 空）
 - [x] Cluster Precision/Recall **1.00 / 1.00**；Action Accuracy **0.75 (9/12)**；
   Positive Abstention **0.33 (3/9)**；False Positive **0% (0/6)**；Duplicate **0% (0/3)**
@@ -1350,9 +1350,9 @@ Automation ─┤  → ConversationService.dispatch(conversation_id, content, tr
   保留"pending_candidates 已覆盖 → NONE 去重"、"不造重复名（debug-python-v2）"规则
 
 #### 修复 2：Eval pitfall 关键词支持中英同义组（concept-based recall）
-- [x] `tests/eval/scenario.py`：`expected_pitfall_keywords` 类型改为
+- [x] `tests/eval_legacy/scenario.py`：`expected_pitfall_keywords` 类型改为
   `tuple[str | tuple[str, ...], ...]`（旧单字符串格式等价于 [该字符串]，向后兼容）
-- [x] `tests/eval/learning_judge.py`：pitfall 计算改为 concept-based —— 每组命中任意
+- [x] `tests/eval_legacy/learning_judge.py`：pitfall 计算改为 concept-based —— 每组命中任意
   一个 alias 即算该 concept 命中，recall = 命中 concept 数 / concept 总数；
   新增 `_pitfall_concept` 归一化 helper
 - [x] `learning-10` YAML：`expected_pitfall_keywords: [全局, 解释器]` →
@@ -1571,7 +1571,7 @@ Automation ─┤  → ConversationService.dispatch(conversation_id, content, tr
 - [x] 真实模型 Eval 不应进入 pytest，否则离线测试会产生 API 成本和随机失败
 
 #### 实现结果
-- [x] 新增独立 `tests/memory_eval/`，实现严格 YAML Schema、递归 Loader、多阶段 Runner、断言、指标、Markdown 报告和 Live CLI
+- [x] 新增独立 `tests/eval_legacy/memory/`，实现严格 YAML Schema、递归 Loader、多阶段 Runner、断言、指标、Markdown 报告和 Live CLI
 - [x] 同一场景共享临时 Markdown Memory Store；相同 conversation 继承历史，不同 conversation 只共享长期记忆
 - [x] CREATE/UPDATE 产生的动态 Memory ID 可绑定稳定别名，后续阶段用别名断言召回和文件内容
 - [x] 每阶段采集 AgentResult、AgentEvent、Core/Index/active/archive 快照和耗时
@@ -1982,13 +1982,13 @@ Automation ─┤  → ConversationService.dispatch(conversation_id, content, tr
 
 ### 完成：自建轻量 Eval Harness（v1 测评框架）
 - [x] 策略确定：自建（不引 LangSmith/DeepEval/Inspect）；直接驱动真实 `AgentRuntime` 并读取 `AgentResult`/事件/`FileTaskStore`/workspace 内部状态
-- [x] 两套运行：`pytest` 用 Mock 模型自检 harness（CI 可跑）；`tests.eval.run_live` 用真实模型跑场景
-- [x] 场景 YAML（`tests/eval/scenarios/`）：初始历史/预置 Task/文件、用户输入、Runtime 限制、审批/上下文覆盖、期望（工具 must/must_not/no_successful、Task 状态/步骤、文件、回答关键点/任一、是否压缩）
+- [x] 两套运行：`pytest` 用 Mock 模型自检 harness（CI 可跑）；`tests.eval_legacy.run_live` 用真实模型跑场景
+- [x] 场景 YAML（`tests/eval_legacy/scenarios/`）：初始历史/预置 Task/文件、用户输入、Runtime 限制、审批/上下文覆盖、期望（工具 must/must_not/no_successful、Task 状态/步骤、文件、回答关键点/任一、是否压缩）
 - [x] 评分宽松：工具只查必须包含/禁止包含/参数关键值；步骤支持 status_any；回答支持 keypoints（全含）与 any_of（任一）
-- [x] 指标与报告（`metrics.py`）：场景通过率、工具选择准确率、Task 状态正确率、安全组通过率、平均 steps/工具调用/tokens/耗时、失败归因；Markdown 报告存 `tests/eval/reports/`
+- [x] 指标与报告（`metrics.py`）：场景通过率、工具选择准确率、Task 状态正确率、安全组通过率、平均 steps/工具调用/tokens/耗时、失败归因；Markdown 报告存 `tests/eval_legacy/reports/`
 - [x] 首批 6 条场景：简单问答不建 Task、读取文件、工具失败不宣称完成、复杂请求创建 Task、压缩后遵守目标、审批拒绝不执行
-- [x] Harness 自检：`tests/test_harness.py`（mock 模型验证加载/运行/预置/评分/报告，6 例全通过）
-- [x] 运行：`pytest tests/test_harness.py`（离线）；`.venv/bin/python -m tests.eval.run_live [--group/--scenario/--runs]`（真实模型）
+- [x] Harness 自检：`tests/eval_legacy/tests/test_harness.py`（mock 模型验证加载/运行/预置/评分/报告，6 例全通过）
+- [x] 运行：`pytest tests/eval_legacy/tests/test_harness.py`（离线）；`.venv/bin/python -m tests.eval_legacy.run_live [--group/--scenario/--runs]`（真实模型）
 - [x] 全量验证：`pytest` 277 个用例全部通过，`ruff` 无告警
 - [ ] 待办：跑通 6 条 live 场景 → 扩到 20–30 条（basic/tools/task/context/safety）→ 波动大场景跑 3 次 → 失败归因沉淀
 
@@ -2032,7 +2032,7 @@ Automation ─┤  → ConversationService.dispatch(conversation_id, content, tr
   - 压缩未触发（3）：eval-05/21/23 的 window override 疑似未生效（stage=none/trimmed=False），需排查 ContextSettings→ModelCapabilityRegistry 链路
   - 回答为空（2）：压缩场景 max_output_tokens=64/32 太小
 - [x] 结论：系统核心能力稳健（Task 状态机/会话隔离/审批链路全部通过）；4 处场景断言待修 + 1 处压缩触发配置待排查
-- [x] 基线固化：`tests/eval/reports/baseline_20260806_full.md`；分析记录于 `docs/eval-records/runtime-agent-evaluation.md`「基线结果」章节
+- [x] 基线固化：`tests/eval_legacy/reports/historical/runtime/baseline_20260806_full.md`；分析记录于 `docs/eval-records/runtime-agent-evaluation.md`「基线结果」章节
 
 ### 完成：压缩未触发根因诊断（已回滚 · 标记待修）
 - [x] 排查结论：**override 链路正常**（window=1200、capability_source=override、input_budget=1086、trigger=868 均已生效）；未触发是因为**场景初始历史太短**，估算低于 trigger（eval-05=710 / eval-21=369 / eval-23=389 < 868）
@@ -2050,7 +2050,7 @@ Automation ─┤  → ConversationService.dispatch(conversation_id, content, tr
 - [x] 重跑全量 30 条 × 1 次 → **通过率 86.7%（26/30）**（首轮 76.7%）
 - [x] 指标：工具选择准确率 96.2%、Task 状态正确率 100%、安全组 100%；平均 steps 1.8 / 工具 1.0 / tokens 4553 / 耗时 5.5s
 - [x] 剩余 4 失败：eval-05/21/23（压缩场景，待修）+ eval-14（已单独重跑 ✅，属波动）
-- [x] 基线固化：`tests/eval/reports/baseline_20260806_v2_86.7.md`；分析记录于 `docs/eval-records/runtime-agent-evaluation.md`
+- [x] 基线固化：`tests/eval_legacy/reports/historical/runtime/baseline_20260806_v2_86.7.md`；分析记录于 `docs/eval-records/runtime-agent-evaluation.md`
 - [x] 全量验证：`pytest` 284 个用例全部通过，`ruff` 无告警
 
 ---
@@ -2616,7 +2616,7 @@ Automation ─┤  → ConversationService.dispatch(conversation_id, content, tr
 
 #### 运行入口
 
-- [x] 新增`python -m tests.eval.run_suite`，支持Core、Memory、Learning，支持Smoke/Regression/Manual、重复运行、Memory OFF对照和Baseline比较
+- [x] 新增`python -m tests.eval_legacy.run_suite`，支持Core、Memory、Learning，支持Smoke/Regression/Manual、重复运行、Memory OFF对照和Baseline比较
 - [x] 显式标记9条Core、2条Memory、3条Learning Smoke场景；Regression继续包含Smoke与原完整题集
 - [x] 统一CLI读取设置中心生效配置与Keychain，不退回只读取`.env`的旧配置口径
 - [x] 真实API评测不进入pytest；Computer、外部MCP和真实审批浮窗仍保持手动E2E边界
@@ -2642,7 +2642,7 @@ Automation ─┤  → ConversationService.dispatch(conversation_id, content, tr
 
 - [x] 四条问题样本最终复测 3 次：Task 3/3、Memory UPDATE 2/3、Learning CREATE 3/3、Learning UPDATE 2/3，总计 10/12
 - [x] 完整 Smoke：45 个阶段样本，43/45 通过（95.6%）；稳定通过率 86.7%；安全场景 100%；Core 与 Learning 本轮全部通过
-- [x] 首份 Baseline 保存到 `tests/eval/reports/baselines/deepseek-smoke.json`，Schema V2，绑定 Provider/Model、题集摘要和工作树版本标识
+- [x] 首份 Baseline 保存到 `tests/eval_legacy/reports/baselines/deepseek-smoke.json`，Schema V2，绑定 Provider/Model、题集摘要和工作树版本标识
 
 #### 新 Bad Case
 
@@ -2702,3 +2702,14 @@ Automation ─┤  → ConversationService.dispatch(conversation_id, content, tr
 - [x] 修正 Quick Start 的仓库路径、依赖版本、Host/Desktop 启动方式与本地 transport 说明
 - [x] 增加架构、领域概念、扩展方式、Eval Baseline、开发检查和当前边界
 - [x] 预留 Desktop 截图、Run Detail、Memory/Task、Computer Approval 和视频演示位置
+
+### 完成：Backend tests 目录职责整理
+
+- [x] 将默认 pytest 测试迁入 `backend/tests/offline/`，按 Agent、Context、Memory、Task、Computer 等领域分组
+- [x] 保留共享假服务于 `backend/tests/fixtures/`，修正移动后两个 Fixture 的相对路径
+- [x] 将现有 Agent Runtime、Memory、Skill Learning Eval V1 统一冻结到 `backend/tests/eval_legacy/`
+- [x] 将报告区分为可比较 Baseline、综合运行结果和 Runtime / Memory / Skill Learning 历史报告
+- [x] 增加测试目录、Eval V1 和报告时间线三份 README，明确离线测试与真实模型 Eval 的成本边界
+- [x] 更新代码导入、运行命令与文档路径；本轮不修改生产行为、场景语义或评分规则
+- [x] Backend 全量离线 `pytest`：1004 passed
+- [x] `ruff check .`、`python -m compileall -q app tests`、`git diff --check`：通过

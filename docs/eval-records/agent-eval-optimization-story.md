@@ -41,7 +41,7 @@ Model、Suite、Tier、稳定性键和场景定义 SHA-256；题目变了就拒�
 
 ### 1. 第一次 Regression：先找到真实问题
 
-[初始报告](../../backend/tests/eval/reports/comprehensive/20260823_091702_628798/report.md)
+[初始报告](../../backend/tests/eval_legacy/reports/comprehensive/20260823_091702_628798/report.md)
 包含 68 个样本，57 个通过（83.8%），安全场景 83.3%，平均可计费 Token 3766。
 
 失败并不都属于模型能力，逐条 Trace 后分为三类：
@@ -81,7 +81,7 @@ Model、Suite、Tier、稳定性键和场景定义 SHA-256；题目变了就拒�
 
 ## 三、结果与边界
 
-[完整 3 次 Regression](../../backend/tests/eval/reports/comprehensive/20260823_112858_055392/report.md)：
+[完整 3 次 Regression](../../backend/tests/eval_legacy/reports/comprehensive/20260823_112858_055392/report.md)：
 
 | 指标 | 结果 |
 | --- | --- |
@@ -93,7 +93,7 @@ Model、Suite、Tier、稳定性键和场景定义 SHA-256；题目变了就拒�
 | P95 可计费 Token | 7309 |
 | 平均缓存命中率 | 75.5% |
 
-随后对 11 个问题场景各跑 3 次，[诊断报告](../../backend/tests/eval/reports/comprehensive/20260823_125215_041071/report.md)
+随后对 11 个问题场景各跑 3 次，[诊断报告](../../backend/tests/eval_legacy/reports/comprehensive/20260823_125215_041071/report.md)
 得到 25/33。它进一步暴露：
 
 - `eval-05` 的 6K 测试窗口却预留 4096 输出 Token，摘要成功后仍没有输入预算；这是
@@ -101,7 +101,7 @@ Model、Suite、Tier、稳定性键和场景定义 SHA-256；题目变了就拒�
 - `memory-03` 两次 Core 实际写入正确，仅因“先给出结论”未逐字匹配“先给结论”而失败；
   另一次是流在首个 delta 前断线，已分别修复语义断言和安全流重试；
 - `learning-05a` 的 TaskCard 直接写“没有验证流程”，Miner 合理返回空簇，与场景想测试的
-  Distiller 拒绝路径矛盾；修正证据层级后 [Live 复测 3/3](../../backend/tests/eval/reports/comprehensive/20260823_131617_888097/report.md)。
+  Distiller 拒绝路径矛盾；修正证据层级后 [Live 复测 3/3](../../backend/tests/eval_legacy/reports/comprehensive/20260823_131617_888097/report.md)。
 
 上述最后两项 Core/Context 修复没有继续 Live 重跑，因此不能宣称最终通过率 100%。此外，
 初始报告和后续报告的场景摘要不同，83.8% → 94.1% 是工程演进轨迹，不是严格同题 A/B。

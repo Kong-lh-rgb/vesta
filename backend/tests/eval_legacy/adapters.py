@@ -7,8 +7,8 @@ from pathlib import Path
 from app.agent.budget import chargeable_tokens
 from app.models.types import ModelUsage
 from app.trace import RunUsageSummary
-from tests.memory_eval.harness import MemoryEvalPhaseOutcome
-from tests.memory_eval.scenario import MemoryEvalScenario
+from tests.eval_legacy.memory.harness import MemoryEvalPhaseOutcome
+from tests.eval_legacy.memory.scenario import MemoryEvalScenario
 
 from .harness import EvalOutcome
 from .records import (

@@ -18,15 +18,15 @@ from pathlib import Path
 
 import pytest
 
-from tests.eval.learning_harness import (
+from tests.eval_legacy.learning_harness import (
     _trace_event,
     prepare_learning_environment,
     run_learning_scenario,
 )
-from tests.eval.learning_judge import _pitfall_concept, judge_scenario
-from tests.eval.loader import load_scenarios
-from tests.eval.mocks import fake_registry, model_response
-from tests.eval.scenario import InitialTraceEvent
+from tests.eval_legacy.learning_judge import _pitfall_concept, judge_scenario
+from tests.eval_legacy.loader import load_scenarios
+from tests.eval_legacy.mocks import fake_registry, model_response
+from tests.eval_legacy.scenario import InitialTraceEvent
 
 _DISTILL_UPDATE = {
     "action": "update",

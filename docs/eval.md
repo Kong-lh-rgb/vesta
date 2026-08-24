@@ -27,8 +27,8 @@
 
 完整报告位于：
 
-- `backend/tests/eval/reports/comprehensive/20260823_112858_055392/report.md`
-- Baseline：`backend/tests/eval/reports/baselines/deepseek-regression.json`
+- `backend/tests/eval_legacy/reports/comprehensive/20260823_112858_055392/report.md`
+- Baseline：`backend/tests/eval_legacy/reports/baselines/deepseek-regression.json`
 
 最终代码状态比这份 Baseline 略新：`eval-05` 和 `memory-03` 在完整 Regression 后又
 做了修复，但为了控制真实 API 开销，只完成了离线验证，没有再次运行完整 Live Eval。
@@ -418,7 +418,7 @@ git diff --check
 ### 8.2 定向 Live Eval
 
 ```bash
-.venv/bin/python -m tests.eval.run_suite \
+.venv/bin/python -m tests.eval_legacy.run_suite \
   --suite core \
   --scenario eval-05 \
   --runs 3 \
@@ -432,14 +432,14 @@ git diff --check
 ### 8.3 发布前完整 Regression
 
 ```bash
-.venv/bin/python -m tests.eval.run_suite \
+.venv/bin/python -m tests.eval_legacy.run_suite \
   --suite core \
   --suite memory \
   --suite learning \
   --tier regression \
   --runs 3 \
   --provider deepseek \
-  --save-baseline tests/eval/reports/baselines/deepseek-regression.json \
+  --save-baseline tests/eval_legacy/reports/baselines/deepseek-regression.json \
   --print \
   --allow-failures
 ```
