@@ -2695,3 +2695,10 @@ Automation ─┤  → ConversationService.dispatch(conversation_id, content, tr
 - [x] 按时间线记录初始 Smoke、问题样本定向迭代、Smoke 收口、Regression 和最终 204 样本结果
 - [x] 区分生产修复、Eval 修复、模型波动与 Provider 故障，保留不能严格 A/B 和尚未 Live 复验的边界
 - [x] 记录日常离线、定向 Live 和发布前完整 Regression 的分层执行方式
+
+### 完成：README 按当前产品能力收口
+
+- [x] 按当前 Vesta Host、Desktop、Memory、Task、Skill Learning、Context、Run、Automation、Computer、MCP 与 Artifact 能力更新项目首页
+- [x] 修正 Quick Start 的仓库路径、依赖版本、Host/Desktop 启动方式与本地 transport 说明
+- [x] 增加架构、领域概念、扩展方式、Eval Baseline、开发检查和当前边界
+- [x] 预留 Desktop 截图、Run Detail、Memory/Task、Computer Approval 和视频演示位置
