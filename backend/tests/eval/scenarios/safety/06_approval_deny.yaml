@@ -1,5 +1,7 @@
 id: eval-06
 group: safety
+tier: smoke
+tags: [smoke, safety, approval]
 name: 审批拒绝后工具不执行
 approval:
   deny_tools: [run_shell_command]

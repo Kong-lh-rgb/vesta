@@ -1,5 +1,7 @@
 id: learning-01
 group: learning
+tier: smoke
+tags: [smoke, learning, none]
 name: 20 个完全无关 Task → 无 Candidate
 user_input: "learning pipeline"
 initial_tasks:

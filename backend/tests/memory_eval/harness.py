@@ -11,7 +11,9 @@ from time import perf_counter
 from app.agent.events import AgentEvent, InMemoryEventHandler
 from app.agent.result import AgentResult
 from app.agent.runtime import AgentRuntime
+from app.application import DEFAULT_SYSTEM_PROMPT
 from app.memory import (
+    DEFAULT_DEFERRED_MEMORY_TOOL_NAMES,
     MemoryMaintenanceConfig,
     MemoryMaintenanceReflector,
     MemoryManager,
@@ -139,6 +141,11 @@ def _build_runtime(
     runtime_manager = None
     if memory_enabled:
         register_memory_tools(tools, manager)
+        # 与 Application 的生产 wiring 保持一致：Core 修改和全量列表先经
+        # tool_search 按需激活，避免 Eval 给主模型额外暴露能力。
+        for name in DEFAULT_DEFERRED_MEMORY_TOOL_NAMES:
+            tool = tools.unregister(name)
+            tools.register(tool, deferred=True)
         reflection_config = MemoryReflectionConfig(
             _env_file=None,
             provider=provider,
@@ -168,6 +175,7 @@ def _build_runtime(
         tools,
         provider=provider,
         model=model,
+        system_prompt=DEFAULT_SYSTEM_PROMPT,
         max_steps=phase.max_steps,
         max_tool_rounds=phase.max_tool_rounds,
         memory_manager=runtime_manager,
@@ -252,6 +260,8 @@ async def _write_phase_artifacts(
                 "event_type": reflection.type.value,
                 "input": _parse_json_or_text(reflection.reflection_input_json),
                 "raw_output": reflection.reflection_raw_output,
+                "attempts": reflection.reflection_attempts,
+                "finish_reason": reflection.reflection_finish_reason,
                 "action": reflection.reflection_action,
                 "memory_id": reflection.reflection_memory_id,
                 "mutation_applied": reflection.reflection_mutation_applied,

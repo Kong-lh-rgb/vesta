@@ -15,6 +15,7 @@ from time import perf_counter
 from app.agent.events import AgentEvent, InMemoryEventHandler
 from app.agent.result import AgentResult
 from app.agent.runtime import AgentRuntime
+from app.application import DEFAULT_SYSTEM_PROMPT
 from app.context import (
     ContextManager,
     ContextSettings,
@@ -34,7 +35,6 @@ from app.skills import (
 from app.task import (
     FileTaskStore,
     TaskContextProvider,
-    TaskStatus,
     TaskStep,
     register_task_tools,
 )
@@ -49,12 +49,13 @@ from app.tools.approval import (
 from app.tools.registry import ToolRegistry
 
 from .scenario import Scenario
+from .task_fixtures import create_initial_task
 
 DEFAULT_CONVERSATION_ID = "eval-conv-1"
 
 
 class EvalApprovalGate(ApprovalGate):
-    """按工具名决定批准/拒绝的评测审批门。"""
+    """按工具名决定批准/拒绝；未显式批准的敏感工具一律拒绝。"""
 
     def __init__(
         self,
@@ -68,7 +69,7 @@ class EvalApprovalGate(ApprovalGate):
     async def request_approval(self, request: ApprovalRequest) -> ApprovalResponse:
         if request.tool_name in self._deny:
             return ApprovalResponse(decision=ApprovalDecision.DENIED)
-        if self._approve and request.tool_name not in self._approve:
+        if request.tool_name not in self._approve:
             return ApprovalResponse(decision=ApprovalDecision.DENIED)
         return ApprovalResponse(
             decision=ApprovalDecision.APPROVED,
@@ -150,9 +151,10 @@ async def prepare_environment(
     initial_task_ids: list[str] = []
     task_aliases: dict[str, str] = {}
     for task_spec in scenario.initial_tasks:
-        task = await task_store.create(
-            title=task_spec.title,
-            goal=task_spec.goal,
+        task = await create_initial_task(
+            task_store,
+            task_spec,
+            owner_conversation_id=conversation_id,
             steps=tuple(
                 TaskStep(
                     id=step.id,
@@ -162,10 +164,7 @@ async def prepare_environment(
                 )
                 for step in task_spec.steps
             ),
-            owner_conversation_id=task_spec.owner or conversation_id,
         )
-        if task_spec.status is not TaskStatus.PENDING:
-            await task_store.set_status(task.id, task_spec.status)
         initial_task_ids.append(task.id)
         if task_spec.alias:
             task_aliases[task_spec.alias] = task.id
@@ -216,6 +215,7 @@ def build_runtime(
         tool_registry,
         provider=provider,
         model=model,
+        system_prompt=DEFAULT_SYSTEM_PROMPT,
         max_steps=scenario.max_steps,
         max_tool_rounds=scenario.max_tool_rounds,
         max_output_tokens=scenario.max_output_tokens,

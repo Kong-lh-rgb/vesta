@@ -1,5 +1,7 @@
 id: skill-01
 group: skill
+tier: smoke
+tags: [smoke, skill]
 name: 触发 debug-python
 initial_skills:
   - name: debug-python

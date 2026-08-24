@@ -1,0 +1,433 @@
+{
+  "schema_version": 3,
+  "provider": "deepseek",
+  "model": "deepseek-v4-flash",
+  "suites": [
+    "core"
+  ],
+  "tier": "regression",
+  "requested_runs": 3,
+  "expected_sample_count": 3,
+  "expected_stability_keys": [
+    [
+      "core",
+      "skill-15",
+      null,
+      "on"
+    ]
+  ],
+  "actual_sample_count": 3,
+  "complete": true,
+  "completeness_issues": [],
+  "generated_at": "2026-08-23T11:22:11.930062+00:00",
+  "git_commit": "35c7a84+working-tree-skill15-v3",
+  "scenario_digest": "66e9d0f80b040f638392536a89c9aa536ab53ff8fc94b02b5bba2d67e4f34f82",
+  "run_root": "/var/folders/pf/zby_ydbx0nj2f0krp_8wft140000gp/T/vesta-comprehensive-eval-q7eq88xw",
+  "samples": [
+    {
+      "suite": "core",
+      "scenario_id": "skill-15",
+      "scenario_name": "压缩后 Active Skill 指令仍保留",
+      "group": "skill",
+      "tier": "regression",
+      "phase_id": null,
+      "conversation": null,
+      "mode": "on",
+      "run_index": 1,
+      "provider": "deepseek",
+      "model": "deepseek-v4-flash",
+      "passed": true,
+      "checks": [
+        {
+          "name": "ran_ok",
+          "ok": true,
+          "detail": "stop=final_answer; expected=['final_answer']",
+          "applicable": true
+        },
+        {
+          "name": "tools",
+          "ok": true,
+          "detail": "called=['skill_read', 'read_file', 'read_file']; failed_results=['read_file: Tool execution failed: FileNotFoundError: file does not exist: parse.py']",
+          "applicable": true
+        },
+        {
+          "name": "skill",
+          "ok": true,
+          "detail": "activated=['debug-python']",
+          "applicable": true
+        },
+        {
+          "name": "task",
+          "ok": true,
+          "detail": "未声明 Task 期望",
+          "applicable": false
+        },
+        {
+          "name": "files",
+          "ok": true,
+          "detail": "未声明文件期望",
+          "applicable": false
+        },
+        {
+          "name": "answer",
+          "ok": true,
+          "detail": "ok",
+          "applicable": true
+        },
+        {
+          "name": "compaction",
+          "ok": true,
+          "detail": "compaction_events=[{'stage': 'rolling_summary', 'trimmed': True, 'before': 1435, 'after': 1263, 'input_budget': 1688, 'trigger': 1181, 'target': 759, 'summary_updated': True, 'summary_error': None}, {'stage': 'none', 'trimmed': False, 'before': 1600, 'after': 1600, 'input_budget': 1688, 'trigger': 1181, 'target': 759, 'summary_updated': False, 'summary_error': None}]",
+          "applicable": true
+        }
+      ],
+      "stop_reason": "final_answer",
+      "steps": 3,
+      "tool_calls": 3,
+      "tool_failures": 1,
+      "duration_s": 17.7435539169237,
+      "usage": {
+        "main_agent": {
+          "input_tokens": 3841,
+          "output_tokens": 957,
+          "total_tokens": 4798,
+          "cached_input_tokens": 1792,
+          "uncached_input_tokens": 2049,
+          "cache_read_input_tokens": 1792,
+          "cache_write_input_tokens": null,
+          "model_calls": 3
+        },
+        "context_summary": {
+          "input_tokens": 744,
+          "output_tokens": 143,
+          "total_tokens": 887,
+          "cached_input_tokens": 0,
+          "uncached_input_tokens": 744,
+          "cache_read_input_tokens": 0,
+          "cache_write_input_tokens": null,
+          "model_calls": 1
+        },
+        "memory_reflection": {
+          "input_tokens": 0,
+          "output_tokens": 0,
+          "total_tokens": 0,
+          "cached_input_tokens": null,
+          "uncached_input_tokens": null,
+          "cache_read_input_tokens": null,
+          "cache_write_input_tokens": null,
+          "model_calls": 0
+        },
+        "memory_maintenance": {
+          "input_tokens": 0,
+          "output_tokens": 0,
+          "total_tokens": 0,
+          "cached_input_tokens": null,
+          "uncached_input_tokens": null,
+          "cache_read_input_tokens": null,
+          "cache_write_input_tokens": null,
+          "model_calls": 0
+        },
+        "provider_total": {
+          "input_tokens": 4585,
+          "output_tokens": 1100,
+          "total_tokens": 5685,
+          "cached_input_tokens": 1792,
+          "uncached_input_tokens": 2793,
+          "cache_read_input_tokens": 1792,
+          "cache_write_input_tokens": null,
+          "model_calls": 4
+        },
+        "tool_schema_tokens_estimated": 606,
+        "memory_reflection_status": "not_run",
+        "memory_reflection_skip_reason": null,
+        "context_summary_status": "completed",
+        "context_summary_provider": "deepseek",
+        "context_summary_model": "deepseek-v4-flash",
+        "context_summary_duration_ms": 5191.842083120719,
+        "main_agent_chargeable_tokens": 3893,
+        "run_budget_status": "active",
+        "run_budget_reason": null,
+        "run_budget_warning_tokens": 50000,
+        "run_budget_finalization_tokens": 75000,
+        "run_budget_hard_tokens": 100000,
+        "run_budget_warning_model_calls": 8,
+        "run_budget_finalization_model_calls": 10,
+        "run_budget_hard_model_calls": 12
+      },
+      "error": null,
+      "trace_path": "/var/folders/pf/zby_ydbx0nj2f0krp_8wft140000gp/T/vesta-comprehensive-eval-q7eq88xw/core/skill-15/run-1/trace.json",
+      "workspace_path": "/var/folders/pf/zby_ydbx0nj2f0krp_8wft140000gp/T/vesta-comprehensive-eval-q7eq88xw/core/skill-15/run-1/workspace",
+      "learning_diagnostics": null
+    },
+    {
+      "suite": "core",
+      "scenario_id": "skill-15",
+      "scenario_name": "压缩后 Active Skill 指令仍保留",
+      "group": "skill",
+      "tier": "regression",
+      "phase_id": null,
+      "conversation": null,
+      "mode": "on",
+      "run_index": 2,
+      "provider": "deepseek",
+      "model": "deepseek-v4-flash",
+      "passed": false,
+      "checks": [
+        {
+          "name": "ran_ok",
+          "ok": true,
+          "detail": "stop=final_answer; expected=['final_answer']",
+          "applicable": true
+        },
+        {
+          "name": "tools",
+          "ok": true,
+          "detail": "called=['skill_read', 'read_file']",
+          "applicable": true
+        },
+        {
+          "name": "skill",
+          "ok": false,
+          "detail": "activated=['debug-python']; active skill 未在压缩后保留",
+          "applicable": true
+        },
+        {
+          "name": "task",
+          "ok": true,
+          "detail": "未声明 Task 期望",
+          "applicable": false
+        },
+        {
+          "name": "files",
+          "ok": true,
+          "detail": "未声明文件期望",
+          "applicable": false
+        },
+        {
+          "name": "answer",
+          "ok": true,
+          "detail": "ok",
+          "applicable": true
+        },
+        {
+          "name": "compaction",
+          "ok": true,
+          "detail": "compaction_events=[{'stage': 'rolling_summary', 'trimmed': True, 'before': 1434, 'after': 1204, 'input_budget': 1688, 'trigger': 1181, 'target': 759, 'summary_updated': True, 'summary_error': None}]",
+          "applicable": true
+        }
+      ],
+      "stop_reason": "final_answer",
+      "steps": 2,
+      "tool_calls": 2,
+      "tool_failures": 0,
+      "duration_s": 12.611344084143639,
+      "usage": {
+        "main_agent": {
+          "input_tokens": 2185,
+          "output_tokens": 700,
+          "total_tokens": 2885,
+          "cached_input_tokens": 896,
+          "uncached_input_tokens": 1289,
+          "cache_read_input_tokens": 896,
+          "cache_write_input_tokens": null,
+          "model_calls": 2
+        },
+        "context_summary": {
+          "input_tokens": 744,
+          "output_tokens": 114,
+          "total_tokens": 858,
+          "cached_input_tokens": 640,
+          "uncached_input_tokens": 104,
+          "cache_read_input_tokens": 640,
+          "cache_write_input_tokens": null,
+          "model_calls": 1
+        },
+        "memory_reflection": {
+          "input_tokens": 0,
+          "output_tokens": 0,
+          "total_tokens": 0,
+          "cached_input_tokens": null,
+          "uncached_input_tokens": null,
+          "cache_read_input_tokens": null,
+          "cache_write_input_tokens": null,
+          "model_calls": 0
+        },
+        "memory_maintenance": {
+          "input_tokens": 0,
+          "output_tokens": 0,
+          "total_tokens": 0,
+          "cached_input_tokens": null,
+          "uncached_input_tokens": null,
+          "cache_read_input_tokens": null,
+          "cache_write_input_tokens": null,
+          "model_calls": 0
+        },
+        "provider_total": {
+          "input_tokens": 2929,
+          "output_tokens": 814,
+          "total_tokens": 3743,
+          "cached_input_tokens": 1536,
+          "uncached_input_tokens": 1393,
+          "cache_read_input_tokens": 1536,
+          "cache_write_input_tokens": null,
+          "model_calls": 3
+        },
+        "tool_schema_tokens_estimated": 404,
+        "memory_reflection_status": "not_run",
+        "memory_reflection_skip_reason": null,
+        "context_summary_status": "completed",
+        "context_summary_provider": "deepseek",
+        "context_summary_model": "deepseek-v4-flash",
+        "context_summary_duration_ms": 3347.842707997188,
+        "main_agent_chargeable_tokens": 2207,
+        "run_budget_status": "active",
+        "run_budget_reason": null,
+        "run_budget_warning_tokens": 50000,
+        "run_budget_finalization_tokens": 75000,
+        "run_budget_hard_tokens": 100000,
+        "run_budget_warning_model_calls": 8,
+        "run_budget_finalization_model_calls": 10,
+        "run_budget_hard_model_calls": 12
+      },
+      "error": null,
+      "trace_path": "/var/folders/pf/zby_ydbx0nj2f0krp_8wft140000gp/T/vesta-comprehensive-eval-q7eq88xw/core/skill-15/run-2/trace.json",
+      "workspace_path": "/var/folders/pf/zby_ydbx0nj2f0krp_8wft140000gp/T/vesta-comprehensive-eval-q7eq88xw/core/skill-15/run-2/workspace",
+      "learning_diagnostics": null
+    },
+    {
+      "suite": "core",
+      "scenario_id": "skill-15",
+      "scenario_name": "压缩后 Active Skill 指令仍保留",
+      "group": "skill",
+      "tier": "regression",
+      "phase_id": null,
+      "conversation": null,
+      "mode": "on",
+      "run_index": 3,
+      "provider": "deepseek",
+      "model": "deepseek-v4-flash",
+      "passed": false,
+      "checks": [
+        {
+          "name": "ran_ok",
+          "ok": true,
+          "detail": "stop=final_answer; expected=['final_answer']",
+          "applicable": true
+        },
+        {
+          "name": "tools",
+          "ok": true,
+          "detail": "called=['skill_read', 'read_file']",
+          "applicable": true
+        },
+        {
+          "name": "skill",
+          "ok": false,
+          "detail": "activated=['debug-python']; active skill 未在压缩后保留",
+          "applicable": true
+        },
+        {
+          "name": "task",
+          "ok": true,
+          "detail": "未声明 Task 期望",
+          "applicable": false
+        },
+        {
+          "name": "files",
+          "ok": true,
+          "detail": "未声明文件期望",
+          "applicable": false
+        },
+        {
+          "name": "answer",
+          "ok": true,
+          "detail": "ok",
+          "applicable": true
+        },
+        {
+          "name": "compaction",
+          "ok": true,
+          "detail": "compaction_events=[{'stage': 'rolling_summary', 'trimmed': True, 'before': 1430, 'after': 1408, 'input_budget': 1688, 'trigger': 1181, 'target': 759, 'summary_updated': True, 'summary_error': None}]",
+          "applicable": true
+        }
+      ],
+      "stop_reason": "final_answer",
+      "steps": 2,
+      "tool_calls": 2,
+      "tool_failures": 0,
+      "duration_s": 11.206558207981288,
+      "usage": {
+        "main_agent": {
+          "input_tokens": 2313,
+          "output_tokens": 708,
+          "total_tokens": 3021,
+          "cached_input_tokens": 896,
+          "uncached_input_tokens": 1417,
+          "cache_read_input_tokens": 896,
+          "cache_write_input_tokens": null,
+          "model_calls": 2
+        },
+        "context_summary": {
+          "input_tokens": 744,
+          "output_tokens": 233,
+          "total_tokens": 977,
+          "cached_input_tokens": 640,
+          "uncached_input_tokens": 104,
+          "cache_read_input_tokens": 640,
+          "cache_write_input_tokens": null,
+          "model_calls": 1
+        },
+        "memory_reflection": {
+          "input_tokens": 0,
+          "output_tokens": 0,
+          "total_tokens": 0,
+          "cached_input_tokens": null,
+          "uncached_input_tokens": null,
+          "cache_read_input_tokens": null,
+          "cache_write_input_tokens": null,
+          "model_calls": 0
+        },
+        "memory_maintenance": {
+          "input_tokens": 0,
+          "output_tokens": 0,
+          "total_tokens": 0,
+          "cached_input_tokens": null,
+          "uncached_input_tokens": null,
+          "cache_read_input_tokens": null,
+          "cache_write_input_tokens": null,
+          "model_calls": 0
+        },
+        "provider_total": {
+          "input_tokens": 3057,
+          "output_tokens": 941,
+          "total_tokens": 3998,
+          "cached_input_tokens": 1536,
+          "uncached_input_tokens": 1521,
+          "cache_read_input_tokens": 1536,
+          "cache_write_input_tokens": null,
+          "model_calls": 3
+        },
+        "tool_schema_tokens_estimated": 404,
+        "memory_reflection_status": "not_run",
+        "memory_reflection_skip_reason": null,
+        "context_summary_status": "completed",
+        "context_summary_provider": "deepseek",
+        "context_summary_model": "deepseek-v4-flash",
+        "context_summary_duration_ms": 3594.4662080146372,
+        "main_agent_chargeable_tokens": 2462,
+        "run_budget_status": "active",
+        "run_budget_reason": null,
+        "run_budget_warning_tokens": 50000,
+        "run_budget_finalization_tokens": 75000,
+        "run_budget_hard_tokens": 100000,
+        "run_budget_warning_model_calls": 8,
+        "run_budget_finalization_model_calls": 10,
+        "run_budget_hard_model_calls": 12
+      },
+      "error": null,
+      "trace_path": "/var/folders/pf/zby_ydbx0nj2f0krp_8wft140000gp/T/vesta-comprehensive-eval-q7eq88xw/core/skill-15/run-3/trace.json",
+      "workspace_path": "/var/folders/pf/zby_ydbx0nj2f0krp_8wft140000gp/T/vesta-comprehensive-eval-q7eq88xw/core/skill-15/run-3/workspace",
+      "learning_diagnostics": null
+    }
+  ]
+}

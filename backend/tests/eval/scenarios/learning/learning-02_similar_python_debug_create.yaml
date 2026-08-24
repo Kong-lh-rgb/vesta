@@ -1,5 +1,7 @@
 id: learning-02
 group: learning
+tier: smoke
+tags: [smoke, learning, create]
 name: 相似 Python debug 任务 → CREATE candidate
 user_input: "learning pipeline"
 initial_tasks:
@@ -46,8 +48,8 @@ initial_runs:
       - {type: tool_completed, tool_name: read_file, arguments: {path: main.py}}
       - {type: tool_started, tool_name: run_pytest, arguments: {}}
       - {type: tool_completed, tool_name: run_pytest, arguments: {}, success: false, error: ImportError}
-      - {type: tool_started, tool_name: task_update, arguments: {goal: 恢复启动}}
-      - {type: tool_completed, tool_name: task_update, arguments: {goal: 恢复启动}}
+      - {type: tool_started, tool_name: task_update, arguments: {task_id: "$task:d1", step_id: s3, step_status: done, step_note: 修复 ImportError 后 pytest 通过}}
+      - {type: tool_completed, tool_name: task_update, arguments: {task_id: "$task:d1", step_id: s3, step_status: done, step_note: 修复 ImportError 后 pytest 通过}}
       - {type: agent_completed}
   - run_id: r2
     events:
@@ -55,8 +57,8 @@ initial_runs:
       - {type: tool_completed, tool_name: read_file, arguments: {path: app.py}}
       - {type: tool_started, tool_name: run_pytest, arguments: {}}
       - {type: tool_completed, tool_name: run_pytest, arguments: {}, success: false, error: TypeError}
-      - {type: tool_started, tool_name: task_update, arguments: {status: completed}}
-      - {type: tool_completed, tool_name: task_update, arguments: {status: completed}}
+      - {type: tool_started, tool_name: task_update, arguments: {task_id: "$task:d2", step_id: s3, step_status: done, step_note: 修复 TypeError 后 pytest 通过}}
+      - {type: tool_completed, tool_name: task_update, arguments: {task_id: "$task:d2", step_id: s3, step_status: done, step_note: 修复 TypeError 后 pytest 通过}}
       - {type: agent_completed}
   - run_id: r3
     events:
@@ -64,8 +66,8 @@ initial_runs:
       - {type: tool_completed, tool_name: read_file, arguments: {path: models.py}}
       - {type: tool_started, tool_name: run_pytest, arguments: {}}
       - {type: tool_completed, tool_name: run_pytest, arguments: {}, success: false, error: KeyError}
-      - {type: tool_started, tool_name: task_update, arguments: {status: completed}}
-      - {type: tool_completed, tool_name: task_update, arguments: {status: completed}}
+      - {type: tool_started, tool_name: task_update, arguments: {task_id: "$task:d3", step_id: s3, step_status: done, step_note: 修复 KeyError 后 pytest 通过}}
+      - {type: tool_completed, tool_name: task_update, arguments: {task_id: "$task:d3", step_id: s3, step_status: done, step_note: 修复 KeyError 后 pytest 通过}}
       - {type: agent_completed}
   - run_id: r4
     events:
@@ -73,8 +75,8 @@ initial_runs:
       - {type: tool_completed, tool_name: read_file, arguments: {path: utils.py}}
       - {type: tool_started, tool_name: run_pytest, arguments: {}}
       - {type: tool_completed, tool_name: run_pytest, arguments: {}, success: false, error: AttributeError}
-      - {type: tool_started, tool_name: task_update, arguments: {status: completed}}
-      - {type: tool_completed, tool_name: task_update, arguments: {status: completed}}
+      - {type: tool_started, tool_name: task_update, arguments: {task_id: "$task:d4", step_id: s3, step_status: done, step_note: 修复 AttributeError 后 pytest 通过}}
+      - {type: tool_completed, tool_name: task_update, arguments: {task_id: "$task:d4", step_id: s3, step_status: done, step_note: 修复 AttributeError 后 pytest 通过}}
       - {type: agent_completed}
 expect:
   learning:

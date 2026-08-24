@@ -8,6 +8,7 @@ initial_tasks:
     goal: 恢复 CI
     status: completed
     run_ids: [r1]
+    key_facts: [构建失败由依赖缓存异常引起，清理缓存后重试成功]
     steps:
       - {id: s1, title: 查看失败日志, status: done, note: 定位缓存问题}
       - {id: s2, title: 清理缓存重试, status: done, note: 已解决}
@@ -16,6 +17,7 @@ initial_tasks:
     goal: 恢复 CI
     status: completed
     run_ids: [r2]
+    key_facts: [构建失败由依赖缓存异常引起，清理缓存后重试成功]
     steps:
       - {id: s1, title: 查看失败日志, status: done, note: 定位缓存问题}
       - {id: s2, title: 清理缓存重试, status: done, note: 已解决}
@@ -24,6 +26,7 @@ initial_tasks:
     goal: 恢复 CI
     status: completed
     run_ids: [r3]
+    key_facts: [构建失败由依赖缓存异常引起，清理缓存后重试成功]
     steps:
       - {id: s1, title: 查看失败日志, status: done, note: 定位缓存问题}
       - {id: s2, title: 清理缓存重试, status: done, note: 已解决}
@@ -32,6 +35,7 @@ initial_tasks:
     goal: 恢复 CI
     status: completed
     run_ids: [r4]
+    key_facts: [构建失败由依赖缓存异常引起，清理缓存后重试成功]
     steps:
       - {id: s1, title: 查看失败日志, status: done, note: 定位缓存问题}
       - {id: s2, title: 清理缓存重试, status: done, note: 已解决}
@@ -44,6 +48,8 @@ initial_runs:
       - {type: tool_completed, tool_name: clean_cache, arguments: {}}
       - {type: tool_started, tool_name: run_build, arguments: {}}
       - {type: tool_completed, tool_name: run_build, arguments: {}}
+      - {type: tool_started, tool_name: task_update, arguments: {task_id: "$task:b1", status: completed}}
+      - {type: tool_completed, tool_name: task_update, arguments: {task_id: "$task:b1", status: completed}}
       - {type: agent_completed}
   - run_id: r2
     events:
@@ -53,6 +59,8 @@ initial_runs:
       - {type: tool_completed, tool_name: clean_cache, arguments: {}}
       - {type: tool_started, tool_name: run_build, arguments: {}}
       - {type: tool_completed, tool_name: run_build, arguments: {}}
+      - {type: tool_started, tool_name: task_update, arguments: {task_id: "$task:b2", status: completed}}
+      - {type: tool_completed, tool_name: task_update, arguments: {task_id: "$task:b2", status: completed}}
       - {type: agent_completed}
   - run_id: r3
     events:
@@ -62,6 +70,8 @@ initial_runs:
       - {type: tool_completed, tool_name: clean_cache, arguments: {}}
       - {type: tool_started, tool_name: run_build, arguments: {}}
       - {type: tool_completed, tool_name: run_build, arguments: {}}
+      - {type: tool_started, tool_name: task_update, arguments: {task_id: "$task:b3", status: completed}}
+      - {type: tool_completed, tool_name: task_update, arguments: {task_id: "$task:b3", status: completed}}
       - {type: agent_completed}
   - run_id: r4
     events:
@@ -71,6 +81,8 @@ initial_runs:
       - {type: tool_completed, tool_name: clean_cache, arguments: {}}
       - {type: tool_started, tool_name: run_build, arguments: {}}
       - {type: tool_completed, tool_name: run_build, arguments: {}}
+      - {type: tool_started, tool_name: task_update, arguments: {task_id: "$task:b4", status: completed}}
+      - {type: tool_completed, tool_name: task_update, arguments: {task_id: "$task:b4", status: completed}}
       - {type: agent_completed}
 expect:
   learning:

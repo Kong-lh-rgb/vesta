@@ -129,6 +129,8 @@ def _run_record(scenario, run_index: int, outcome, verdict: ScenarioVerdict) -> 
                 "proposed_name": d.proposed_name,
                 "existing_skill_name": d.existing_skill_name,
                 "related_skill_names": list(d.related_skill_names),
+                "raw_output": d.raw_output,
+                "adjudication_raw_output": d.adjudication_raw_output,
                 "error": d.error,
             }
             for d in (getattr(mining, "distillations", ()) or ())
@@ -403,6 +405,10 @@ def _render_run(record: dict) -> list[str]:
                         "proposed_name": dist["proposed_name"],
                         "existing_skill_name": dist["existing_skill_name"],
                         "related_skills": dist["related_skill_names"],
+                        "raw_output": dist["raw_output"],
+                        "adjudication_raw_output": dist[
+                            "adjudication_raw_output"
+                        ],
                         "error": dist["error"],
                     },
                     ensure_ascii=False,

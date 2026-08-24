@@ -1,5 +1,7 @@
 id: eval-02
 group: tools
+tier: smoke
+tags: [smoke, file]
 name: 正确读取 workspace 文件
 initial_files:
   - path: notes/intro.txt

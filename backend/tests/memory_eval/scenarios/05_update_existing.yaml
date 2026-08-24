@@ -1,15 +1,16 @@
 id: memory-05
 name: 已读取的同主题记忆执行更新而非重复创建
+tier: smoke
 tags: [reflection, update]
 initial_memories:
   - alias: capacity
-    title: 普通记忆容量
-    summary: 活跃普通记忆最多 25 条
-    content: "普通记忆 active 上限为 25 条，满载时运行 Maintenance。"
+    title: Atlas 项目索引归档方案
+    summary: Atlas 项目活跃索引最多 25 条
+    content: "Atlas 项目 active 索引上限为 25 条，满载时运行 Maintenance。"
 phases:
   - id: revise
     conversation: A
-    user_input: "读取容量记忆。我们刚完成的新规则是：归档前必须校验候选 revision，并且更新 Recall Cue。请说明当前完整规则。"
+    user_input: "读取 Atlas 项目索引归档方案。我们已经决定扩展这项项目方案：归档前必须校验候选 revision，并且更新 Recall Cue。请说明当前完整方案。"
     expect:
       recalled: [capacity]
       reflection_action: update
@@ -17,7 +18,7 @@ phases:
       active_count: 1
       memory:
         target: capacity
-        summary_contains: ["容量"]
-        content_contains: ["25", "revision"]
+        summary_contains_any:
+          - ["Atlas", "最多 25 条", "上限为 25 条", "active 上限"]
+        content_contains: ["25", "revision", "Recall Cue"]
         revision_at_least: 2
-

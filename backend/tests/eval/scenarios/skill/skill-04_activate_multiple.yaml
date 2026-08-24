@@ -17,9 +17,20 @@ initial_skills:
     body: |
       # Structured Research
       拆解问题、搜集信息、交叉验证。
+initial_files:
+  - path: bug.py
+    content: |
+      def first_or_none(items):
+          return items[0]
+
+      print(first_or_none([]))
 user_input: >-
-  先帮我排查这个 Python 报错：IndexError: list index out of range，
-  修复之后再对修复后的代码做一次代码评审。
+  bug.py（相对 workspace 根目录）的 first_or_none([]) 会触发
+  IndexError: list index out of range。
+  请先修复为列表为空时返回 None，验证代码逻辑，然后再对修复后的代码做一次代码评审。
+allowed_tools: [skill_read, read_file, write_file]
+approval:
+  approve_tools: [write_file]
 max_steps: 10
 expect:
   skill:

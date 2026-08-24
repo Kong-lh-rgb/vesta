@@ -1,5 +1,7 @@
 id: eval-19
 group: task
+tier: smoke
+tags: [smoke, task, isolation]
 name: 跨会话 Task 不可见
 initial_tasks:
   - alias: other_task

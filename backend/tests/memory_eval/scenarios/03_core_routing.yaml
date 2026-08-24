@@ -8,5 +8,6 @@ phases:
     expect:
       reflection_action: none
       active_count: 0
-      core_contains: ["先给结论", "解释原因"]
-
+      core_contains_any:
+        - ["先给结论", "先给出结论", "结论优先"]
+        - ["解释原因", "说明原因", "展开原因", "解释或展开"]

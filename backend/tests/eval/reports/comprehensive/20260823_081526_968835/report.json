@@ -1,0 +1,1595 @@
+{
+  "schema_version": 2,
+  "provider": "deepseek",
+  "model": "deepseek-v4-flash",
+  "suites": [
+    "core",
+    "memory",
+    "learning"
+  ],
+  "tier": "smoke",
+  "generated_at": "2026-08-23T08:15:27.269188+00:00",
+  "git_commit": "35c7a84dee4d9a0460cc8583f4d975708e3d01df",
+  "scenario_digest": "1147e45d342aa6888d07677a39175fcad2ac3fce8af2527d2d492b652f056aee",
+  "run_root": "/var/folders/pf/zby_ydbx0nj2f0krp_8wft140000gp/T/vesta-comprehensive-eval-ndmwpq75",
+  "samples": [
+    {
+      "suite": "core",
+      "scenario_id": "eval-04",
+      "scenario_name": "复杂多步骤请求创建 Task",
+      "group": "task",
+      "tier": "smoke",
+      "phase_id": null,
+      "conversation": null,
+      "mode": "on",
+      "run_index": 1,
+      "provider": "deepseek",
+      "model": "deepseek-v4-flash",
+      "passed": true,
+      "checks": [
+        {
+          "name": "ran_ok",
+          "ok": true,
+          "detail": "stop=final_answer; expected=['final_answer']",
+          "applicable": true
+        },
+        {
+          "name": "tools",
+          "ok": true,
+          "detail": "called=['task_create']",
+          "applicable": true
+        },
+        {
+          "name": "skill",
+          "ok": true,
+          "detail": "未声明 Skill 期望",
+          "applicable": false
+        },
+        {
+          "name": "task",
+          "ok": true,
+          "detail": "task=5f56d0e4 title='Vesta 里程碑：API 层 + 前端聊天页 + MCP 集成调研' status=pending",
+          "applicable": true
+        },
+        {
+          "name": "files",
+          "ok": true,
+          "detail": "未声明文件期望",
+          "applicable": false
+        },
+        {
+          "name": "answer",
+          "ok": true,
+          "detail": "无关键点要求",
+          "applicable": false
+        },
+        {
+          "name": "compaction",
+          "ok": true,
+          "detail": "未要求压缩",
+          "applicable": false
+        }
+      ],
+      "stop_reason": "final_answer",
+      "steps": 2,
+      "tool_calls": 1,
+      "tool_failures": 0,
+      "duration_s": 8.331731042126194,
+      "usage": {
+        "main_agent": {
+          "input_tokens": 6384,
+          "output_tokens": 678,
+          "total_tokens": 7062,
+          "cached_input_tokens": 5760,
+          "uncached_input_tokens": 624,
+          "cache_read_input_tokens": 5760,
+          "cache_write_input_tokens": null,
+          "model_calls": 2
+        },
+        "context_summary": {
+          "input_tokens": 0,
+          "output_tokens": 0,
+          "total_tokens": 0,
+          "cached_input_tokens": null,
+          "uncached_input_tokens": null,
+          "cache_read_input_tokens": null,
+          "cache_write_input_tokens": null,
+          "model_calls": 0
+        },
+        "memory_reflection": {
+          "input_tokens": 0,
+          "output_tokens": 0,
+          "total_tokens": 0,
+          "cached_input_tokens": null,
+          "uncached_input_tokens": null,
+          "cache_read_input_tokens": null,
+          "cache_write_input_tokens": null,
+          "model_calls": 0
+        },
+        "memory_maintenance": {
+          "input_tokens": 0,
+          "output_tokens": 0,
+          "total_tokens": 0,
+          "cached_input_tokens": null,
+          "uncached_input_tokens": null,
+          "cache_read_input_tokens": null,
+          "cache_write_input_tokens": null,
+          "model_calls": 0
+        },
+        "provider_total": {
+          "input_tokens": 6384,
+          "output_tokens": 678,
+          "total_tokens": 7062,
+          "cached_input_tokens": 5760,
+          "uncached_input_tokens": 624,
+          "cache_read_input_tokens": 5760,
+          "cache_write_input_tokens": null,
+          "model_calls": 2
+        },
+        "tool_schema_tokens_estimated": 5164,
+        "memory_reflection_status": "not_run",
+        "memory_reflection_skip_reason": null,
+        "context_summary_status": "not_run",
+        "context_summary_provider": null,
+        "context_summary_model": null,
+        "context_summary_duration_ms": 0.0,
+        "main_agent_chargeable_tokens": 1302,
+        "run_budget_status": "active",
+        "run_budget_reason": null,
+        "run_budget_warning_tokens": 50000,
+        "run_budget_finalization_tokens": 75000,
+        "run_budget_hard_tokens": 100000,
+        "run_budget_warning_model_calls": 8,
+        "run_budget_finalization_model_calls": 10,
+        "run_budget_hard_model_calls": 12
+      },
+      "error": null,
+      "trace_path": "/var/folders/pf/zby_ydbx0nj2f0krp_8wft140000gp/T/vesta-comprehensive-eval-ndmwpq75/core/eval-04/run-1/trace.json",
+      "workspace_path": "/var/folders/pf/zby_ydbx0nj2f0krp_8wft140000gp/T/vesta-comprehensive-eval-ndmwpq75/core/eval-04/run-1/workspace",
+      "learning_diagnostics": null
+    },
+    {
+      "suite": "core",
+      "scenario_id": "eval-04",
+      "scenario_name": "复杂多步骤请求创建 Task",
+      "group": "task",
+      "tier": "smoke",
+      "phase_id": null,
+      "conversation": null,
+      "mode": "on",
+      "run_index": 2,
+      "provider": "deepseek",
+      "model": "deepseek-v4-flash",
+      "passed": true,
+      "checks": [
+        {
+          "name": "ran_ok",
+          "ok": true,
+          "detail": "stop=final_answer; expected=['final_answer']",
+          "applicable": true
+        },
+        {
+          "name": "tools",
+          "ok": true,
+          "detail": "called=['task_create']",
+          "applicable": true
+        },
+        {
+          "name": "skill",
+          "ok": true,
+          "detail": "未声明 Skill 期望",
+          "applicable": false
+        },
+        {
+          "name": "task",
+          "ok": true,
+          "detail": "task=d61dde0c title='Vesta 里程碑：API 层 + 前端聊天页 + MCP 集成调研' status=pending",
+          "applicable": true
+        },
+        {
+          "name": "files",
+          "ok": true,
+          "detail": "未声明文件期望",
+          "applicable": false
+        },
+        {
+          "name": "answer",
+          "ok": true,
+          "detail": "无关键点要求",
+          "applicable": false
+        },
+        {
+          "name": "compaction",
+          "ok": true,
+          "detail": "未要求压缩",
+          "applicable": false
+        }
+      ],
+      "stop_reason": "final_answer",
+      "steps": 2,
+      "tool_calls": 1,
+      "tool_failures": 0,
+      "duration_s": 8.83087758300826,
+      "usage": {
+        "main_agent": {
+          "input_tokens": 6458,
+          "output_tokens": 807,
+          "total_tokens": 7265,
+          "cached_input_tokens": 5760,
+          "uncached_input_tokens": 698,
+          "cache_read_input_tokens": 5760,
+          "cache_write_input_tokens": null,
+          "model_calls": 2
+        },
+        "context_summary": {
+          "input_tokens": 0,
+          "output_tokens": 0,
+          "total_tokens": 0,
+          "cached_input_tokens": null,
+          "uncached_input_tokens": null,
+          "cache_read_input_tokens": null,
+          "cache_write_input_tokens": null,
+          "model_calls": 0
+        },
+        "memory_reflection": {
+          "input_tokens": 0,
+          "output_tokens": 0,
+          "total_tokens": 0,
+          "cached_input_tokens": null,
+          "uncached_input_tokens": null,
+          "cache_read_input_tokens": null,
+          "cache_write_input_tokens": null,
+          "model_calls": 0
+        },
+        "memory_maintenance": {
+          "input_tokens": 0,
+          "output_tokens": 0,
+          "total_tokens": 0,
+          "cached_input_tokens": null,
+          "uncached_input_tokens": null,
+          "cache_read_input_tokens": null,
+          "cache_write_input_tokens": null,
+          "model_calls": 0
+        },
+        "provider_total": {
+          "input_tokens": 6458,
+          "output_tokens": 807,
+          "total_tokens": 7265,
+          "cached_input_tokens": 5760,
+          "uncached_input_tokens": 698,
+          "cache_read_input_tokens": 5760,
+          "cache_write_input_tokens": null,
+          "model_calls": 2
+        },
+        "tool_schema_tokens_estimated": 5164,
+        "memory_reflection_status": "not_run",
+        "memory_reflection_skip_reason": null,
+        "context_summary_status": "not_run",
+        "context_summary_provider": null,
+        "context_summary_model": null,
+        "context_summary_duration_ms": 0.0,
+        "main_agent_chargeable_tokens": 1505,
+        "run_budget_status": "active",
+        "run_budget_reason": null,
+        "run_budget_warning_tokens": 50000,
+        "run_budget_finalization_tokens": 75000,
+        "run_budget_hard_tokens": 100000,
+        "run_budget_warning_model_calls": 8,
+        "run_budget_finalization_model_calls": 10,
+        "run_budget_hard_model_calls": 12
+      },
+      "error": null,
+      "trace_path": "/var/folders/pf/zby_ydbx0nj2f0krp_8wft140000gp/T/vesta-comprehensive-eval-ndmwpq75/core/eval-04/run-2/trace.json",
+      "workspace_path": "/var/folders/pf/zby_ydbx0nj2f0krp_8wft140000gp/T/vesta-comprehensive-eval-ndmwpq75/core/eval-04/run-2/workspace",
+      "learning_diagnostics": null
+    },
+    {
+      "suite": "core",
+      "scenario_id": "eval-04",
+      "scenario_name": "复杂多步骤请求创建 Task",
+      "group": "task",
+      "tier": "smoke",
+      "phase_id": null,
+      "conversation": null,
+      "mode": "on",
+      "run_index": 3,
+      "provider": "deepseek",
+      "model": "deepseek-v4-flash",
+      "passed": true,
+      "checks": [
+        {
+          "name": "ran_ok",
+          "ok": true,
+          "detail": "stop=final_answer; expected=['final_answer']",
+          "applicable": true
+        },
+        {
+          "name": "tools",
+          "ok": true,
+          "detail": "called=['task_create']",
+          "applicable": true
+        },
+        {
+          "name": "skill",
+          "ok": true,
+          "detail": "未声明 Skill 期望",
+          "applicable": false
+        },
+        {
+          "name": "task",
+          "ok": true,
+          "detail": "task=f8c9318a title='Vesta 里程碑：API 层 + 前端聊天页 + MCP 集成调研' status=pending",
+          "applicable": true
+        },
+        {
+          "name": "files",
+          "ok": true,
+          "detail": "未声明文件期望",
+          "applicable": false
+        },
+        {
+          "name": "answer",
+          "ok": true,
+          "detail": "无关键点要求",
+          "applicable": false
+        },
+        {
+          "name": "compaction",
+          "ok": true,
+          "detail": "未要求压缩",
+          "applicable": false
+        }
+      ],
+      "stop_reason": "final_answer",
+      "steps": 2,
+      "tool_calls": 1,
+      "tool_failures": 0,
+      "duration_s": 10.620095208054408,
+      "usage": {
+        "main_agent": {
+          "input_tokens": 6748,
+          "output_tokens": 1051,
+          "total_tokens": 7799,
+          "cached_input_tokens": 6144,
+          "uncached_input_tokens": 604,
+          "cache_read_input_tokens": 6144,
+          "cache_write_input_tokens": null,
+          "model_calls": 2
+        },
+        "context_summary": {
+          "input_tokens": 0,
+          "output_tokens": 0,
+          "total_tokens": 0,
+          "cached_input_tokens": null,
+          "uncached_input_tokens": null,
+          "cache_read_input_tokens": null,
+          "cache_write_input_tokens": null,
+          "model_calls": 0
+        },
+        "memory_reflection": {
+          "input_tokens": 0,
+          "output_tokens": 0,
+          "total_tokens": 0,
+          "cached_input_tokens": null,
+          "uncached_input_tokens": null,
+          "cache_read_input_tokens": null,
+          "cache_write_input_tokens": null,
+          "model_calls": 0
+        },
+        "memory_maintenance": {
+          "input_tokens": 0,
+          "output_tokens": 0,
+          "total_tokens": 0,
+          "cached_input_tokens": null,
+          "uncached_input_tokens": null,
+          "cache_read_input_tokens": null,
+          "cache_write_input_tokens": null,
+          "model_calls": 0
+        },
+        "provider_total": {
+          "input_tokens": 6748,
+          "output_tokens": 1051,
+          "total_tokens": 7799,
+          "cached_input_tokens": 6144,
+          "uncached_input_tokens": 604,
+          "cache_read_input_tokens": 6144,
+          "cache_write_input_tokens": null,
+          "model_calls": 2
+        },
+        "tool_schema_tokens_estimated": 5164,
+        "memory_reflection_status": "not_run",
+        "memory_reflection_skip_reason": null,
+        "context_summary_status": "not_run",
+        "context_summary_provider": null,
+        "context_summary_model": null,
+        "context_summary_duration_ms": 0.0,
+        "main_agent_chargeable_tokens": 1655,
+        "run_budget_status": "active",
+        "run_budget_reason": null,
+        "run_budget_warning_tokens": 50000,
+        "run_budget_finalization_tokens": 75000,
+        "run_budget_hard_tokens": 100000,
+        "run_budget_warning_model_calls": 8,
+        "run_budget_finalization_model_calls": 10,
+        "run_budget_hard_model_calls": 12
+      },
+      "error": null,
+      "trace_path": "/var/folders/pf/zby_ydbx0nj2f0krp_8wft140000gp/T/vesta-comprehensive-eval-ndmwpq75/core/eval-04/run-3/trace.json",
+      "workspace_path": "/var/folders/pf/zby_ydbx0nj2f0krp_8wft140000gp/T/vesta-comprehensive-eval-ndmwpq75/core/eval-04/run-3/workspace",
+      "learning_diagnostics": null
+    },
+    {
+      "suite": "memory",
+      "scenario_id": "memory-05",
+      "scenario_name": "已读取的同主题记忆执行更新而非重复创建",
+      "group": "memory",
+      "tier": "smoke",
+      "phase_id": "revise",
+      "conversation": "A",
+      "mode": "on",
+      "run_index": 1,
+      "provider": "deepseek",
+      "model": "deepseek-v4-flash",
+      "passed": true,
+      "checks": [
+        {
+          "name": "ran_ok",
+          "ok": true,
+          "detail": "final_answer",
+          "applicable": true
+        },
+        {
+          "name": "reflection_action",
+          "ok": true,
+          "detail": "actual=update expected=update",
+          "applicable": true
+        },
+        {
+          "name": "reflection_mutation",
+          "ok": true,
+          "detail": "actual=True expected=True",
+          "applicable": true
+        },
+        {
+          "name": "recall",
+          "ok": true,
+          "detail": "reads=['M001'] missing=[] forbidden=[]",
+          "applicable": true
+        },
+        {
+          "name": "active_count",
+          "ok": true,
+          "detail": "actual=1 expected=1",
+          "applicable": true
+        },
+        {
+          "name": "stored_memory",
+          "ok": true,
+          "detail": "target=M001",
+          "applicable": true
+        }
+      ],
+      "stop_reason": "final_answer",
+      "steps": 2,
+      "tool_calls": 1,
+      "tool_failures": 0,
+      "duration_s": 16.983443540986627,
+      "usage": {
+        "main_agent": {
+          "input_tokens": 2668,
+          "output_tokens": 742,
+          "total_tokens": 3410,
+          "cached_input_tokens": 1280,
+          "uncached_input_tokens": 1388,
+          "cache_read_input_tokens": 1280,
+          "cache_write_input_tokens": null,
+          "model_calls": 2
+        },
+        "context_summary": {
+          "input_tokens": 0,
+          "output_tokens": 0,
+          "total_tokens": 0,
+          "cached_input_tokens": null,
+          "uncached_input_tokens": null,
+          "cache_read_input_tokens": null,
+          "cache_write_input_tokens": null,
+          "model_calls": 0
+        },
+        "memory_reflection": {
+          "input_tokens": 1111,
+          "output_tokens": 989,
+          "total_tokens": 2100,
+          "cached_input_tokens": 512,
+          "uncached_input_tokens": 599,
+          "cache_read_input_tokens": 512,
+          "cache_write_input_tokens": null,
+          "model_calls": 1
+        },
+        "memory_maintenance": {
+          "input_tokens": 0,
+          "output_tokens": 0,
+          "total_tokens": 0,
+          "cached_input_tokens": null,
+          "uncached_input_tokens": null,
+          "cache_read_input_tokens": null,
+          "cache_write_input_tokens": null,
+          "model_calls": 0
+        },
+        "provider_total": {
+          "input_tokens": 3779,
+          "output_tokens": 1731,
+          "total_tokens": 5510,
+          "cached_input_tokens": 1792,
+          "uncached_input_tokens": 1987,
+          "cache_read_input_tokens": 1792,
+          "cache_write_input_tokens": null,
+          "model_calls": 3
+        },
+        "tool_schema_tokens_estimated": 1504,
+        "memory_reflection_status": "completed",
+        "memory_reflection_skip_reason": null,
+        "context_summary_status": "not_run",
+        "context_summary_provider": null,
+        "context_summary_model": null,
+        "context_summary_duration_ms": 0.0,
+        "main_agent_chargeable_tokens": 2130,
+        "run_budget_status": "active",
+        "run_budget_reason": null,
+        "run_budget_warning_tokens": 50000,
+        "run_budget_finalization_tokens": 75000,
+        "run_budget_hard_tokens": 100000,
+        "run_budget_warning_model_calls": 8,
+        "run_budget_finalization_model_calls": 10,
+        "run_budget_hard_model_calls": 12
+      },
+      "error": null,
+      "trace_path": "/var/folders/pf/zby_ydbx0nj2f0krp_8wft140000gp/T/vesta-comprehensive-eval-ndmwpq75/memory/memory-05/run-1/on/phase-revise/trace.json",
+      "workspace_path": "/var/folders/pf/zby_ydbx0nj2f0krp_8wft140000gp/T/vesta-comprehensive-eval-ndmwpq75/memory/memory-05/run-1/on",
+      "learning_diagnostics": null
+    },
+    {
+      "suite": "memory",
+      "scenario_id": "memory-05",
+      "scenario_name": "已读取的同主题记忆执行更新而非重复创建",
+      "group": "memory",
+      "tier": "smoke",
+      "phase_id": "revise",
+      "conversation": "A",
+      "mode": "on",
+      "run_index": 2,
+      "provider": "deepseek",
+      "model": "deepseek-v4-flash",
+      "passed": true,
+      "checks": [
+        {
+          "name": "ran_ok",
+          "ok": true,
+          "detail": "final_answer",
+          "applicable": true
+        },
+        {
+          "name": "reflection_action",
+          "ok": true,
+          "detail": "actual=update expected=update",
+          "applicable": true
+        },
+        {
+          "name": "reflection_mutation",
+          "ok": true,
+          "detail": "actual=True expected=True",
+          "applicable": true
+        },
+        {
+          "name": "recall",
+          "ok": true,
+          "detail": "reads=['M001'] missing=[] forbidden=[]",
+          "applicable": true
+        },
+        {
+          "name": "active_count",
+          "ok": true,
+          "detail": "actual=1 expected=1",
+          "applicable": true
+        },
+        {
+          "name": "stored_memory",
+          "ok": true,
+          "detail": "target=M001",
+          "applicable": true
+        }
+      ],
+      "stop_reason": "final_answer",
+      "steps": 2,
+      "tool_calls": 1,
+      "tool_failures": 0,
+      "duration_s": 16.562253708951175,
+      "usage": {
+        "main_agent": {
+          "input_tokens": 2673,
+          "output_tokens": 701,
+          "total_tokens": 3374,
+          "cached_input_tokens": 2432,
+          "uncached_input_tokens": 241,
+          "cache_read_input_tokens": 2432,
+          "cache_write_input_tokens": null,
+          "model_calls": 2
+        },
+        "context_summary": {
+          "input_tokens": 0,
+          "output_tokens": 0,
+          "total_tokens": 0,
+          "cached_input_tokens": null,
+          "uncached_input_tokens": null,
+          "cache_read_input_tokens": null,
+          "cache_write_input_tokens": null,
+          "model_calls": 0
+        },
+        "memory_reflection": {
+          "input_tokens": 1181,
+          "output_tokens": 913,
+          "total_tokens": 2094,
+          "cached_input_tokens": 512,
+          "uncached_input_tokens": 669,
+          "cache_read_input_tokens": 512,
+          "cache_write_input_tokens": null,
+          "model_calls": 1
+        },
+        "memory_maintenance": {
+          "input_tokens": 0,
+          "output_tokens": 0,
+          "total_tokens": 0,
+          "cached_input_tokens": null,
+          "uncached_input_tokens": null,
+          "cache_read_input_tokens": null,
+          "cache_write_input_tokens": null,
+          "model_calls": 0
+        },
+        "provider_total": {
+          "input_tokens": 3854,
+          "output_tokens": 1614,
+          "total_tokens": 5468,
+          "cached_input_tokens": 2944,
+          "uncached_input_tokens": 910,
+          "cache_read_input_tokens": 2944,
+          "cache_write_input_tokens": null,
+          "model_calls": 3
+        },
+        "tool_schema_tokens_estimated": 1504,
+        "memory_reflection_status": "completed",
+        "memory_reflection_skip_reason": null,
+        "context_summary_status": "not_run",
+        "context_summary_provider": null,
+        "context_summary_model": null,
+        "context_summary_duration_ms": 0.0,
+        "main_agent_chargeable_tokens": 942,
+        "run_budget_status": "active",
+        "run_budget_reason": null,
+        "run_budget_warning_tokens": 50000,
+        "run_budget_finalization_tokens": 75000,
+        "run_budget_hard_tokens": 100000,
+        "run_budget_warning_model_calls": 8,
+        "run_budget_finalization_model_calls": 10,
+        "run_budget_hard_model_calls": 12
+      },
+      "error": null,
+      "trace_path": "/var/folders/pf/zby_ydbx0nj2f0krp_8wft140000gp/T/vesta-comprehensive-eval-ndmwpq75/memory/memory-05/run-2/on/phase-revise/trace.json",
+      "workspace_path": "/var/folders/pf/zby_ydbx0nj2f0krp_8wft140000gp/T/vesta-comprehensive-eval-ndmwpq75/memory/memory-05/run-2/on",
+      "learning_diagnostics": null
+    },
+    {
+      "suite": "memory",
+      "scenario_id": "memory-05",
+      "scenario_name": "已读取的同主题记忆执行更新而非重复创建",
+      "group": "memory",
+      "tier": "smoke",
+      "phase_id": "revise",
+      "conversation": "A",
+      "mode": "on",
+      "run_index": 3,
+      "provider": "deepseek",
+      "model": "deepseek-v4-flash",
+      "passed": false,
+      "checks": [
+        {
+          "name": "ran_ok",
+          "ok": true,
+          "detail": "final_answer",
+          "applicable": true
+        },
+        {
+          "name": "reflection_action",
+          "ok": false,
+          "detail": "actual=None expected=update",
+          "applicable": true
+        },
+        {
+          "name": "reflection_mutation",
+          "ok": false,
+          "detail": "actual=None expected=True",
+          "applicable": true
+        },
+        {
+          "name": "recall",
+          "ok": true,
+          "detail": "reads=['M001'] missing=[] forbidden=[]",
+          "applicable": true
+        },
+        {
+          "name": "active_count",
+          "ok": true,
+          "detail": "actual=1 expected=1",
+          "applicable": true
+        },
+        {
+          "name": "stored_memory",
+          "ok": false,
+          "detail": "content_missing=revision, content_missing=Recall Cue, revision=1 < 2",
+          "applicable": true
+        }
+      ],
+      "stop_reason": "final_answer",
+      "steps": 2,
+      "tool_calls": 1,
+      "tool_failures": 0,
+      "duration_s": 23.460560291074216,
+      "usage": {
+        "main_agent": {
+          "input_tokens": 2676,
+          "output_tokens": 1406,
+          "total_tokens": 4082,
+          "cached_input_tokens": 2432,
+          "uncached_input_tokens": 244,
+          "cache_read_input_tokens": 2432,
+          "cache_write_input_tokens": null,
+          "model_calls": 2
+        },
+        "context_summary": {
+          "input_tokens": 0,
+          "output_tokens": 0,
+          "total_tokens": 0,
+          "cached_input_tokens": null,
+          "uncached_input_tokens": null,
+          "cache_read_input_tokens": null,
+          "cache_write_input_tokens": null,
+          "model_calls": 0
+        },
+        "memory_reflection": {
+          "input_tokens": 1168,
+          "output_tokens": 1201,
+          "total_tokens": 2369,
+          "cached_input_tokens": 512,
+          "uncached_input_tokens": 656,
+          "cache_read_input_tokens": 512,
+          "cache_write_input_tokens": null,
+          "model_calls": 1
+        },
+        "memory_maintenance": {
+          "input_tokens": 0,
+          "output_tokens": 0,
+          "total_tokens": 0,
+          "cached_input_tokens": null,
+          "uncached_input_tokens": null,
+          "cache_read_input_tokens": null,
+          "cache_write_input_tokens": null,
+          "model_calls": 0
+        },
+        "provider_total": {
+          "input_tokens": 3844,
+          "output_tokens": 2607,
+          "total_tokens": 6451,
+          "cached_input_tokens": 2944,
+          "uncached_input_tokens": 900,
+          "cache_read_input_tokens": 2944,
+          "cache_write_input_tokens": null,
+          "model_calls": 3
+        },
+        "tool_schema_tokens_estimated": 1504,
+        "memory_reflection_status": "failed",
+        "memory_reflection_skip_reason": null,
+        "context_summary_status": "not_run",
+        "context_summary_provider": null,
+        "context_summary_model": null,
+        "context_summary_duration_ms": 0.0,
+        "main_agent_chargeable_tokens": 1650,
+        "run_budget_status": "active",
+        "run_budget_reason": null,
+        "run_budget_warning_tokens": 50000,
+        "run_budget_finalization_tokens": 75000,
+        "run_budget_hard_tokens": 100000,
+        "run_budget_warning_model_calls": 8,
+        "run_budget_finalization_model_calls": 10,
+        "run_budget_hard_model_calls": 12
+      },
+      "error": null,
+      "trace_path": "/var/folders/pf/zby_ydbx0nj2f0krp_8wft140000gp/T/vesta-comprehensive-eval-ndmwpq75/memory/memory-05/run-3/on/phase-revise/trace.json",
+      "workspace_path": "/var/folders/pf/zby_ydbx0nj2f0krp_8wft140000gp/T/vesta-comprehensive-eval-ndmwpq75/memory/memory-05/run-3/on",
+      "learning_diagnostics": null
+    },
+    {
+      "suite": "learning",
+      "scenario_id": "learning-02",
+      "scenario_name": "相似 Python debug 任务 → CREATE candidate",
+      "group": "learning",
+      "tier": "smoke",
+      "phase_id": null,
+      "conversation": null,
+      "mode": "on",
+      "run_index": 1,
+      "provider": "deepseek",
+      "model": "deepseek-v4-flash",
+      "passed": true,
+      "checks": [
+        {
+          "name": "learning",
+          "ok": true,
+          "detail": "expected names ['python-runtime-debug'] not matched (actual: ['debug-python-runtime-errors'])",
+          "applicable": true
+        }
+      ],
+      "stop_reason": "completed",
+      "steps": 0,
+      "tool_calls": 0,
+      "tool_failures": 0,
+      "duration_s": 7.011509415926412,
+      "usage": {
+        "main_agent": {
+          "input_tokens": 2265,
+          "output_tokens": 646,
+          "total_tokens": 2911,
+          "cached_input_tokens": null,
+          "uncached_input_tokens": null,
+          "cache_read_input_tokens": null,
+          "cache_write_input_tokens": null,
+          "model_calls": 2
+        },
+        "context_summary": {
+          "input_tokens": 0,
+          "output_tokens": 0,
+          "total_tokens": 0,
+          "cached_input_tokens": null,
+          "uncached_input_tokens": null,
+          "cache_read_input_tokens": null,
+          "cache_write_input_tokens": null,
+          "model_calls": 0
+        },
+        "memory_reflection": {
+          "input_tokens": 0,
+          "output_tokens": 0,
+          "total_tokens": 0,
+          "cached_input_tokens": null,
+          "uncached_input_tokens": null,
+          "cache_read_input_tokens": null,
+          "cache_write_input_tokens": null,
+          "model_calls": 0
+        },
+        "memory_maintenance": {
+          "input_tokens": 0,
+          "output_tokens": 0,
+          "total_tokens": 0,
+          "cached_input_tokens": null,
+          "uncached_input_tokens": null,
+          "cache_read_input_tokens": null,
+          "cache_write_input_tokens": null,
+          "model_calls": 0
+        },
+        "provider_total": {
+          "input_tokens": 2265,
+          "output_tokens": 646,
+          "total_tokens": 2911,
+          "cached_input_tokens": null,
+          "uncached_input_tokens": null,
+          "cache_read_input_tokens": null,
+          "cache_write_input_tokens": null,
+          "model_calls": 2
+        },
+        "tool_schema_tokens_estimated": 0,
+        "memory_reflection_status": "not_run",
+        "memory_reflection_skip_reason": null,
+        "context_summary_status": "not_run",
+        "context_summary_provider": null,
+        "context_summary_model": null,
+        "context_summary_duration_ms": 0.0,
+        "main_agent_chargeable_tokens": 2911,
+        "run_budget_status": "not_configured",
+        "run_budget_reason": null,
+        "run_budget_warning_tokens": null,
+        "run_budget_finalization_tokens": null,
+        "run_budget_hard_tokens": null,
+        "run_budget_warning_model_calls": null,
+        "run_budget_finalization_model_calls": null,
+        "run_budget_hard_model_calls": null
+      },
+      "error": null,
+      "trace_path": null,
+      "workspace_path": "/var/folders/pf/zby_ydbx0nj2f0krp_8wft140000gp/T/vesta-comprehensive-eval-ndmwpq75/learning/learning-02/run-1",
+      "learning_diagnostics": {
+        "mining": {
+          "scanned_task_count": 4,
+          "cluster_count": 1,
+          "clusters": [
+            {
+              "id": "python-error-debug",
+              "task_ids": [
+                "9a5b514d42464c9c8d4458401143d498",
+                "9bdf3d79b9504caeb6692ebf243d0594",
+                "2bc13c3dc2b24454bf8f7bc6d718de57",
+                "e18464a448ce419d83dfd7ba97f753f8"
+              ],
+              "pattern_name": "Python runtime error debugging",
+              "description": "Reproduce a Python error, read the traceback to identify the root cause, fix the code, and verify with pytest.",
+              "similarity_reason": "All four tasks share the identical multi-step workflow: reproduce the error, read the traceback, fix the code, and run pytest for verification. The only difference is the specific exception type (AttributeError, KeyError, TypeError, ImportError), which is a minor variation of the same debugging procedure.",
+              "reusable_value": "This pattern is highly reusable for any Python runtime error. It provides a stable, repeatable debugging workflow that reduces time spent on diagnosis and ensures verification through pytest, lowering future error rates and debugging costs."
+            }
+          ]
+        },
+        "distillations": [
+          {
+            "cluster_name": "Python runtime error debugging",
+            "action": "create",
+            "reason": "Four completed tasks all follow the identical multi-step procedure (read_file → run_pytest → task_update) across four different exception types, demonstrating a stable, repeatable debugging workflow. No existing skills or pending candidates cover this pattern, and it has clear independent reusable value for any Python runtime error.",
+            "proposed_name": "debug-python-runtime-errors",
+            "existing_skill_name": null,
+            "related_skill_names": [],
+            "error": null
+          }
+        ]
+      }
+    },
+    {
+      "suite": "learning",
+      "scenario_id": "learning-02",
+      "scenario_name": "相似 Python debug 任务 → CREATE candidate",
+      "group": "learning",
+      "tier": "smoke",
+      "phase_id": null,
+      "conversation": null,
+      "mode": "on",
+      "run_index": 2,
+      "provider": "deepseek",
+      "model": "deepseek-v4-flash",
+      "passed": true,
+      "checks": [
+        {
+          "name": "learning",
+          "ok": true,
+          "detail": "expected names ['python-runtime-debug'] not matched (actual: ['debug-python-exception'])",
+          "applicable": true
+        }
+      ],
+      "stop_reason": "completed",
+      "steps": 0,
+      "tool_calls": 0,
+      "tool_failures": 0,
+      "duration_s": 6.956911999965087,
+      "usage": {
+        "main_agent": {
+          "input_tokens": 2282,
+          "output_tokens": 613,
+          "total_tokens": 2895,
+          "cached_input_tokens": null,
+          "uncached_input_tokens": null,
+          "cache_read_input_tokens": null,
+          "cache_write_input_tokens": null,
+          "model_calls": 2
+        },
+        "context_summary": {
+          "input_tokens": 0,
+          "output_tokens": 0,
+          "total_tokens": 0,
+          "cached_input_tokens": null,
+          "uncached_input_tokens": null,
+          "cache_read_input_tokens": null,
+          "cache_write_input_tokens": null,
+          "model_calls": 0
+        },
+        "memory_reflection": {
+          "input_tokens": 0,
+          "output_tokens": 0,
+          "total_tokens": 0,
+          "cached_input_tokens": null,
+          "uncached_input_tokens": null,
+          "cache_read_input_tokens": null,
+          "cache_write_input_tokens": null,
+          "model_calls": 0
+        },
+        "memory_maintenance": {
+          "input_tokens": 0,
+          "output_tokens": 0,
+          "total_tokens": 0,
+          "cached_input_tokens": null,
+          "uncached_input_tokens": null,
+          "cache_read_input_tokens": null,
+          "cache_write_input_tokens": null,
+          "model_calls": 0
+        },
+        "provider_total": {
+          "input_tokens": 2282,
+          "output_tokens": 613,
+          "total_tokens": 2895,
+          "cached_input_tokens": null,
+          "uncached_input_tokens": null,
+          "cache_read_input_tokens": null,
+          "cache_write_input_tokens": null,
+          "model_calls": 2
+        },
+        "tool_schema_tokens_estimated": 0,
+        "memory_reflection_status": "not_run",
+        "memory_reflection_skip_reason": null,
+        "context_summary_status": "not_run",
+        "context_summary_provider": null,
+        "context_summary_model": null,
+        "context_summary_duration_ms": 0.0,
+        "main_agent_chargeable_tokens": 2895,
+        "run_budget_status": "not_configured",
+        "run_budget_reason": null,
+        "run_budget_warning_tokens": null,
+        "run_budget_finalization_tokens": null,
+        "run_budget_hard_tokens": null,
+        "run_budget_warning_model_calls": null,
+        "run_budget_finalization_model_calls": null,
+        "run_budget_hard_model_calls": null
+      },
+      "error": null,
+      "trace_path": null,
+      "workspace_path": "/var/folders/pf/zby_ydbx0nj2f0krp_8wft140000gp/T/vesta-comprehensive-eval-ndmwpq75/learning/learning-02/run-2",
+      "learning_diagnostics": {
+        "mining": {
+          "scanned_task_count": 4,
+          "cluster_count": 1,
+          "clusters": [
+            {
+              "id": "python-exception-debug",
+              "task_ids": [
+                "d009ea88e79d4c6c94fd2f6fee011b7f",
+                "1d9df3e4c81248ac84977764a44ce4b2",
+                "00aca25d594045e1b28dac88e5a5b4be",
+                "3c70faa38bf44514bed87d69a1fc49b2"
+              ],
+              "pattern_name": "Python exception debugging and fix",
+              "description": "Reproduce a Python exception, read the traceback to identify the root cause, apply a fix, and verify with pytest.",
+              "similarity_reason": "All four tasks follow the identical multi-step workflow: reproduce the error, read the traceback, fix the code, and run pytest to verify. The only difference is the specific exception type (AttributeError, KeyError, TypeError, ImportError), but the debugging procedure is the same.",
+              "reusable_value": "This is a common recurring pattern in Python development. Learning a systematic approach to debugging any Python exception (reproduce, traceback analysis, fix, test) saves time and reduces errors across many future tasks involving different exception types."
+            }
+          ]
+        },
+        "distillations": [
+          {
+            "cluster_name": "Python exception debugging and fix",
+            "action": "create",
+            "reason": "Four completed tasks all follow the identical stable workflow (read_file → run_pytest → task_update) across four different exception types (AttributeError, KeyError, TypeError, ImportError). The pattern is repeated and validated, and no existing skill or pending candidate covers it. This is an independent, reusable debugging procedure distinct from any catalog skill.",
+            "proposed_name": "debug-python-exception",
+            "existing_skill_name": null,
+            "related_skill_names": [],
+            "error": null
+          }
+        ]
+      }
+    },
+    {
+      "suite": "learning",
+      "scenario_id": "learning-02",
+      "scenario_name": "相似 Python debug 任务 → CREATE candidate",
+      "group": "learning",
+      "tier": "smoke",
+      "phase_id": null,
+      "conversation": null,
+      "mode": "on",
+      "run_index": 3,
+      "provider": "deepseek",
+      "model": "deepseek-v4-flash",
+      "passed": true,
+      "checks": [
+        {
+          "name": "learning",
+          "ok": true,
+          "detail": "expected names ['python-runtime-debug'] not matched (actual: ['debug-python-exceptions'])",
+          "applicable": true
+        }
+      ],
+      "stop_reason": "completed",
+      "steps": 0,
+      "tool_calls": 0,
+      "tool_failures": 0,
+      "duration_s": 6.708249540999532,
+      "usage": {
+        "main_agent": {
+          "input_tokens": 2275,
+          "output_tokens": 543,
+          "total_tokens": 2818,
+          "cached_input_tokens": null,
+          "uncached_input_tokens": null,
+          "cache_read_input_tokens": null,
+          "cache_write_input_tokens": null,
+          "model_calls": 2
+        },
+        "context_summary": {
+          "input_tokens": 0,
+          "output_tokens": 0,
+          "total_tokens": 0,
+          "cached_input_tokens": null,
+          "uncached_input_tokens": null,
+          "cache_read_input_tokens": null,
+          "cache_write_input_tokens": null,
+          "model_calls": 0
+        },
+        "memory_reflection": {
+          "input_tokens": 0,
+          "output_tokens": 0,
+          "total_tokens": 0,
+          "cached_input_tokens": null,
+          "uncached_input_tokens": null,
+          "cache_read_input_tokens": null,
+          "cache_write_input_tokens": null,
+          "model_calls": 0
+        },
+        "memory_maintenance": {
+          "input_tokens": 0,
+          "output_tokens": 0,
+          "total_tokens": 0,
+          "cached_input_tokens": null,
+          "uncached_input_tokens": null,
+          "cache_read_input_tokens": null,
+          "cache_write_input_tokens": null,
+          "model_calls": 0
+        },
+        "provider_total": {
+          "input_tokens": 2275,
+          "output_tokens": 543,
+          "total_tokens": 2818,
+          "cached_input_tokens": null,
+          "uncached_input_tokens": null,
+          "cache_read_input_tokens": null,
+          "cache_write_input_tokens": null,
+          "model_calls": 2
+        },
+        "tool_schema_tokens_estimated": 0,
+        "memory_reflection_status": "not_run",
+        "memory_reflection_skip_reason": null,
+        "context_summary_status": "not_run",
+        "context_summary_provider": null,
+        "context_summary_model": null,
+        "context_summary_duration_ms": 0.0,
+        "main_agent_chargeable_tokens": 2818,
+        "run_budget_status": "not_configured",
+        "run_budget_reason": null,
+        "run_budget_warning_tokens": null,
+        "run_budget_finalization_tokens": null,
+        "run_budget_hard_tokens": null,
+        "run_budget_warning_model_calls": null,
+        "run_budget_finalization_model_calls": null,
+        "run_budget_hard_model_calls": null
+      },
+      "error": null,
+      "trace_path": null,
+      "workspace_path": "/var/folders/pf/zby_ydbx0nj2f0krp_8wft140000gp/T/vesta-comprehensive-eval-ndmwpq75/learning/learning-02/run-3",
+      "learning_diagnostics": {
+        "mining": {
+          "scanned_task_count": 4,
+          "cluster_count": 1,
+          "clusters": [
+            {
+              "id": "python-exception-debug",
+              "task_ids": [
+                "cc856a3762684c37a4c1422777082bae",
+                "d37b3f202aa94849914bb04bced75b34",
+                "9783acd2437d41d69ac2c9135e0f119d",
+                "2c09da5eef0149d8a8d12ac87f0947e7"
+              ],
+              "pattern_name": "Python exception debugging and fix",
+              "description": "Reproduce a Python error, read the traceback to identify the root cause, apply a fix, and verify with pytest.",
+              "similarity_reason": "All four tasks share the identical multi-step workflow: reproduce the error, read the traceback, fix the code, and run pytest to verify. They differ only in the specific exception type (AttributeError, KeyError, TypeError, ImportError), which is a minor variation within the same debugging procedure.",
+              "reusable_value": "This is a highly reusable pattern for any Python exception debugging task. The workflow is stable, has clear verification via pytest, and can be applied to future errors of any type, saving time by following a proven procedure rather than ad-hoc debugging."
+            }
+          ]
+        },
+        "distillations": [
+          {
+            "cluster_name": "Python exception debugging and fix",
+            "action": "create",
+            "reason": "Four completed tasks consistently follow the identical stable workflow (read_file → run_pytest → task_update) across different exception types (AttributeError, KeyError, TypeError, ImportError). The pattern is validated repeatedly and has clear reusable value for any Python exception debugging. No existing skills or pending candidates cover this family.",
+            "proposed_name": "debug-python-exceptions",
+            "existing_skill_name": null,
+            "related_skill_names": [],
+            "error": null
+          }
+        ]
+      }
+    },
+    {
+      "suite": "learning",
+      "scenario_id": "learning-05b",
+      "scenario_name": "强证据证明 virtualenv 是稳定新增步骤 → UPDATE debug-python",
+      "group": "learning",
+      "tier": "smoke",
+      "phase_id": null,
+      "conversation": null,
+      "mode": "on",
+      "run_index": 1,
+      "provider": "deepseek",
+      "model": "deepseek-v4-flash",
+      "passed": true,
+      "checks": [
+        {
+          "name": "learning",
+          "ok": true,
+          "detail": "",
+          "applicable": true
+        }
+      ],
+      "stop_reason": "completed",
+      "steps": 0,
+      "tool_calls": 0,
+      "tool_failures": 0,
+      "duration_s": 7.684009626042098,
+      "usage": {
+        "main_agent": {
+          "input_tokens": 2755,
+          "output_tokens": 504,
+          "total_tokens": 3259,
+          "cached_input_tokens": null,
+          "uncached_input_tokens": null,
+          "cache_read_input_tokens": null,
+          "cache_write_input_tokens": null,
+          "model_calls": 3
+        },
+        "context_summary": {
+          "input_tokens": 0,
+          "output_tokens": 0,
+          "total_tokens": 0,
+          "cached_input_tokens": null,
+          "uncached_input_tokens": null,
+          "cache_read_input_tokens": null,
+          "cache_write_input_tokens": null,
+          "model_calls": 0
+        },
+        "memory_reflection": {
+          "input_tokens": 0,
+          "output_tokens": 0,
+          "total_tokens": 0,
+          "cached_input_tokens": null,
+          "uncached_input_tokens": null,
+          "cache_read_input_tokens": null,
+          "cache_write_input_tokens": null,
+          "model_calls": 0
+        },
+        "memory_maintenance": {
+          "input_tokens": 0,
+          "output_tokens": 0,
+          "total_tokens": 0,
+          "cached_input_tokens": null,
+          "uncached_input_tokens": null,
+          "cache_read_input_tokens": null,
+          "cache_write_input_tokens": null,
+          "model_calls": 0
+        },
+        "provider_total": {
+          "input_tokens": 2755,
+          "output_tokens": 504,
+          "total_tokens": 3259,
+          "cached_input_tokens": null,
+          "uncached_input_tokens": null,
+          "cache_read_input_tokens": null,
+          "cache_write_input_tokens": null,
+          "model_calls": 3
+        },
+        "tool_schema_tokens_estimated": 0,
+        "memory_reflection_status": "not_run",
+        "memory_reflection_skip_reason": null,
+        "context_summary_status": "not_run",
+        "context_summary_provider": null,
+        "context_summary_model": null,
+        "context_summary_duration_ms": 0.0,
+        "main_agent_chargeable_tokens": 3259,
+        "run_budget_status": "not_configured",
+        "run_budget_reason": null,
+        "run_budget_warning_tokens": null,
+        "run_budget_finalization_tokens": null,
+        "run_budget_hard_tokens": null,
+        "run_budget_warning_model_calls": null,
+        "run_budget_finalization_model_calls": null,
+        "run_budget_hard_model_calls": null
+      },
+      "error": null,
+      "trace_path": null,
+      "workspace_path": "/var/folders/pf/zby_ydbx0nj2f0krp_8wft140000gp/T/vesta-comprehensive-eval-ndmwpq75/learning/learning-05b/run-1",
+      "learning_diagnostics": {
+        "mining": {
+          "scanned_task_count": 4,
+          "cluster_count": 1,
+          "clusters": [
+            {
+              "id": "python-env-debug",
+              "task_ids": [
+                "3fde4832cdcf4ef08f7893a04f377a1d",
+                "6c52e38b82914d66ad6740815a173433",
+                "2e1eba4c13e5419b840130747af1a8d2",
+                "1843fd236383451097089f6071e8df78"
+              ],
+              "pattern_name": "Python 环境错误排查",
+              "description": "复现错误、确认 virtualenv 状态、修复并验证的标准化流程，用于解决 Python 环境、路径、依赖或虚拟环境相关报错。",
+              "similarity_reason": "所有任务标题均为 Python 环境相关报错（环境、路径、依赖、虚拟环境），目标均为恢复运行/启动，且 final_steps 完全一致（复现错误、确认 virtualenv、修复并验证），run_count 均为 2，表明是重复出现的同类问题。",
+              "reusable_value": "该流程可固化为标准排查步骤，避免每次从头分析，减少重复试错，提高修复效率和一致性。"
+            }
+          ]
+        },
+        "distillations": [
+          {
+            "cluster_name": "Python 环境错误排查",
+            "action": "update",
+            "reason": "The cluster tasks are all Python environment/path/dependency/virtualenv troubleshooting, which is the same task family as the existing 'debug-python' skill. The existing skill body only covers generic reproduce/read traceback/fix steps, but the cluster adds a stable new step: confirm virtualenv state before fixing. This is a natural extension of the existing skill, not an independent family.",
+            "proposed_name": "debug-python",
+            "existing_skill_name": "debug-python",
+            "related_skill_names": [
+              "debug-python"
+            ],
+            "error": null
+          }
+        ]
+      }
+    },
+    {
+      "suite": "learning",
+      "scenario_id": "learning-05b",
+      "scenario_name": "强证据证明 virtualenv 是稳定新增步骤 → UPDATE debug-python",
+      "group": "learning",
+      "tier": "smoke",
+      "phase_id": null,
+      "conversation": null,
+      "mode": "on",
+      "run_index": 2,
+      "provider": "deepseek",
+      "model": "deepseek-v4-flash",
+      "passed": false,
+      "checks": [
+        {
+          "name": "learning",
+          "ok": false,
+          "detail": "candidate_count=0 expected 1; expected names ['debug-python'] not matched (actual: []); update_count=0 expected 1; action not update: []",
+          "applicable": true
+        }
+      ],
+      "stop_reason": "completed",
+      "steps": 0,
+      "tool_calls": 0,
+      "tool_failures": 0,
+      "duration_s": 6.448196250014007,
+      "usage": {
+        "main_agent": {
+          "input_tokens": 2765,
+          "output_tokens": 453,
+          "total_tokens": 3218,
+          "cached_input_tokens": null,
+          "uncached_input_tokens": null,
+          "cache_read_input_tokens": null,
+          "cache_write_input_tokens": null,
+          "model_calls": 3
+        },
+        "context_summary": {
+          "input_tokens": 0,
+          "output_tokens": 0,
+          "total_tokens": 0,
+          "cached_input_tokens": null,
+          "uncached_input_tokens": null,
+          "cache_read_input_tokens": null,
+          "cache_write_input_tokens": null,
+          "model_calls": 0
+        },
+        "memory_reflection": {
+          "input_tokens": 0,
+          "output_tokens": 0,
+          "total_tokens": 0,
+          "cached_input_tokens": null,
+          "uncached_input_tokens": null,
+          "cache_read_input_tokens": null,
+          "cache_write_input_tokens": null,
+          "model_calls": 0
+        },
+        "memory_maintenance": {
+          "input_tokens": 0,
+          "output_tokens": 0,
+          "total_tokens": 0,
+          "cached_input_tokens": null,
+          "uncached_input_tokens": null,
+          "cache_read_input_tokens": null,
+          "cache_write_input_tokens": null,
+          "model_calls": 0
+        },
+        "provider_total": {
+          "input_tokens": 2765,
+          "output_tokens": 453,
+          "total_tokens": 3218,
+          "cached_input_tokens": null,
+          "uncached_input_tokens": null,
+          "cache_read_input_tokens": null,
+          "cache_write_input_tokens": null,
+          "model_calls": 3
+        },
+        "tool_schema_tokens_estimated": 0,
+        "memory_reflection_status": "not_run",
+        "memory_reflection_skip_reason": null,
+        "context_summary_status": "not_run",
+        "context_summary_provider": null,
+        "context_summary_model": null,
+        "context_summary_duration_ms": 0.0,
+        "main_agent_chargeable_tokens": 3218,
+        "run_budget_status": "not_configured",
+        "run_budget_reason": null,
+        "run_budget_warning_tokens": null,
+        "run_budget_finalization_tokens": null,
+        "run_budget_hard_tokens": null,
+        "run_budget_warning_model_calls": null,
+        "run_budget_finalization_model_calls": null,
+        "run_budget_hard_model_calls": null
+      },
+      "error": null,
+      "trace_path": null,
+      "workspace_path": "/var/folders/pf/zby_ydbx0nj2f0krp_8wft140000gp/T/vesta-comprehensive-eval-ndmwpq75/learning/learning-05b/run-2",
+      "learning_diagnostics": {
+        "mining": {
+          "scanned_task_count": 4,
+          "cluster_count": 1,
+          "clusters": [
+            {
+              "id": "python-virtualenv-debug",
+              "task_ids": [
+                "a81364e4d6ec4490b117853c980a4b7c",
+                "90b4432faee84201a88fc356e4c822f6",
+                "d705a30f7b12448e8e9bb9a9b433acff",
+                "24effc6d90d149378eacb3975018c9d3"
+              ],
+              "pattern_name": "Python virtualenv error diagnosis and repair",
+              "description": "Diagnose and fix Python environment/path/dependency/virtualenv errors by reproducing the error, verifying the virtualenv setup, then applying fixes and validating the solution.",
+              "similarity_reason": "All four tasks share identical final_steps (reproduce error, confirm virtualenv, fix and verify) and all target Python environment-related failures (environment, path, dependency, virtualenv), indicating a common multi-step debugging workflow.",
+              "reusable_value": "This pattern can be reused for any future Python environment error, providing a structured approach to isolate virtualenv issues, apply targeted fixes, and verify recovery, reducing debugging time and preventing repeated trial-and-error."
+            }
+          ]
+        },
+        "distillations": [
+          {
+            "cluster_name": "Python virtualenv error diagnosis and repair",
+            "action": "none",
+            "reason": "The existing skill 'debug-python' already covers the same task family (Python error diagnosis and repair) with the same core steps: reproduce, read traceback, fix and verify. The cluster's procedure (reproduce error, confirm virtualenv, fix, verify) is a natural extension of this existing skill's body, but the evidence is too thin to justify an update: all four tasks share identical tool sequences and only add a single step ('confirm virtualenv') without demonstrating distinct stable pitfalls or verification methods beyond what the existing skill already implies. The tasks appear to be near-duplicates of the same workflow rather than providing new, validated knowledge that would meaningfully extend the existing skill. Therefore, no action is warranted.",
+            "proposed_name": null,
+            "existing_skill_name": null,
+            "related_skill_names": [
+              "debug-python"
+            ],
+            "error": null
+          }
+        ]
+      }
+    },
+    {
+      "suite": "learning",
+      "scenario_id": "learning-05b",
+      "scenario_name": "强证据证明 virtualenv 是稳定新增步骤 → UPDATE debug-python",
+      "group": "learning",
+      "tier": "smoke",
+      "phase_id": null,
+      "conversation": null,
+      "mode": "on",
+      "run_index": 3,
+      "provider": "deepseek",
+      "model": "deepseek-v4-flash",
+      "passed": true,
+      "checks": [
+        {
+          "name": "learning",
+          "ok": true,
+          "detail": "",
+          "applicable": true
+        }
+      ],
+      "stop_reason": "completed",
+      "steps": 0,
+      "tool_calls": 0,
+      "tool_failures": 0,
+      "duration_s": 8.103082749992609,
+      "usage": {
+        "main_agent": {
+          "input_tokens": 2735,
+          "output_tokens": 602,
+          "total_tokens": 3337,
+          "cached_input_tokens": null,
+          "uncached_input_tokens": null,
+          "cache_read_input_tokens": null,
+          "cache_write_input_tokens": null,
+          "model_calls": 3
+        },
+        "context_summary": {
+          "input_tokens": 0,
+          "output_tokens": 0,
+          "total_tokens": 0,
+          "cached_input_tokens": null,
+          "uncached_input_tokens": null,
+          "cache_read_input_tokens": null,
+          "cache_write_input_tokens": null,
+          "model_calls": 0
+        },
+        "memory_reflection": {
+          "input_tokens": 0,
+          "output_tokens": 0,
+          "total_tokens": 0,
+          "cached_input_tokens": null,
+          "uncached_input_tokens": null,
+          "cache_read_input_tokens": null,
+          "cache_write_input_tokens": null,
+          "model_calls": 0
+        },
+        "memory_maintenance": {
+          "input_tokens": 0,
+          "output_tokens": 0,
+          "total_tokens": 0,
+          "cached_input_tokens": null,
+          "uncached_input_tokens": null,
+          "cache_read_input_tokens": null,
+          "cache_write_input_tokens": null,
+          "model_calls": 0
+        },
+        "provider_total": {
+          "input_tokens": 2735,
+          "output_tokens": 602,
+          "total_tokens": 3337,
+          "cached_input_tokens": null,
+          "uncached_input_tokens": null,
+          "cache_read_input_tokens": null,
+          "cache_write_input_tokens": null,
+          "model_calls": 3
+        },
+        "tool_schema_tokens_estimated": 0,
+        "memory_reflection_status": "not_run",
+        "memory_reflection_skip_reason": null,
+        "context_summary_status": "not_run",
+        "context_summary_provider": null,
+        "context_summary_model": null,
+        "context_summary_duration_ms": 0.0,
+        "main_agent_chargeable_tokens": 3337,
+        "run_budget_status": "not_configured",
+        "run_budget_reason": null,
+        "run_budget_warning_tokens": null,
+        "run_budget_finalization_tokens": null,
+        "run_budget_hard_tokens": null,
+        "run_budget_warning_model_calls": null,
+        "run_budget_finalization_model_calls": null,
+        "run_budget_hard_model_calls": null
+      },
+      "error": null,
+      "trace_path": null,
+      "workspace_path": "/var/folders/pf/zby_ydbx0nj2f0krp_8wft140000gp/T/vesta-comprehensive-eval-ndmwpq75/learning/learning-05b/run-3",
+      "learning_diagnostics": {
+        "mining": {
+          "scanned_task_count": 4,
+          "cluster_count": 1,
+          "clusters": [
+            {
+              "id": "python-virtualenv-debug",
+              "task_ids": [
+                "f7cc52f19d184881b7e7fa797e43a02d",
+                "e0ac81af19334661ade1dc3daa111765",
+                "0c01e691f6c045949b4780548e187f1a",
+                "ce3d83dc886c4818a9c31af8b475628c"
+              ],
+              "pattern_name": "Python virtualenv troubleshooting",
+              "description": "Diagnose and fix Python environment errors by reproducing the error, verifying the virtualenv setup, then applying fixes and validating the solution.",
+              "similarity_reason": "All four tasks share identical final_steps (reproduce error, confirm virtualenv, fix and verify) and all target Python environment/path/dependency/virtualenv issues, indicating a common multi-step debugging workflow.",
+              "reusable_value": "This pattern can be reused for any future Python environment-related error (path, dependency, virtualenv) by following the same structured approach: reproduce, verify virtualenv, fix, and validate, saving time and reducing error rate in future debugging."
+            }
+          ]
+        },
+        "distillations": [
+          {
+            "cluster_name": "Python virtualenv troubleshooting",
+            "action": "update",
+            "reason": "The four completed tasks all follow the same stable workflow: reproduce the error, confirm the virtualenv is active, fix the environment issue, then re-run to verify. This is the same task family as the existing 'debug-python' skill (Python error troubleshooting). The existing skill body only has generic steps (reproduce, read traceback, fix and verify) and does not explicitly cover the virtualenv-specific step that all four tasks added ('先确认 virtualenv'). Since multiple tasks consistently validated this new step, it naturally extends the existing skill rather than forming an independent family.",
+            "proposed_name": "debug-python",
+            "existing_skill_name": "debug-python",
+            "related_skill_names": [
+              "debug-python"
+            ],
+            "error": null
+          }
+        ]
+      }
+    }
+  ]
+}
