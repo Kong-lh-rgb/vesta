@@ -180,7 +180,7 @@ class AgentRuntime:
         provider: ModelProvider | str | None = None,
         model: str | None = None,
         system_prompt: str | None = None,
-        max_steps: int = 10,
+        max_steps: int = 12,
         max_tool_rounds: int | None = None,
         max_output_tokens: int | None = None,
         tool_executor: ToolExecutor | None = None,

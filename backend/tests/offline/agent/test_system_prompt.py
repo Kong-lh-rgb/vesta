@@ -54,6 +54,7 @@ def test_application_uses_default_system_prompt_when_omitted() -> None:
     )
 
     assert application.system_prompt == DEFAULT_SYSTEM_PROMPT
+    assert application.max_steps == 12
 
 
 def test_application_allows_explicitly_disabling_system_prompt() -> None:

@@ -212,7 +212,7 @@ class Application:
         memory_dir: str | Path | None = None,
         skills_user_dir: str | Path | None = None,
         skills_project_dir: str | Path | None = None,
-        max_steps: int = 10,
+        max_steps: int = 12,
         max_tool_rounds: int = 15,
         max_output_tokens: int | None = None,
         run_budget_config: RunBudgetConfig | None = None,

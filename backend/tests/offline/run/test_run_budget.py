@@ -31,9 +31,23 @@ def test_default_run_budget_thresholds() -> None:
     assert config.warning_tokens == 80_000
     assert config.finalization_tokens == 120_000
     assert config.hard_tokens == 160_000
-    assert config.warning_model_calls == 8
-    assert config.finalization_model_calls == 10
-    assert config.hard_model_calls == 12
+    assert config.warning_model_calls is None
+    assert config.finalization_model_calls is None
+    assert config.hard_model_calls == 15
+
+
+def test_default_model_call_budget_only_enforces_hard_limit() -> None:
+    budget = RunBudget(RunBudgetConfig(_env_file=None))
+
+    before_hard = budget.evaluate(
+        ModelUsage(input_tokens=1, model_calls=14)
+    )
+    at_hard = budget.evaluate(ModelUsage(input_tokens=1, model_calls=15))
+
+    assert before_hard.status is RunBudgetStatus.ACTIVE
+    assert at_hard.status is RunBudgetStatus.EXCEEDED
+    assert at_hard.reason is not None
+    assert at_hard.reason.value == "model_calls"
 
 
 def test_chargeable_tokens_prefers_uncached_input() -> None:

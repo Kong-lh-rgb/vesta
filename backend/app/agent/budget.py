@@ -44,14 +44,15 @@ class RunBudgetConfig(BaseSettings):
     warning_tokens: int = Field(default=80_000, ge=1)
     finalization_tokens: int = Field(default=120_000, ge=1)
     hard_tokens: int = Field(default=160_000, ge=1)
-    warning_model_calls: int = Field(default=8, ge=1)
-    finalization_model_calls: int = Field(default=10, ge=1)
-    hard_model_calls: int = Field(default=12, ge=1)
+    # 默认只保留调用次数硬上限；旧配置仍可显式启用 Warning / Finalizing。
+    warning_model_calls: int | None = Field(default=None, ge=1)
+    finalization_model_calls: int | None = Field(default=None, ge=1)
+    hard_model_calls: int = Field(default=15, ge=1)
     finalization_max_output_tokens: int = Field(default=1_200, ge=1)
 
     @model_validator(mode="after")
     def validate_thresholds(self) -> RunBudgetConfig:
-        """要求三段阈值严格递增，给最终收口留下独立空间。"""
+        """Token 三段阈值必须递增；已配置的调用阈值也必须递增。"""
 
         if not (
             self.warning_tokens
@@ -62,14 +63,22 @@ class RunBudgetConfig(BaseSettings):
                 "run budget token thresholds must satisfy warning < "
                 "finalization < hard"
             )
-        if not (
-            self.warning_model_calls
-            < self.finalization_model_calls
-            < self.hard_model_calls
+        call_thresholds = [
+            threshold
+            for threshold in (
+                self.warning_model_calls,
+                self.finalization_model_calls,
+                self.hard_model_calls,
+            )
+            if threshold is not None
+        ]
+        if any(
+            left >= right
+            for left, right in zip(call_thresholds, call_thresholds[1:])
         ):
             raise ValueError(
-                "run budget model call thresholds must satisfy warning < "
-                "finalization < hard"
+                "configured run budget model call thresholds must be "
+                "strictly increasing"
             )
         return self
 
@@ -146,7 +155,7 @@ class RunBudget:
             ),
         ):
             token_hit = chargeable >= token_limit
-            call_hit = calls >= call_limit
+            call_hit = call_limit is not None and calls >= call_limit
             if token_hit or call_hit:
                 return RunBudgetDecision(
                     status=status,
