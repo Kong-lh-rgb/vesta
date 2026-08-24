@@ -4894,3 +4894,233 @@ kbd { padding: 1px 5px; border: 1px solid var(--border); border-radius: 4px; bac
     margin-left: 29px;
   }
 }
+
+/* ========================================================================
+   运行反馈与审批体验收口
+   ======================================================================== */
+
+/* 聊天中只保留安静的文字状态，完整执行轨迹进入 Run Detail。 */
+.agent-turn__status--working {
+  color: var(--text-tertiary);
+  font-weight: 500;
+}
+
+.live-turn__waiting {
+  min-height: 24px;
+  display: flex;
+  align-items: center;
+  margin: 8px 0 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--text-tertiary);
+  font-size: 12px;
+}
+
+.agent-turn__error {
+  max-width: 680px;
+  padding: 15px 17px;
+  border: 1px solid #ead6d2;
+  border-left: 3px solid var(--danger);
+  border-radius: 10px;
+  background: #fcf7f5;
+}
+
+.agent-turn__error > strong {
+  color: #7f3734;
+  font-size: 13px;
+}
+
+.agent-turn__error-details {
+  margin: 8px 0 12px;
+  color: var(--text-tertiary);
+  font-size: 10.5px;
+}
+
+.agent-turn__error-details summary {
+  width: fit-content;
+  cursor: pointer;
+}
+
+.agent-turn__error-details code {
+  display: block;
+  max-height: 110px;
+  margin-top: 7px;
+  padding: 8px 10px;
+  overflow: auto;
+  border-radius: 7px;
+  background: #f3ecea;
+  color: #765a57;
+  font: 10px/1.5 var(--font-mono);
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+
+/* Chat 内的命令审批：先展示意图和命令，再提供克制的技术详情。 */
+.approval-card {
+  max-width: 680px;
+  padding: 17px 18px;
+  border: 1px solid #deded9;
+  border-left: 1px solid #deded9;
+  border-radius: 12px;
+  background: #fff;
+  box-shadow: 0 8px 24px rgba(38, 40, 36, 0.07);
+}
+
+.approval-card__icon {
+  border: 0;
+  background: #eef2ef;
+  color: var(--accent);
+}
+
+.approval-card__eyebrow {
+  color: var(--warning);
+  font-size: 10px;
+  letter-spacing: .08em;
+}
+
+.approval-card__title {
+  margin-top: 4px;
+  font-size: 14px;
+  font-weight: 680;
+}
+
+.approval-card__command {
+  display: grid;
+  gap: 6px;
+  margin-top: 14px;
+  padding: 11px 12px;
+  border: 1px solid #e2e2dd;
+  border-radius: 9px;
+  background: #f7f7f4;
+}
+
+.approval-card__command > span {
+  color: var(--text-tertiary);
+  font-size: 9.5px;
+}
+
+.approval-card__command code {
+  overflow-x: auto;
+  color: #2d302c;
+  font: 11px/1.55 var(--font-mono);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.approval-card__reason {
+  margin-top: 10px;
+  color: var(--text-secondary);
+  font-size: 11px;
+}
+
+.approval-card__tech {
+  margin-top: 8px;
+  color: var(--text-tertiary);
+  font: 10px var(--font-mono);
+}
+
+.approval-card__actions {
+  justify-content: flex-end;
+  margin-top: 15px;
+}
+
+/* 独立审批浮窗：中文信息优先，减少技术面板感。 */
+body.approval-app {
+  padding: 10px;
+  background: #efefec;
+}
+
+.floating-approval {
+  overflow: hidden;
+  padding: 0;
+  border: 1px solid rgba(72, 76, 68, .16);
+  border-radius: 15px;
+  background: rgba(255, 255, 255, .97);
+  box-shadow: 0 16px 42px rgba(35, 38, 33, .16);
+}
+
+.floating-approval__bar {
+  min-height: 42px;
+  padding: 0 17px;
+  border-bottom: 1px solid #ecece8;
+  background: #fafaf8;
+}
+
+.floating-approval__brand {
+  color: var(--text-primary);
+  font-size: 12px;
+}
+
+.floating-approval__dot {
+  width: 7px;
+  height: 7px;
+  background: var(--accent);
+}
+
+.floating-approval__body {
+  margin-top: 0;
+  padding: 17px 18px 4px;
+}
+
+.floating-approval__eyebrow {
+  color: var(--warning);
+  font-size: 10px;
+  letter-spacing: .08em;
+}
+
+.floating-approval__title {
+  margin: 6px 0 5px;
+  color: var(--text-primary);
+  font-size: 17px;
+  font-weight: 700;
+}
+
+.floating-approval__summary {
+  padding: 10px 12px;
+  border-color: #e3e3de;
+  border-radius: 9px;
+  background: #f6f6f3;
+  text-align: left;
+}
+
+.floating-approval__details,
+.floating-approval__error {
+  color: var(--text-tertiary);
+  font-size: 10.5px;
+}
+
+.floating-approval__details summary,
+.floating-approval__error summary {
+  width: fit-content;
+  cursor: pointer;
+}
+
+.floating-approval__error code {
+  display: block;
+  margin-top: 7px;
+  padding: 8px;
+  border-radius: 7px;
+  background: #fbf1ef;
+  color: #8b4b46;
+  font: 10px/1.45 var(--font-mono);
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+
+.floating-approval__actions {
+  margin-top: 14px;
+  padding: 13px 18px 16px;
+  border-top: 1px solid #ecece8;
+  background: #fafaf8;
+}
+
+.floating-approval__btn {
+  min-height: 32px;
+  padding: 0 16px;
+  border-radius: 8px;
+}
+
+.floating-approval__btn--allow {
+  min-width: 76px;
+}

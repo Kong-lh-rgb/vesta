@@ -29,12 +29,14 @@ describe('ApprovalCard', () => {
     expect(html).toContain('approval-card')
   })
 
-  it('提供 Approve / Deny 按钮', () => {
+  it('提供中文允许 / 拒绝按钮', () => {
     const html = renderToStaticMarkup(
       <ApprovalCard approval={approval} onApprove={() => {}} onDeny={() => {}} />,
     )
-    expect(html).toContain('Approve')
-    expect(html).toContain('Deny')
+    expect(html).toContain('允许执行')
+    expect(html).toContain('拒绝')
+    expect(html).toContain('即将执行')
+    expect(html).toContain('ls -la')
   })
 
   it('busy 时按钮禁用', () => {
@@ -57,8 +59,8 @@ describe('ApprovalCard', () => {
         onDeny={() => {}}
       />,
     )
-    expect(html).toContain('Allow Type text?')
-    expect(html).toContain('Vesta wants to type text')
-    expect(html).toContain('(computer_type)')
+    expect(html).toContain('允许“输入文本”吗？')
+    expect(html).toContain('Vesta 准备向当前应用输入')
+    expect(html).toContain('computer_type')
   })
 })

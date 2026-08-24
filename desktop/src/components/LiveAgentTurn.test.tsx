@@ -31,8 +31,8 @@ describe('LiveAgentTurn', () => {
   it('无事件时显示中文等待提示', () => {
     const html = renderToStaticMarkup(<LiveAgentTurn runId="run-1" step={1} events={[]} />)
     expect(html).toContain('Vesta')
-    expect(html).toContain('live-turn__pulse')
-    expect(html).toContain('正在执行…')
+    expect(html).not.toContain('live-turn__pulse')
+    expect(html).toContain('正在思考')
     expect(html).toContain('live-turn__waiting')
   })
 
@@ -79,7 +79,7 @@ describe('LiveAgentTurn', () => {
     expect(html).not.toContain('assistant-reasoning')
   })
 
-  it('tool timeline 合并 started/completed 为人类可读动作', () => {
+  it('聊天消息不展示工具圆点和竖线时间线', () => {
     const html = renderToStaticMarkup(
       <LiveAgentTurn
         runId="run-1"
@@ -104,12 +104,13 @@ describe('LiveAgentTurn', () => {
         ]}
       />,
     )
-    expect(html).toContain('turn-timeline')
-    expect(html).toContain('agent-action--done')
-    expect(html).toContain('已输入 “测试”')
+    expect(html).not.toContain('turn-timeline')
+    expect(html).not.toContain('agent-action')
+    expect(html).not.toContain('已输入 “测试”')
+    expect(html).toContain('正在思考')
   })
 
-  it('sandbox 审批等待显示中文确认提示', () => {
+  it('sandbox 审批期间消息仍只显示正在思考', () => {
     const html = renderToStaticMarkup(
       <LiveAgentTurn
         runId="run-1"
@@ -126,11 +127,11 @@ describe('LiveAgentTurn', () => {
         ]}
       />,
     )
-    expect(html).toContain('agent-action--waiting')
-    expect(html).toContain('等待你的确认')
+    expect(html).not.toContain('agent-action--waiting')
+    expect(html).toContain('正在思考')
   })
 
-  it('desktop 审批等待显示中文电脑操作提示', () => {
+  it('desktop 审批期间消息不重复浮窗中的操作过程', () => {
     const html = renderToStaticMarkup(
       <LiveAgentTurn
         runId="run-1"
@@ -147,10 +148,11 @@ describe('LiveAgentTurn', () => {
         ]}
       />,
     )
-    expect(html).toContain('等待电脑操作确认')
+    expect(html).not.toContain('等待电脑操作确认')
+    expect(html).toContain('正在思考')
   })
 
-  it('computer 操作未验证时显示中文验证状态', () => {
+  it('computer 验证状态不内嵌到聊天消息', () => {
     const html = renderToStaticMarkup(
       <LiveAgentTurn
         runId="run-1"
@@ -175,7 +177,8 @@ describe('LiveAgentTurn', () => {
         ]}
       />,
     )
-    expect(html).toContain('操作已发送 · 等待验证')
+    expect(html).not.toContain('操作已发送 · 等待验证')
+    expect(html).toContain('正在思考')
   })
 
   it('usage footer 使用中文字段显示步骤、操作、用量和耗时', () => {
@@ -247,7 +250,7 @@ describe('LiveAgentTurn', () => {
   })
 
   it.each([
-    ['failed', 'agent_failed', '执行已停止'],
+    ['failed', 'agent_failed', '模型暂时无法响应'],
     ['interrupted', 'agent_failed', '执行已中断'],
   ] as const)('持久展示 %s 终态', (status, type, label) => {
     const html = renderToStaticMarkup(

@@ -44,7 +44,7 @@ describe('isComputerApproval', () => {
 })
 
 describe('ApprovalFloatingCard', () => {
-  it('computer 审批 → 浮窗可见，展示人类可读动作与 Allow/Deny', () => {
+  it('computer 审批 → 浮窗使用中文动作与允许/拒绝', () => {
     const html = renderToStaticMarkup(
       <ApprovalFloatingCard
         approval={computerApproval}
@@ -53,17 +53,17 @@ describe('ApprovalFloatingCard', () => {
       />,
     )
     expect(html).toContain('approval-floating-card')
-    expect(html).toContain('Permission required')
-    expect(html).toContain('Type text')
+    expect(html).toContain('需要你的确认')
+    expect(html).toContain('输入文本')
     expect(html).toContain('“测试”')
-    expect(html).toContain('Show details')
-    expect(html).toContain('Allow')
-    expect(html).toContain('Deny')
+    expect(html).toContain('查看技术详情')
+    expect(html).toContain('允许')
+    expect(html).toContain('暂不允许')
     // 技术 tool_name 不直接作为主标题。
     expect(html).toContain('computer_type')
   })
 
-  it('有排队审批时显示 "N more waiting"', () => {
+  it('有排队审批时显示中文等待数量', () => {
     const html = renderToStaticMarkup(
       <ApprovalFloatingCard
         approval={computerApproval}
@@ -72,7 +72,7 @@ describe('ApprovalFloatingCard', () => {
         onDeny={() => {}}
       />,
     )
-    expect(html).toContain('2 more waiting')
+    expect(html).toContain('还有 2 项等待确认')
   })
 
   it('无排队时不显示 waiting', () => {
@@ -84,7 +84,7 @@ describe('ApprovalFloatingCard', () => {
         onDeny={() => {}}
       />,
     )
-    expect(html).not.toContain('more waiting')
+    expect(html).not.toContain('项等待确认')
   })
 
   it('busy 时按钮禁用（防双击）', () => {
@@ -109,8 +109,8 @@ describe('ApprovalFloatingCard', () => {
       />,
     )
     expect(html).toContain('approve failed')
-    // 审批仍在（卡片仍渲染 Allow/Deny）。
-    expect(html).toContain('Allow')
+    // 审批仍在（卡片仍渲染允许/拒绝）。
+    expect(html).toContain('允许')
   })
 
   it('批准后显示执行状态，不再显示审批按钮', () => {
@@ -122,10 +122,10 @@ describe('ApprovalFloatingCard', () => {
         onDeny={() => {}}
       />,
     )
-    expect(html).toContain('Executing')
-    expect(html).toContain('performing the approved computer action')
-    expect(html).not.toContain('>Allow<')
-    expect(html).not.toContain('>Deny<')
+    expect(html).toContain('正在执行')
+    expect(html).toContain('正在执行你刚刚允许的电脑操作')
+    expect(html).not.toContain('>允许<')
+    expect(html).not.toContain('>暂不允许<')
   })
 
   it('动作投递后使用诚实文案，不声称界面效果已验证', () => {
@@ -137,9 +137,9 @@ describe('ApprovalFloatingCard', () => {
         onDeny={() => {}}
       />,
     )
-    expect(html).toContain('Action sent')
-    expect(html).toContain('checking the result')
-    expect(html).not.toContain('Text entered')
+    expect(html).toContain('操作已发送')
+    expect(html).toContain('正在确认界面是否真的发生变化')
+    expect(html).not.toContain('输入已完成')
   })
 
   it('Run 失败时显示停止原因', () => {
@@ -152,7 +152,8 @@ describe('ApprovalFloatingCard', () => {
         onDeny={() => {}}
       />,
     )
-    expect(html).toContain('Run stopped')
+    expect(html).toContain('本轮未能完成')
+    expect(html).toContain('执行步骤已达到上限')
     expect(html).toContain('maximum step limit reached')
   })
 })
