@@ -17,6 +17,7 @@ from app.memory import (
     MEMORY_INDEX_MESSAGE_NAME,
     MEMORY_POLICY_MESSAGE_NAME,
     MEMORY_POLICY_PROMPT,
+    CoreMemoryManager,
     MemoryManager,
     MemoryRecord,
     MemoryStatus,
@@ -125,6 +126,129 @@ async def test_core_upsert_failure_does_not_change_file(memory_root: Path) -> No
         )
 
     assert (memory_root / "CORE.md").read_text(encoding="utf-8") == before
+
+
+def _legacy_core_document(
+    *,
+    value: str = "始终使用中文交流。",
+    manual_body: str = "人工维护的长期约束。",
+) -> str:
+    """构造包含旧格式元数据、审计字段与人工正文的 CORE.md。"""
+
+    return f"""---
+format: oneagent-core-v1
+updated_at: '2026-08-12T07:00:58+00:00'
+audit:
+  imported_from: oneAgent
+entries:
+- key: communication.language
+  value: {value}
+  reason: 用户明确表达长期语言偏好
+  source_statement: 以后都使用中文和我交流
+  updated_at: '2026-08-12T07:00:58+00:00'
+---
+# Core Memory
+
+{manual_body}
+
+## Managed Core Entries
+
+### communication.language
+
+{value}
+"""
+
+
+@pytest.mark.asyncio
+async def test_core_load_hides_legacy_front_matter_before_migration(
+    memory_root: Path,
+) -> None:
+    memory_root.mkdir(parents=True)
+    (memory_root / "CORE.md").write_text(
+        _legacy_core_document(),
+        encoding="utf-8",
+    )
+    manager = CoreMemoryManager(memory_root)
+
+    visible = await manager.load()
+
+    assert "始终使用中文交流" in visible
+    assert "人工维护的长期约束" in visible
+    assert "oneagent-core-v1" not in visible
+    assert "source_statement" not in visible
+    assert "imported_from" not in visible
+
+
+@pytest.mark.asyncio
+async def test_core_initialize_atomically_migrates_legacy_format(
+    memory_root: Path,
+) -> None:
+    memory_root.mkdir(parents=True)
+    path = memory_root / "CORE.md"
+    legacy = _legacy_core_document()
+    path.write_text(legacy, encoding="utf-8")
+
+    await CoreMemoryManager(memory_root).initialize()
+
+    migrated = path.read_text(encoding="utf-8")
+    assert migrated == legacy.replace("oneagent-core-v1", "vesta-core-v1", 1)
+    assert "updated_at: '2026-08-12T07:00:58+00:00'" in migrated
+    assert "imported_from: oneAgent" in migrated
+    assert "人工维护的长期约束" in migrated
+
+
+@pytest.mark.asyncio
+async def test_core_mutations_work_after_legacy_migration(
+    memory_root: Path,
+) -> None:
+    memory_root.mkdir(parents=True)
+    path = memory_root / "CORE.md"
+    path.write_text(_legacy_core_document(), encoding="utf-8")
+    manager = await _manager(memory_root)
+
+    updated, created = await manager.upsert_core(
+        key="communication.language",
+        value="默认使用简体中文交流。",
+        reason="用户更新了全局语言偏好",
+        source_statement="以后默认使用简体中文",
+    )
+    added, added_created = await manager.upsert_core(
+        key="safety.confirmation",
+        value="高风险操作执行前必须确认。",
+        reason="用户明确表达全局安全约束",
+        source_statement="高风险操作执行前必须问我",
+    )
+    removed = await manager.remove_core("communication.language")
+
+    raw = path.read_text(encoding="utf-8")
+    visible = await manager.core.load()
+    assert created is False
+    assert updated.value == "默认使用简体中文交流。"
+    assert added_created is True
+    assert added.key == "safety.confirmation"
+    assert removed.key == "communication.language"
+    assert raw.count("format: vesta-core-v1") == 1
+    assert "oneagent-core-v1" not in raw
+    assert raw.count("---") == 2
+    assert "人工维护的长期约束" in visible
+    assert "高风险操作执行前必须确认" in visible
+    assert "默认使用简体中文交流" not in visible
+
+
+@pytest.mark.asyncio
+async def test_core_migration_failure_does_not_change_file(
+    memory_root: Path,
+) -> None:
+    memory_root.mkdir(parents=True)
+    path = memory_root / "CORE.md"
+    legacy = _legacy_core_document(manual_body="很长的人工正文" * 200)
+    path.write_text(legacy, encoding="utf-8")
+    manager = CoreMemoryManager(memory_root, max_tokens=10)
+
+    with pytest.raises(ValueError, match="core memory exceeds token limit"):
+        await manager.initialize()
+
+    assert path.read_text(encoding="utf-8") == legacy
 
 
 @pytest.mark.asyncio
@@ -628,6 +752,16 @@ async def test_policy_message_guides_model_directed_recall() -> None:
     assert "memory_read" in MEMORY_POLICY_PROMPT
     assert "after the run" in MEMORY_POLICY_PROMPT
     assert "core_memory_update" in MEMORY_POLICY_PROMPT
+    assert "entirely unrelated to the current" in MEMORY_POLICY_PROMPT
+    assert "Project-specific" in MEMORY_POLICY_PROMPT
+    assert "repository-specific" in MEMORY_POLICY_PROMPT
+    assert "global safety/privacy constraint" in MEMORY_POLICY_PROMPT
+    assert "call tool_search" in MEMORY_POLICY_PROMPT
+    assert '"core memory update"' in MEMORY_POLICY_PROMPT
+    assert "until the\ncore_memory_update tool result reports success" in (
+        MEMORY_POLICY_PROMPT
+    )
+    assert "state that it was not saved" in MEMORY_POLICY_PROMPT
     assert "Task" in MEMORY_POLICY_PROMPT
     assert "Skills" in MEMORY_POLICY_PROMPT
 
@@ -800,6 +934,22 @@ async def test_core_update_tool_writes_through_harness(memory_root: Path) -> Non
 
     assert result["created"] is True
     assert "始终使用中文交流" in await manager.core.load()
+
+
+@pytest.mark.asyncio
+async def test_core_update_tool_description_explains_classification_litmus(
+    memory_root: Path,
+) -> None:
+    manager = await _manager(memory_root)
+    registry = ToolRegistry()
+    register_memory_tools(registry, manager)
+
+    description = registry.get("core_memory_update").definition.description
+
+    assert "与当前项目或仓库完全无关" in description
+    assert "全局安全/隐私约束" in description
+    assert "项目或仓库的架构" in description
+    assert "Ordinary Memory" in description
 
 
 @pytest.mark.asyncio

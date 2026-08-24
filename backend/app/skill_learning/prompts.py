@@ -16,6 +16,11 @@ Rules:
 - A cluster must contain at least the configured minimum number of task_ids
   (see the batch below). Frequency alone is not enough: the tasks must share a
   genuine multi-step workflow with stable verification.
+- This first stage intentionally receives TaskCards, not full Trace events. Do
+  not reject a plausible cluster merely because commands or raw execution logs
+  are absent here. Repeated matching final_steps, key_facts, goals, and run counts
+  are enough to nominate a cluster; the Distiller will inspect Trace evidence and
+  reject any procedure that is not actually supported.
 - Return {"clusters": []} when there is no real reusable pattern. Do NOT force a
   cluster just to produce output.
 - Do NOT distill simple mechanical single-step actions into skills, such as:
@@ -110,8 +115,30 @@ Rules:
 - This is a cheap pre-filter: prefer precision (only clearly-related skills) over
   recall. Missing a skill here only means we treat it as unrelated."""  # noqa: E501
 
+
+_OVERLAP_ADJUDICATION_PROMPT = """You are Vesta's Skill Overlap Adjudicator.
+
+The Procedure Distiller proposed CREATE even though one or more existing Skills
+were selected as semantically related. Decide only whether the proposed procedure
+belongs to the SAME task family as one related Skill, or to a genuinely DIFFERENT
+task family. This is a duplicate-prevention review, not a new distillation pass.
+
+Rules:
+- Return strict JSON only, no markdown fence:
+  {"relationship":"same|different","existing_skill_name":null,"reason":"..."}
+- SAME means the goal and reusable capability naturally extend an existing Skill,
+  even when the exact new steps are absent from its current body. Set
+  existing_skill_name to exactly one supplied related Skill.
+- DIFFERENT means an independent goal and procedure that deserves its own Skill.
+  Leave existing_skill_name null.
+- Prefer SAME when a proposed specialization is a troubleshooting subcase of a
+  broader existing troubleshooting Skill.
+- Do not judge evidence quality or rewrite the procedure; the first Distiller has
+  already done that."""
+
 __all__ = [
     "_DISTILLATION_PROMPT",
+    "_OVERLAP_ADJUDICATION_PROMPT",
     "_PATTERN_MINING_PROMPT",
     "_RELEVANCE_PROMPT",
 ]

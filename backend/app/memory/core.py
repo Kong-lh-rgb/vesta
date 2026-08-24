@@ -25,8 +25,23 @@ logger = logging.getLogger("vesta.memory.core")
 
 DEFAULT_MAX_CORE_TOKENS = 2_000
 _CORE_FORMAT = "vesta-core-v1"
+_LEGACY_CORE_FORMAT = "oneagent-core-v1"
+_SUPPORTED_CORE_FORMATS = frozenset({_CORE_FORMAT, _LEGACY_CORE_FORMAT})
 _CORE_HEADING = "# Core Memory"
 _MANAGED_HEADING = "## Managed Core Entries"
+_FRONT_MATTER_RE = re.compile(
+    r"\A(?P<preamble>\ufeff?(?:[ \t]*\r?\n)*[ \t]*)"
+    r"(?P<opening>---[ \t]*\r?\n)"
+    r"(?P<metadata>.*?)"
+    r"(?P<closing>^---[ \t]*(?:\r?\n|$))",
+    re.DOTALL | re.MULTILINE,
+)
+_LEGACY_FORMAT_LINE_RE = re.compile(
+    r"^(?P<prefix>format[ \t]*:[ \t]*)"
+    r"(?P<quote>['\"]?)oneagent-core-v1(?P=quote)"
+    r"(?P<suffix>[ \t]*(?:#.*)?)$",
+    re.MULTILINE,
+)
 _CORE_KEY_RE = re.compile(r"^[a-z][a-z0-9_]*(?:\.[a-z][a-z0-9_]*)*$")
 _MAX_CORE_VALUE_CHARS = 1_000
 _MAX_CORE_REASON_CHARS = 1_000
@@ -111,6 +126,22 @@ class CoreMemoryManager:
 
     async def initialize(self) -> None:
         await asyncio.to_thread(self.path.parent.mkdir, parents=True, exist_ok=True)
+        if not await asyncio.to_thread(self.path.is_file):
+            return
+        if await asyncio.to_thread(self.path.is_symlink):
+            raise ValueError("CORE.md cannot be a symbolic link")
+        content = await asyncio.to_thread(self.path.read_text, encoding="utf-8")
+        migrated = _migrate_legacy_document(content)
+        if migrated is None:
+            return
+        _, visible = _parse_document(migrated)
+        estimated = self._estimate_tokens(visible)
+        if estimated > self.max_tokens:
+            raise ValueError(
+                f"core memory exceeds token limit: {estimated} > {self.max_tokens}"
+            )
+        await asyncio.to_thread(self._write_atomic, migrated)
+        logger.info("Migrated legacy Core Memory format path=%s", self.path)
 
     async def load(self) -> str:
         """加载模型可见正文；Front Matter 运行元数据不进入上下文。"""
@@ -212,37 +243,78 @@ class CoreMemoryManager:
     def _write_atomic(self, content: str) -> None:
         self.path.parent.mkdir(parents=True, exist_ok=True)
         temporary = self.path.with_name(f".{self.path.name}.tmp-{os.getpid()}")
-        temporary.write_text(content, encoding="utf-8")
-        os.replace(temporary, self.path)
+        try:
+            temporary.write_text(content, encoding="utf-8")
+            os.replace(temporary, self.path)
+        finally:
+            temporary.unlink(missing_ok=True)
 
 
 def _parse_document(text: str) -> tuple[dict[str, CoreMemoryEntry], str]:
     """解析结构化 Core；旧的纯 Markdown 文件作为可保留正文处理。"""
 
-    stripped = text.strip()
-    if not stripped.startswith("---"):
-        return {}, stripped
-    lines = stripped.splitlines()
-    closing = next(
-        (index for index, line in enumerate(lines[1:], 1) if line.strip() == "---"),
-        None,
-    )
-    if closing is None:
-        return {}, stripped
-    metadata = yaml.safe_load("\n".join(lines[1:closing]))
-    if not isinstance(metadata, dict) or metadata.get("format") != _CORE_FORMAT:
-        return {}, stripped
+    parsed = _split_front_matter(text)
+    if parsed is None:
+        return {}, text.strip()
+    metadata, visible, _ = parsed
+    if metadata.get("format") not in _SUPPORTED_CORE_FORMATS:
+        return {}, text.strip()
+    return _parse_entries(metadata), visible
+
+
+def _parse_entries(metadata: dict[object, object]) -> dict[str, CoreMemoryEntry]:
+    """校验 Front Matter 中由 Harness 管理的 Core 条目。"""
+
     raw_entries = metadata.get("entries", [])
     if not isinstance(raw_entries, list):
         raise ValueError("CORE.md entries metadata must be a list")
-    entries = {
+    return {
         entry.key: entry
         for entry in (
             CoreMemoryEntry.model_validate(raw_entry) for raw_entry in raw_entries
         )
     }
-    visible = "\n".join(lines[closing + 1 :]).strip()
-    return entries, visible
+
+
+def _split_front_matter(
+    text: str,
+) -> tuple[dict[object, object], str, re.Match[str]] | None:
+    """拆分 Markdown Front Matter，并保留原文边界供无损迁移。"""
+
+    matched = _FRONT_MATTER_RE.match(text)
+    if matched is None:
+        return None
+    metadata = yaml.safe_load(matched.group("metadata"))
+    if not isinstance(metadata, dict):
+        return None
+    return metadata, text[matched.end() :].strip(), matched
+
+
+def _migrate_legacy_document(text: str) -> str | None:
+    """只替换旧格式标记，保留条目、审计元数据、时间和正文。"""
+
+    parsed = _split_front_matter(text)
+    if parsed is None:
+        return None
+    metadata, _, matched = parsed
+    if metadata.get("format") != _LEGACY_CORE_FORMAT:
+        return None
+
+    # 写入前完整校验；旧文件损坏时失败关闭，原文件保持不变。
+    _parse_entries(metadata)
+    raw_metadata = matched.group("metadata")
+    replaced, count = _LEGACY_FORMAT_LINE_RE.subn(
+        lambda item: (
+            f"{item.group('prefix')}{item.group('quote')}{_CORE_FORMAT}"
+            f"{item.group('quote')}{item.group('suffix')}"
+        ),
+        raw_metadata,
+        count=1,
+    )
+    if count != 1:
+        raise ValueError("legacy CORE.md format marker cannot be migrated safely")
+    start, end = matched.span("metadata")
+    return f"{text[:start]}{replaced}{text[end:]}"
 
 
 def normalize_core_key(value: object) -> str:

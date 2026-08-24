@@ -197,6 +197,35 @@ async def test_reflection_prompt_treats_confirmed_same_topic_delta_as_update(
 
 
 @pytest.mark.asyncio
+async def test_reflection_prompt_never_uses_ordinary_memory_as_core_fallback(
+) -> None:
+    adapter = FakeAdapter(
+        _config("reflect", "reflection-model"),
+        [_response('{"action":"none","reason":"这是 Core 级全局偏好"}')],
+    )
+    reflector = PostRunMemoryReflector(
+        _registry(reflect=adapter),
+        config=_reflection_config(),
+    )
+    reflection_input = MemoryReflectionInput(
+        run_id="run-core-preference",
+        conversation_id="conversation-1",
+        user_input="以后所有回答都先给结论，再解释原因。",
+        final_answer="好的，我记住了。",
+    )
+
+    proposal = await reflector.decide(reflection_input)
+
+    assert proposal.decision is not None
+    assert proposal.decision.action is ReflectionAction.NONE
+    prompt = adapter.requests[0].messages[0].content or ""
+    assert "Core-worthy and must return NONE" in prompt
+    assert "main Agent did" in prompt
+    assert "not call core_memory_update" in prompt
+    assert "Never CREATE or UPDATE ordinary memory as a fallback" in prompt
+
+
+@pytest.mark.asyncio
 async def test_reflection_raw_io_is_disabled_by_default() -> None:
     adapter = FakeAdapter(
         _config("reflect", "reflection-model"),
@@ -379,13 +408,54 @@ async def test_reflection_failures_are_isolated(
     )
     reflector = PostRunMemoryReflector(
         _registry(reflect=adapter),
-        config=_reflection_config(timeout_seconds=timeout_seconds),
+        config=_reflection_config(
+            timeout_seconds=timeout_seconds,
+            max_attempts=1,
+        ),
     )
 
     proposal = await reflector.decide(_input())
 
     assert proposal.error is not None and error_text in proposal.error
     assert await manager.store.count_active() == 0
+
+
+@pytest.mark.asyncio
+async def test_reflection_retries_truncated_json_within_one_timeout() -> None:
+    """结构化输出被截断时只重试一次，并聚合两次调用用量。"""
+
+    first_usage = ModelUsage(input_tokens=10, output_tokens=20, total_tokens=30)
+    second_usage = ModelUsage(input_tokens=11, output_tokens=7, total_tokens=18)
+    adapter = FakeAdapter(
+        _config("reflect", "reflection-model"),
+        [
+            _response(
+                '{"action":"create","title":"未结束',
+                usage=first_usage,
+            ),
+            _response(
+                '{"action":"none","reason":"没有耐久变化"}',
+                usage=second_usage,
+            ),
+        ],
+    )
+    reflector = PostRunMemoryReflector(
+        _registry(reflect=adapter),
+        config=_reflection_config(capture_raw_io=True),
+    )
+
+    proposal = await reflector.decide(_input())
+
+    assert proposal.error is None
+    assert proposal.decision is not None
+    assert proposal.decision.action is ReflectionAction.NONE
+    assert proposal.attempts == 2
+    assert len(adapter.requests) == 2
+    assert proposal.usage.input_tokens == 21
+    assert proposal.usage.output_tokens == 27
+    assert proposal.usage.total_tokens == 48
+    retry_content = adapter.requests[1].messages[1].content or ""
+    assert "previous response was empty, invalid, or truncated" in retry_content
 
 
 @pytest.mark.asyncio

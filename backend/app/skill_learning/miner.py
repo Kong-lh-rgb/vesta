@@ -76,6 +76,7 @@ class TaskPatternMiner:
                 model=result.model,
                 duration_ms=result.duration_ms,
                 usage=result.usage,
+                raw_output=result.raw_output,
                 error=result.error,
             )
         payload = parse_strict_json(result.raw_output or "")
@@ -85,6 +86,7 @@ class TaskPatternMiner:
                 model=result.model,
                 duration_ms=result.duration_ms,
                 usage=result.usage,
+                raw_output=result.raw_output,
                 error="pattern mining returned non-JSON output",
             )
         try:
@@ -95,6 +97,7 @@ class TaskPatternMiner:
                 model=result.model,
                 duration_ms=result.duration_ms,
                 usage=result.usage,
+                raw_output=result.raw_output,
                 error=f"invalid pattern mining schema: {type(exc).__name__}: {exc}",
             )
         valid_ids = {card.task_id for card in cards}
@@ -110,6 +113,7 @@ class TaskPatternMiner:
             model=result.model,
             duration_ms=result.duration_ms,
             usage=result.usage,
+            raw_output=result.raw_output,
         )
 
 

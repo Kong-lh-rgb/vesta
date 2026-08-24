@@ -18,6 +18,10 @@ from ..tools.registry import ToolRegistry
 from .manager import MemoryManager
 from .prompts import MEMORY_WRITE_POLICY
 
+DEFAULT_DEFERRED_MEMORY_TOOL_NAMES = frozenset(
+    {"memory_list", "core_memory_update", "core_memory_remove"}
+)
+
 
 class MemoryReadTool(BaseTool):
     """读取一条完整长期记忆。"""
@@ -308,12 +312,13 @@ class CoreMemoryUpdateTool(BaseTool):
         return ToolDefinition(
             name="core_memory_update",
             description=(
-                "按稳定 key 创建或更新一条 Core Memory。是否属于 Core 由你判断，"
-                "但只能用于当前用户明确表达的稳定身份、全局长期偏好或跨任务长期"
-                "约束；项目背景和重要历史决定由 Run 后的 Memory Reflection 处理，"
-                "当前任务状态属于 Task，可复用流程属于 Skills。必须逐字复制当前"
-                "用户消息中的明确原话作为 explicit_user_statement；不要根据推断"
-                "调用。"
+                "按稳定 key 创建或更新一条 Core Memory。调用前先判断：即使当前 "
+                "Run 与当前项目或仓库完全无关，这条信息是否仍应在每次 Run 常驻？"
+                "只有当前用户明确表达的稳定身份、全局长期偏好或全局安全/隐私约束"
+                "才属于 Core。项目或仓库的架构、技术选型、路径、实现约束和历史决定"
+                "属于 Ordinary Memory，由 Run 后的 Memory Reflection 处理；当前任务"
+                "状态属于 Task，可复用流程属于 Skills。必须逐字复制当前用户消息中的"
+                "明确原话作为 explicit_user_statement；不要根据推断调用。"
             ),
             parameters={
                 "type": "object",
@@ -392,7 +397,8 @@ class CoreMemoryRemoveTool(BaseTool):
             name="core_memory_remove",
             description=(
                 "移除一个不再成立的 Core Memory 条目。只能在当前用户明确撤销"
-                "身份、全局长期偏好或跨任务约束时调用；必须逐字复制当前用户"
+                "稳定身份、全局长期偏好或全局安全/隐私约束时调用；必须逐字复制"
+                "当前用户"
                 "消息中的撤销原话，不要根据推断或旧消息移除。"
             ),
             parameters={
@@ -469,6 +475,7 @@ def _required_string(arguments: dict[str, Any], name: str) -> str:
 
 
 __all__ = [
+    "DEFAULT_DEFERRED_MEMORY_TOOL_NAMES",
     "CoreMemoryRemoveTool",
     "CoreMemoryUpdateTool",
     "MemoryArchiveTool",

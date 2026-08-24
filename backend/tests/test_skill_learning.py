@@ -363,6 +363,7 @@ async def test_no_cluster_no_candidate(tmp_path: Path) -> None:
     assert outcome.triggered is True
     assert outcome.cluster_count == 0
     assert outcome.candidate_count == 0
+    assert outcome.pattern_mining_raw_output == '{"clusters": []}'
     assert await service.list_candidates() == ()
 
 
@@ -463,6 +464,10 @@ async def test_similar_tasks_produce_cluster_and_candidate(tmp_path: Path) -> No
     assert candidate.action is SkillCandidateAction.CREATE
     assert candidate.reason
     assert candidate.procedure
+    assert outcome.pattern_mining_raw_output is not None
+    assert '"clusters"' in outcome.pattern_mining_raw_output
+    assert len(outcome.distillations) == 1
+    assert outcome.distillations[0].raw_output == distill_json
     # 只调用过 mining + distillation，各 1 次。
     assert len(adapter.requests) == 2
 
@@ -1171,6 +1176,7 @@ async def _run_progressive_disclosure(
     *,
     relevance: list[str],
     distill: str,
+    adjudication: str | None = None,
 ):
     """创建 3 个 Python 环境类任务，跑 mining + relevance + distill，返回 adapter。"""
 
@@ -1190,6 +1196,8 @@ async def _run_progressive_disclosure(
         ),
         _model_response(distill),
     ]
+    if adjudication is not None:
+        responses.append(_model_response(adjudication))
     registry, adapter = _fake_registry(responses)
     service = SkillLearningService(
         env["task_store"],
@@ -1297,6 +1305,48 @@ async def test_distiller_creates_when_related_skill_unrelated(
 
 
 @pytest.mark.asyncio
+async def test_create_with_related_skill_gets_overlap_adjudication(
+    tmp_path: Path,
+) -> None:
+    """相关 Skill 存在却初判 CREATE 时，复核同任务族并转为 UPDATE。"""
+
+    env, root = await _make_env(tmp_path)
+    skill_root = env["skill_store"].project_dir / "debug-python"
+    skill_root.mkdir(parents=True)
+    (skill_root / "SKILL.md").write_text(
+        "---\nname: debug-python\ndescription: 排查 Python 报错\n---\n\n"
+        "# Debug Python\n\n1. 复现\n2. 读 traceback\n3. 修复并验证",
+        encoding="utf-8",
+    )
+    _, outcome, adapter = await _run_progressive_disclosure(
+        env,
+        root,
+        relevance=["debug-python"],
+        distill=_DISTILL_CREATE_JSON,
+        adjudication=json.dumps(
+            {
+                "relationship": "same",
+                "existing_skill_name": "debug-python",
+                "reason": "解释器错配是 Python 运行时排错的子场景",
+            },
+            ensure_ascii=False,
+        ),
+    )
+
+    assert outcome.error is None
+    assert outcome.candidate_count == 1
+    assert outcome.distillation_calls == 3
+    assert outcome.distillations[0].adjudication_raw_output is not None
+    candidates = await service_candidates(env)
+    assert candidates[0].action is SkillCandidateAction.UPDATE
+    assert candidates[0].existing_skill_name == "debug-python"
+    assert candidates[0].proposed_name == "debug-python"
+    assert "Skill Overlap Adjudicator" in (
+        adapter.requests[-1].messages[0].content or ""
+    )
+
+
+@pytest.mark.asyncio
 async def test_update_candidate_inherits_description_when_model_omits(
     tmp_path: Path,
 ) -> None:
@@ -1376,6 +1426,50 @@ async def test_update_candidate_uses_model_description_when_provided(
     candidates = await service_candidates(env)
     assert candidates[0].action is SkillCandidateAction.UPDATE
     assert candidates[0].description == model_desc
+
+
+@pytest.mark.asyncio
+async def test_update_candidate_repairs_unique_missing_existing_skill_name(
+    tmp_path: Path,
+) -> None:
+    """相关性阶段只有唯一候选时，可修复模型遗漏的 UPDATE 目标字段。"""
+
+    env, root = await _make_env(tmp_path)
+    skill_root = env["skill_store"].project_dir / "debug-python"
+    skill_root.mkdir(parents=True)
+    description = "排查 Python 报错或异常的标准流程"
+    (skill_root / "SKILL.md").write_text(
+        "---\nname: debug-python\n"
+        f"description: {description}\n---\n\n"
+        "# Debug Python\n\n1. 复现\n2. 读 traceback\n3. 修复并验证",
+        encoding="utf-8",
+    )
+    update_without_target = json.dumps(
+        {
+            "action": "update",
+            "proposed_name": None,
+            "description": None,
+            "reason": "补充稳定的 virtualenv 检查步骤",
+            "procedure": ["复现", "确认 virtualenv", "修复", "验证"],
+            "pitfalls": [],
+            "verification": ["pytest 通过"],
+            "existing_skill_name": None,
+        },
+        ensure_ascii=False,
+    )
+
+    _, outcome, _ = await _run_progressive_disclosure(
+        env,
+        root,
+        relevance=["debug-python"],
+        distill=update_without_target,
+    )
+
+    assert outcome.candidate_count == 1
+    candidates = await service_candidates(env)
+    assert candidates[0].action is SkillCandidateAction.UPDATE
+    assert candidates[0].existing_skill_name == "debug-python"
+    assert candidates[0].description == description
 
 
 @pytest.mark.asyncio

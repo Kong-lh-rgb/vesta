@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import json
 from collections.abc import Awaitable, Callable, Sequence
+from dataclasses import replace
 from datetime import UTC, datetime
 from typing import Any
 from uuid import uuid4
@@ -31,7 +32,11 @@ from .models import (
     SkillCandidateStatus,
     TaskPatternCluster,
 )
-from .prompts import _DISTILLATION_PROMPT, _RELEVANCE_PROMPT
+from .prompts import (
+    _DISTILLATION_PROMPT,
+    _OVERLAP_ADJUDICATION_PROMPT,
+    _RELEVANCE_PROMPT,
+)
 
 # Progressive Disclosure：最多加载 1~3 个"可能相关"的 Existing Skill 完整正文，
 # 不把全部 Skill 全文塞给 Distiller。
@@ -96,6 +101,7 @@ class DistillationOutcome(BaseModel):
     duration_ms: float = 0.0
     usage: ModelUsage = Field(default_factory=ModelUsage)
     raw_output: str | None = None
+    adjudication_raw_output: str | None = None
     error: str | None = None
 
 
@@ -108,6 +114,24 @@ class _RelevanceOutcome(BaseModel):
     usage: ModelUsage = Field(default_factory=ModelUsage)
     duration_ms: float = 0.0
     error: str | None = None
+
+
+class _OverlapDecision(BaseModel):
+    """CREATE 与相关 Skill 冲突时的聚焦复核结果。"""
+
+    model_config = ConfigDict(extra="forbid")
+
+    relationship: str
+    existing_skill_name: str | None = None
+    reason: str
+
+    @field_validator("relationship")
+    @classmethod
+    def valid_relationship(cls, value: str) -> str:
+        normalized = value.strip().lower()
+        if normalized not in {"same", "different"}:
+            raise ValueError(f"invalid relationship: {value}")
+        return normalized
 
 
 class ProcedureDistiller:
@@ -169,9 +193,9 @@ class ProcedureDistiller:
                 related_names = names
                 related_bodies = bodies
             extra_usage = _merge_usage(extra_usage, relevance.usage)
-            if relevance.usage.total_tokens:
-                model_call_count += 1
-                relevance_duration = relevance.duration_ms
+            # 即使 Provider 未返回 Usage，这次相关性筛选仍是一次真实模型调用。
+            model_call_count += 1
+            relevance_duration = relevance.duration_ms
 
         user_payload: dict[str, Any] = {
             "cluster": cluster.model_dump(mode="json"),
@@ -247,6 +271,76 @@ class ProcedureDistiller:
                 model_call_count=model_call_count,
                 error=f"invalid distillation schema: {type(exc).__name__}: {exc}",
             )
+        # 模型已经明确选择 UPDATE，且相关性阶段只选中了一个现有 Skill 时，
+        # 缺失 existing_skill_name 属于可无歧义修复的结构化字段遗漏。
+        # 多个或零个候选仍然失败关闭，避免 Harness 猜测更新目标。
+        if (
+            distilled.action == "update"
+            and not distilled.existing_skill_name
+            and len(related_names) == 1
+        ):
+            distilled = distilled.model_copy(
+                update={"existing_skill_name": related_names[0]}
+            )
+        adjudication_raw_output: str | None = None
+        if distilled.action == "create" and related_bodies:
+            adjudicated, adjudication_result = await self._adjudicate_overlap(
+                cluster,
+                distilled=distilled,
+                related_bodies=related_bodies,
+            )
+            total_usage = _merge_usage(total_usage, adjudication_result.usage)
+            total_duration += adjudication_result.duration_ms
+            model_call_count += 1
+            adjudication_raw_output = adjudication_result.raw_output
+            if adjudicated is None:
+                return DistillationOutcome(
+                    action="create",
+                    provider=adjudication_result.provider or result.provider,
+                    model=adjudication_result.model or result.model,
+                    duration_ms=total_duration,
+                    usage=total_usage,
+                    raw_output=result.raw_output,
+                    adjudication_raw_output=adjudication_raw_output,
+                    reason=distilled.reason,
+                    proposed_name=distilled.proposed_name,
+                    related_skill_names=related_names,
+                    model_call_count=model_call_count,
+                    error=(
+                        adjudication_result.error
+                        or "overlap adjudication returned an invalid decision"
+                    ),
+                )
+            if adjudicated.relationship == "same":
+                target = adjudicated.existing_skill_name
+                if target is None and len(related_names) == 1:
+                    target = related_names[0]
+                if target not in related_bodies:
+                    return DistillationOutcome(
+                        action="create",
+                        provider=adjudication_result.provider or result.provider,
+                        model=adjudication_result.model or result.model,
+                        duration_ms=total_duration,
+                        usage=total_usage,
+                        raw_output=result.raw_output,
+                        adjudication_raw_output=adjudication_raw_output,
+                        reason=adjudicated.reason,
+                        proposed_name=distilled.proposed_name,
+                        related_skill_names=related_names,
+                        model_call_count=model_call_count,
+                        error=(
+                            "overlap adjudication selected an unknown existing "
+                            f"skill: {target!r}"
+                        ),
+                    )
+                distilled = distilled.model_copy(
+                    update={
+                        "action": "update",
+                        "proposed_name": target,
+                        "existing_skill_name": target,
+                        "reason": adjudicated.reason,
+                    }
+                )
         if distilled.action == "none":
             return DistillationOutcome(
                 action="none",
@@ -255,6 +349,7 @@ class ProcedureDistiller:
                 duration_ms=total_duration,
                 usage=total_usage,
                 raw_output=result.raw_output,
+                adjudication_raw_output=adjudication_raw_output,
                 reason=distilled.reason,
                 proposed_name=distilled.proposed_name,
                 existing_skill_name=distilled.existing_skill_name,
@@ -273,6 +368,7 @@ class ProcedureDistiller:
                 duration_ms=total_duration,
                 usage=total_usage,
                 raw_output=result.raw_output,
+                adjudication_raw_output=adjudication_raw_output,
                 reason=distilled.reason,
                 proposed_name=distilled.proposed_name,
                 existing_skill_name=distilled.existing_skill_name,
@@ -291,9 +387,58 @@ class ProcedureDistiller:
             duration_ms=total_duration,
             usage=total_usage,
             raw_output=result.raw_output,
+            adjudication_raw_output=adjudication_raw_output,
             related_skill_names=related_names,
             model_call_count=model_call_count,
         )
+
+    async def _adjudicate_overlap(
+        self,
+        cluster: TaskPatternCluster,
+        *,
+        distilled: _Distilled,
+        related_bodies: dict[str, str],
+    ) -> tuple[_OverlapDecision | None, ModelCallResult]:
+        """仅在“相关 Skill + CREATE”矛盾时复核一次任务族归属。"""
+
+        user_content = json.dumps(
+            {
+                "cluster": cluster.model_dump(mode="json"),
+                "proposed_candidate": distilled.model_dump(mode="json"),
+                "related_skills": [
+                    {"name": name, "body": body}
+                    for name, body in related_bodies.items()
+                ],
+            },
+            ensure_ascii=False,
+            separators=(",", ":"),
+        )
+        result = await call_model(
+            self._registry,
+            system_prompt=_OVERLAP_ADJUDICATION_PROMPT,
+            user_content=user_content,
+            settings=self.settings,
+            default_provider=self._default_provider,
+            default_model=self._default_model,
+        )
+        if not result.ok:
+            return None, result
+        payload = parse_strict_json(result.raw_output or "")
+        if payload is None:
+            return None, replace(
+                result,
+                error="overlap adjudication returned non-JSON output",
+            )
+        try:
+            return _OverlapDecision.model_validate(payload), result
+        except Exception as exc:
+            return None, replace(
+                result,
+                error=(
+                    "invalid overlap adjudication schema: "
+                    f"{type(exc).__name__}: {exc}"
+                ),
+            )
 
     async def _select_related_skills(
         self,
