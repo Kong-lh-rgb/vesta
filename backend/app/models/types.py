@@ -101,6 +101,8 @@ class ToolDefinition(BaseModel):
     strict: bool | None = None
     permission: ToolPermission = ToolPermission.ALLOWED
     ui_scope: ToolUiScope = ToolUiScope.SANDBOX
+    # 仅由 Harness 使用，不会发送给模型提供商。
+    closing_allowed: bool = False
 
 
 class ToolResult(BaseModel):

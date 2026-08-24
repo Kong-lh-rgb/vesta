@@ -110,6 +110,14 @@ class ToolRegistry:
 
         return name in self.allowed_names_for_mode(mode)
 
+    def is_allowed_during_closing(self, name: str, mode: AgentMode) -> bool:
+        """工具是否可在预算 Closing 阶段执行。"""
+
+        if not self.is_allowed_for_mode(name, mode):
+            return False
+        tool = self._tools.get(name)
+        return tool is not None and tool.definition.closing_allowed
+
     def model_definitions_for_mode(
         self,
         mode: AgentMode,
@@ -126,6 +134,23 @@ class ToolRegistry:
             if name in allowed
             and self._tools[name].definition.permission.model_visible()
             and (name not in self._deferred_names or name in activated)
+        )
+
+    def closing_definitions_for_mode(
+        self,
+        mode: AgentMode,
+        *,
+        activated_names: Collection[str] = (),
+    ) -> tuple[ToolDefinition, ...]:
+        """返回预算 Closing 阶段可见的交付工具定义。"""
+
+        return tuple(
+            definition
+            for definition in self.model_definitions_for_mode(
+                mode,
+                activated_names=activated_names,
+            )
+            if definition.closing_allowed
         )
 
     def definitions(

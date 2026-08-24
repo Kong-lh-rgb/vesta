@@ -155,6 +155,19 @@ class CountingTool(BaseTool):
         return str(arguments["value"])
 
 
+class DeliveryTool(CountingTool):
+    definition = ToolDefinition(
+        name="deliver",
+        description="Deliver the final result",
+        parameters={
+            "type": "object",
+            "properties": {"value": {"type": "integer"}},
+            "required": ["value"],
+        },
+        closing_allowed=True,
+    )
+
+
 class ApprovalCountingTool(CountingTool):
     definition = ToolDefinition(
         name="approval_count",
@@ -1661,6 +1674,118 @@ async def test_run_budget_uses_one_dedicated_finalization_call() -> None:
         and event.run_budget_chargeable_tokens == 11
         for event in events.events
     )
+
+
+@pytest.mark.asyncio
+async def test_run_budget_closing_keeps_one_delivery_tool_round() -> None:
+    registry, adapter = fake_registry(
+        [
+            model_response(
+                tool_calls=(
+                    ToolCall(id="count-1", name="count", arguments={"value": 1}),
+                ),
+                usage=ModelUsage(
+                    input_tokens=100,
+                    output_tokens=1,
+                    total_tokens=101,
+                    cached_input_tokens=90,
+                    uncached_input_tokens=10,
+                ),
+            ),
+            model_response(
+                tool_calls=(
+                    ToolCall(
+                        id="deliver-1",
+                        name="deliver",
+                        arguments={"value": 2},
+                    ),
+                )
+            ),
+            model_response(content="交付完成"),
+        ]
+    )
+    count_tool = CountingTool()
+    delivery_tool = DeliveryTool()
+    tools = ToolRegistry()
+    tools.register(count_tool)
+    tools.register(delivery_tool)
+
+    result = await AgentRuntime(
+        registry,
+        tools,
+        provider="fake",
+        run_budget_config=RunBudgetConfig(
+            _env_file=None,
+            warning_tokens=5,
+            finalization_tokens=10,
+            hard_tokens=20,
+            warning_model_calls=100,
+            finalization_model_calls=101,
+            hard_model_calls=102,
+        ),
+    ).run("执行并交付")
+
+    assert result.ok is True
+    assert result.content == "交付完成"
+    assert count_tool.executions == 1
+    assert delivery_tool.executions == 1
+    assert len(adapter.requests) == 3
+    assert [tool.name for tool in adapter.requests[1].tools] == ["deliver"]
+    assert adapter.requests[1].max_output_tokens != 1_200
+    assert adapter.requests[2].tools == ()
+    assert adapter.requests[2].max_output_tokens == 1_200
+    assert "Closing" in (adapter.requests[1].messages[-1].content or "")
+    assert "不要再调用工具" in (adapter.requests[2].messages[-1].content or "")
+
+
+@pytest.mark.asyncio
+async def test_run_budget_closing_rejects_forged_exploration_tool_call() -> None:
+    registry, _ = fake_registry(
+        [
+            model_response(
+                tool_calls=(
+                    ToolCall(id="count-1", name="count", arguments={"value": 1}),
+                ),
+                usage=ModelUsage(
+                    input_tokens=100,
+                    output_tokens=1,
+                    total_tokens=101,
+                    cached_input_tokens=90,
+                    uncached_input_tokens=10,
+                ),
+            ),
+            model_response(
+                tool_calls=(
+                    ToolCall(id="count-2", name="count", arguments={"value": 2}),
+                )
+            ),
+            model_response(content="未执行额外调查，已如实收口"),
+        ]
+    )
+    count_tool = CountingTool()
+    tools = ToolRegistry()
+    tools.register(count_tool)
+    tools.register(DeliveryTool())
+
+    result = await AgentRuntime(
+        registry,
+        tools,
+        provider="fake",
+        run_budget_config=RunBudgetConfig(
+            _env_file=None,
+            warning_tokens=5,
+            finalization_tokens=10,
+            hard_tokens=20,
+            warning_model_calls=100,
+            finalization_model_calls=101,
+            hard_model_calls=102,
+        ),
+    ).run("执行后收口")
+
+    assert result.ok is True
+    assert count_tool.executions == 1
+    assert result.tool_calls[-1].result.success is False
+    assert "delivery tools only" in (result.tool_calls[-1].result.error or "")
 
 
 @pytest.mark.asyncio

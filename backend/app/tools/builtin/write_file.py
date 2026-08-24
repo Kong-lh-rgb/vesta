@@ -37,6 +37,7 @@ class WriteFileTool(BaseTool):
                 "additionalProperties": False,
             },
             strict=True,
+            closing_allowed=True,
         )
 
     async def execute(self, arguments: dict[str, Any]) -> dict[str, Any]:
