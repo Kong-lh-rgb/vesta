@@ -337,6 +337,7 @@ def _build_context_manager(
     if (
         overrides.window_override is None
         and overrides.margin_tokens is None
+        and overrides.working_trigger_ratio is None
         and overrides.keep_recent_conversation_blocks is None
         and not scenario.expect.requires_compaction
     ):
@@ -346,6 +347,10 @@ def _build_context_manager(
         kwargs["context_window_override"] = overrides.window_override
     if overrides.margin_tokens is not None:
         kwargs["context_safety_margin_tokens"] = overrides.margin_tokens
+    if overrides.working_trigger_ratio is not None:
+        kwargs["context_working_trigger_ratio"] = (
+            overrides.working_trigger_ratio
+        )
     settings = ContextSettings(**kwargs)
     capability_registry = build_model_capability_registry(
         context_settings=settings

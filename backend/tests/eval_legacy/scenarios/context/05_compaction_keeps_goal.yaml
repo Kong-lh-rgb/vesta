@@ -58,6 +58,8 @@ allowed_tools: []
 context:
   window_override: 6000
   margin_tokens: 100
+  # 该场景验证 Prefix 压缩机制，显式固定历史测试阈值，避免依赖生产默认值。
+  working_trigger_ratio: 0.70
   keep_recent_conversation_blocks: 1
 expect:
   requires_compaction: true

@@ -1192,7 +1192,10 @@ async def test_runtime_rebuilds_prefix_for_late_compaction_with_active_skill(
     )
     context_manager = ContextManager(
         registry=capability_registry,
-        budget_policy=ContextBudgetPolicy(safety_margin_tokens=100),
+        budget_policy=ContextBudgetPolicy(
+            safety_margin_tokens=100,
+            working_trigger_ratio=0.70,
+        ),
         conversation_reducer=ConversationReducer(
             FixedContextSummarizer(),
             keep_recent_conversation_blocks=1,

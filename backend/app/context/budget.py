@@ -48,8 +48,8 @@ class ContextBudgetPolicy:
         trigger_ratio: float = DEFAULT_TRIGGER_RATIO,
         target_ratio: float = DEFAULT_TARGET_RATIO,
         safety_margin_tokens: int = DEFAULT_SAFETY_MARGIN_TOKENS,
-        preferred_input_tokens: int = 32_768,
-        working_trigger_ratio: float = 0.70,
+        preferred_input_tokens: int = 64_000,
+        working_trigger_ratio: float = 0.80,
         working_target_ratio: float = 0.45,
         tool_result_budget_ratio: float = 0.35,
     ) -> None:

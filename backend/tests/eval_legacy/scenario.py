@@ -147,6 +147,7 @@ class ContextOverrides(BaseModel):
 
     window_override: int | None = Field(default=None, gt=0)
     margin_tokens: int | None = Field(default=None, ge=0)
+    working_trigger_ratio: float | None = Field(default=None, gt=0.0, le=1.0)
     keep_recent_conversation_blocks: int | None = Field(default=None, ge=0)
 
 
