@@ -1,8 +1,19 @@
+<div align="center">
+
 # Vesta
 
-> Build agents that remember, continue, and learn.
+**Build agents that remember, continue, and learn.**
+
+一个面向长期工作、在本地持续运行的 AI Agent Harness。
 
 [![CI](https://github.com/Kong-lh-rgb/vesta/actions/workflows/ci.yml/badge.svg)](https://github.com/Kong-lh-rgb/vesta/actions/workflows/ci.yml)
+![Python](https://img.shields.io/badge/Python-3.12%2B-3776AB?logo=python&logoColor=white)
+![Desktop](https://img.shields.io/badge/Desktop-Electron-47848F?logo=electron&logoColor=white)
+![Platform](https://img.shields.io/badge/Computer_Runtime-macOS-111111?logo=apple&logoColor=white)
+
+[演示](#demo) · [核心能力](#what-vesta-can-do) · [架构](#how-it-fits-together) · [快速开始](#quick-start) · [评测](#evaluation)
+
+</div>
 
 Vesta 是一个面向长期工作的本地 AI Agent Harness。它不只完成当前对话，还会管理
 长上下文、跟踪复杂任务、恢复中断 Run、使用本地与 MCP 工具，并从真实完成的工作中
@@ -16,6 +27,16 @@ Vesta 是一个面向长期工作的本地 AI Agent Harness。它不只完成当
 ## Demo
 
 以下截图来自真实的本地 Run，不是静态概念稿。
+
+### 84 秒完整演示
+
+<p align="center">
+  <a href="docs/assets/vesta-demo.mp4">
+    <img src="docs/assets/vesta-demo-cover.png" width="100%" alt="播放 Vesta 完整演示" />
+  </a>
+</p>
+
+<p align="center"><strong>▶ 点击封面观看</strong> · Task 跟踪 · 文件工具 · Desktop 操作 · Artifact 交付</p>
 
 ### Agent Workspace
 
