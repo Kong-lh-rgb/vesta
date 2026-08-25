@@ -28,17 +28,14 @@ Vesta 是一个面向长期工作的本地 AI Agent Harness。它不只完成当
 
 以下截图来自真实的本地 Run，不是静态概念稿。
 
-### 84 秒完整演示
+### 动态演示
 
 <p align="center">
-  <a href="https://raw.githubusercontent.com/Kong-lh-rgb/vesta/main/docs/assets/vesta-demo.mp4">
-    <img src="docs/assets/vesta-demo-cover.png" width="100%" alt="播放 Vesta 完整演示" />
-  </a>
+  <img src="docs/assets/vesta-demo.gif" width="100%" alt="Vesta 长任务执行动态演示" />
 </p>
 
 <p align="center">
-  <a href="https://raw.githubusercontent.com/Kong-lh-rgb/vesta/main/docs/assets/vesta-demo.mp4"><strong>▶ 点击封面或此处观看完整演示</strong></a>
-  · Task 跟踪 · 文件工具 · Desktop 操作 · Artifact 交付
+  Task 跟踪 · 文件工具 · Desktop 操作 · Artifact 交付
 </p>
 
 ### Agent Workspace
