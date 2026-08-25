@@ -15,30 +15,52 @@ Vesta 是一个面向长期工作的本地 AI Agent Harness。它不只完成当
 
 ## Demo
 
-### Desktop Preview
+以下截图来自真实的本地 Run，不是静态概念稿。
 
-| Agent Workspace | Run Detail & Trace |
-| --- | --- |
-| _截图占位：`docs/assets/vesta-workspace.png`_ | _截图占位：`docs/assets/vesta-run-detail.png`_ |
+### Agent Workspace
 
-| Memory & Task | Computer Approval |
-| --- | --- |
-| _截图占位：`docs/assets/vesta-memory-task.png`_ | _截图占位：`docs/assets/vesta-computer-approval.png`_ |
+<p align="center">
+  <a href="docs/assets/vesta-workspace.png">
+    <img src="docs/assets/vesta-workspace.png" width="100%" alt="Vesta Agent Workspace" />
+  </a>
+</p>
 
-<!--
-后续将上方占位文字替换为：
-![Vesta Agent Workspace](docs/assets/vesta-workspace.png)
-![Vesta Run Detail](docs/assets/vesta-run-detail.png)
-![Vesta Memory and Task](docs/assets/vesta-memory-task.png)
-![Vesta Computer Approval](docs/assets/vesta-computer-approval.png)
--->
+<p align="center"><sub>统一工作台：从自然语言目标开始工作，在普通模式与规划模式之间切换。</sub></p>
 
-### Video Demo
+### Long-Running Work
 
-> 视频演示占位：后续在这里放置完整工作流视频或 GIF，包括任务创建、工具执行、审批、
-> Run Trace、长期记忆和中断恢复。
+<p align="center">
+  <a href="docs/assets/vesta-task-run.png">
+    <img src="docs/assets/vesta-task-run.png" width="100%" alt="Vesta Task progress and Run panel" />
+  </a>
+</p>
 
-<!-- 后续替换为视频封面和链接，例如：[观看 Vesta Demo](https://...) -->
+<p align="center"><sub>复杂任务的步骤进度、工具执行、交付物与 Run 状态在同一会话中持续可见。</sub></p>
+
+<details>
+<summary><strong>查看 Run Detail 与长期记忆</strong></summary>
+
+#### Run Detail & Trace
+
+<p align="center">
+  <a href="docs/assets/vesta-run-detail.png">
+    <img src="docs/assets/vesta-run-detail.png" width="100%" alt="Vesta Run Detail and Trace" />
+  </a>
+</p>
+
+模型调用、Token、缓存、Run Budget、Post-Run 与执行轨迹使用同一份运行数据进行解释。
+
+#### Long-Term Memory
+
+<p align="center">
+  <a href="docs/assets/vesta-memory.png">
+    <img src="docs/assets/vesta-memory.png" width="100%" alt="Vesta Long-Term Memory" />
+  </a>
+</p>
+
+Core Memory 随 Run 进入上下文，Ordinary Memory 只提供索引，由模型在需要时主动读取。
+
+</details>
 
 ## What Vesta Can Do
 
