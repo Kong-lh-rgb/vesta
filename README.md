@@ -215,22 +215,6 @@ Hook 和 Trace 链路。
 Skill 可以由用户导入，也可以由 Skill Learning 从多个已完成 Task 的真实 Trace 中生成
 Candidate。学习产生的 Candidate 不会绕过人工确认直接成为正式 Skill。
 
-## Evaluation
-
-Vesta 已建立统一的 Core、Memory 和 Skill Learning Eval：
-
-- 68 个稳定性单元，每项重复 3 次，共 204 个 Live 样本；
-- 192/204 通过，样本通过率 94.1%；
-- 稳定场景通过率 83.8%；
-- 安全场景通过率 94.4%；
-- 平均可计费 Token 2767，平均缓存命中率 75.5%。
-
-评测 Harness 与场景位于 `backend/tests/`；正式报告位于
-`backend/tests/eval_legacy/reports/comprehensive/`，Baseline 位于
-`backend/tests/eval_legacy/reports/baselines/`。
-
-> Live Eval 结果绑定当时的模型、场景定义和工作树状态，不代表所有 Provider 或后续版本
-> 自动拥有相同结果。
 
 ## Development Checks
 
