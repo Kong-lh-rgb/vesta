@@ -225,7 +225,7 @@ Vesta 已建立统一的 Core、Memory 和 Skill Learning Eval：
 - 安全场景通过率 94.4%；
 - 平均可计费 Token 2767，平均缓存命中率 75.5%。
 
-完整设计、指标演进和诚实边界见 [docs/eval.md](docs/eval.md)。正式报告位于
+评测 Harness 与场景位于 `backend/tests/`；正式报告位于
 `backend/tests/eval_legacy/reports/comprehensive/`，Baseline 位于
 `backend/tests/eval_legacy/reports/baselines/`。
 

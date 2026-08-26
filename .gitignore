@@ -29,6 +29,13 @@ backend/tests/eval_legacy/reports/*.md
 backend/tests/eval_legacy/reports/historical/runtime/*.md
 backend/tests/eval_legacy/reports/historical/skill_learning/*.md
 
+# Private local notes and evaluation records
+docs/eval-records/
+docs/eval.md
+docs/task.md
+docs/learning-notes.md
+docs/desktop-learning-notes.md
+
 # Desktop (Electron / Vite)
 desktop/node_modules/
 desktop/dist/
