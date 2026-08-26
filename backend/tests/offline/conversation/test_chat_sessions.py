@@ -447,10 +447,33 @@ def test_cli_prints_memory_list_and_details(capsys) -> None:
 
 
 def test_cli_help_exposes_memory_commands() -> None:
-    assert "/memories" in _COMMAND_OVERVIEW
-    assert "/memory <id>" in _COMMAND_OVERVIEW
+    assert "/help" in _COMMAND_OVERVIEW
     assert "/memories 查看活跃长期记忆及 Recall Cue" in _HELP_TEXT
     assert "/memory <记忆ID> 查看一条长期记忆的完整内容" in _HELP_TEXT
+
+
+def test_cli_parser_supports_short_startup_options(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        ["vesta", "-p", "deepseek", "-m", "deepseek-chat", "--new"],
+    )
+
+    args = _parse_args()
+
+    assert args.provider == "deepseek"
+    assert args.model == "deepseek-chat"
+    assert args.new_conversation is True
+
+
+def test_cli_parser_supports_setup(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(sys, "argv", ["vesta", "--setup"])
+
+    args = _parse_args()
+
+    assert args.setup is True
 
 
 @pytest.mark.asyncio
