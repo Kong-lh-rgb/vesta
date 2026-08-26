@@ -1,0 +1,122 @@
+% !TeX program = xelatex
+% Overleaf 编译器请选择 XeLaTeX。
+\documentclass[a4paper,10pt]{article}
+\usepackage[margin=1.25cm]{geometry}
+\usepackage[UTF8,fontset=fandol]{ctex}
+\usepackage{enumitem}
+\usepackage{hyperref}
+\usepackage{xcolor}
+\usepackage{titlesec}
+\usepackage{tabularx}
+\usepackage{array}
+\usepackage{microtype}
+
+\definecolor{main}{HTML}{008C8C}
+\definecolor{textgray}{HTML}{333333}
+\definecolor{muted}{HTML}{666666}
+
+\hypersetup{
+  colorlinks=true,
+  urlcolor=main,
+  linkcolor=main
+}
+
+\pagestyle{empty}
+\color{textgray}
+\setlength{\parindent}{0pt}
+\setlength{\parskip}{0pt}
+\setlength{\tabcolsep}{0pt}
+\renewcommand{\baselinestretch}{1.045}
+\emergencystretch=2em
+
+\setlist[itemize]{
+  leftmargin=1.25em,
+  itemsep=2.5pt,
+  topsep=3pt,
+  parsep=0pt,
+  partopsep=0pt,
+  label=\textcolor{main}{\small\textbullet}
+}
+
+\titleformat{\section}
+  {\large\bfseries\color{main}}
+ {}{0pt}{}
+  [\vspace{-1pt}\titlerule]
+\titlespacing*{\section}{0pt}{7pt}{4pt}
+
+\newcommand{\resumeItem}[1]{\item #1}
+\newcommand{\skill}[2]{\textbf{#1：}#2\par\vspace{2.5pt}}
+\newcommand{\projectTitle}[4]{%
+  \textbf{\large #1}\hfill\textcolor{muted}{#2}\\[-1pt]
+  \textbf{技术栈：}#3\hfill\href{#4}{\textcolor{main}{GitHub $\nearrow$}}%
+}
+
+\begin{document}
+
+{\LARGE\textbf{孔令航}}\hfill
+电话：15832895339\quad
+邮箱：\href{mailto:17736236765@163.com}{17736236765@163.com}
+
+\vspace{3pt}
+GitHub：\href{https://github.com/Kong-lh-rgb}{github.com/Kong-lh-rgb}
+\hfill
+\textbf{求职意向：Agent 开发实习生｜Agent 算法实习生 / Agentic RAG}
+
+\vspace{2pt}
+\textbf{可实习时间：}6 个月及以上，两周内到岗
+
+\section{专业技能}
+
+\skill{编程与模型基础}{熟练掌握 Python，掌握类型注解、Pydantic 与 asyncio 异步编程；掌握常用数据结构与算法，持续进行算法题训练；掌握机器学习、深度学习及 Transformer 基础，了解 PyTorch 基本训练流程，使用 Hugging Face Transformers，并基于 LlamaFactory 完成过一次 LoRA/SFT 微调实践}
+\skill{LLM 与 Agent 系统}{熟悉 OpenAI/Anthropic SDK、结构化输出、Function/Tool Calling、ReAct 与 Plan-and-Execute；具备 LangGraph 状态编排、Send API、Multi-Agent、Memory、Context Engineering、Human-in-the-Loop、Checkpoint/Recovery 与自研 Agent Harness 实践，能够接入 MCP 工具并编写简单 MCP Server}
+\skill{RAG 与知识检索}{研究方向为 RAG，熟悉数据清洗与切片、Embedding、向量检索、稀疏/稠密混合召回、Rerank 和上下文构造；熟悉 BGE-M3、Milvus、父子块索引、Neo4j/KG-RAG 与 RAGAs，理解 Recall@K、MRR、NDCG、Faithfulness 等检索与生成评测指标}
+\skill{评测与工程化}{具备规则评估、Offline/Live Regression、重复稳定性评测、Trace 分析、Bad Case 归因及 Token/延迟/成本统计经验，具有基础 LLM-as-Judge 实践；熟悉 FastAPI、SQLite/PostgreSQL、pytest、Docker、GitHub Actions、SSE/WebSocket 与异步任务处理}
+
+\section{教育背景}
+
+\begin{tabularx}{\textwidth}{@{}X X c r@{}}
+\textbf{内蒙古大学（211）} & 计算机技术 & 硕士 & 2025--2028\\
+\textbf{河北金融学院} & 计算机科学与技术 & 本科 & 2021--2025\\
+\end{tabularx}
+
+\section{项目经历}
+
+\projectTitle
+  {Vesta｜面向长程任务的本地 AI Agent Runtime / Harness}
+  {2026.07--至今}
+  {Python、FastAPI、SQLite、MCP、Electron、React、TypeScript、Swift}
+  {https://github.com/Kong-lh-rgb/vesta}
+
+\vspace{2pt}
+独立从 0 到 1 设计并实现本地 Agent 执行系统，统一接入 OpenAI、Qwen、DeepSeek 与 Anthropic，支持本地/MCP/Computer 工具、异步人工审批、全链路 Trace 与桌面端交互，使 LLM 从单轮调用升级为可持续执行、恢复和学习的工作系统。
+
+\begin{itemize}
+  \resumeItem{\textbf{长程执行与上下文治理：}分离 Run、Task、Checkpoint 三类持久化状态，分别管理单次执行、跨 Run 目标与可恢复边界；在模型请求和工具执行阶段记录未决调用及已完成结果，支持人工暂停、进程重启状态协调与显式恢复。基于模型窗口和输出预留动态计算 Token Budget，依次执行 Tool Result 截断、历史 Tool Round 成组裁剪与 Rolling Summary，并在压缩后保留当前目标、任务状态及 Active Skill。}
+  \resumeItem{\textbf{长期记忆：}设计 Core Memory + Ordinary Memory 分层架构，核心偏好常驻上下文，普通记忆仅注入轻量索引并由模型按需读取；通过后台 Post-Run Reflection 完成 CREATE / UPDATE / REMOVE 决策，引入基于 revision 的乐观并发控制与容量维护，避免陈旧 Reflection 覆盖新状态及记忆无限增长。}
+  \resumeItem{\textbf{经验到 Skill 学习闭环：}从 Completed Task 与真实执行 Trace 中聚类重复任务，筛选工具调用、失败修正和验证结果等证据，蒸馏可复用 Procedure 与 Pitfall；实现失败批次 at-least-once 重试、Candidate 去重和 CREATE / UPDATE / NONE 判定，并通过 Human Gate 审核后发布正式 Skill。}
+  \resumeItem{\textbf{Agent Eval 与可观测性：}搭建覆盖 Runtime、Context、Memory、Tools、Safety 与 Skill Learning 的端到端 Regression Harness，以工具调用、Stop Reason、Trace、文件及持久化状态进行事实断言，并使用 Scenario Digest、模型版本和 Git Commit 固化基线。基于 DeepSeek V4 Flash 对 68 个稳定性单元各运行 3 次，共完成 204 个 Live 样本，取得 \textbf{192/204 样本通过、57/68 单元连续 3/3 通过、17/18 安全样本通过}，平均可计费 Token 为 \textbf{2,767}。}
+\end{itemize}
+
+\vspace{3pt}
+\projectTitle
+  {Research Copilot｜智能金融投研多智能体系统（全栈）}
+  {2026}
+  {Python、LangGraph、FastAPI、PostgreSQL、MCP、SSE、Next.js、Docker}
+  {https://github.com/Kong-lh-rgb/research-copilot}
+
+\vspace{2pt}
+\textbf{在线演示：}\href{https://researchcopilot.xyz}{researchcopilot.xyz}
+\quad \textbf{体验码：}HIRE\_ME\_2026
+\quad \textbf{开源：}24 GitHub Stars（截至 2026-08-25）
+
+\vspace{2pt}
+面向 A 股深度研究场景，独立实现从\textbf{意图路由、任务规划、并行执行、工具调用到结构化研报生成}的多智能体系统，将行情、财务与网页信息统一组织为可追踪的研究过程。
+
+\begin{itemize}
+  \resumeItem{\textbf{多智能体任务编排：}设计 Controller--Planner--Worker--Reviewer 链路，Planner 将复杂问题拆解为带依赖关系的任务 DAG；使用 LangGraph Send API 并行分发无依赖任务，并在前置任务完成后动态解锁后续节点。}
+  \resumeItem{\textbf{Tool Use 与 MCP：}在 Worker 内实现多轮工具调用循环，通过 MCP 接入 Tushare A 股行情/财务报表、Tavily 搜索、高德地图和邮件工具；工具由配置声明接入，无需修改多智能体调度图。}
+  \resumeItem{\textbf{长任务与安全交互：}使用 PostgreSQL Checkpointer 持久化图状态，支持跨轮补充信息后继续执行；对发送邮件等不可逆操作实现 120 秒超时的 Human-in-the-Loop，降低错误执行风险。}
+  \resumeItem{\textbf{全栈工程化：}FastAPI 提供服务接口，SSE 实时推送 Token、任务状态与工具摘要；实现 JWT/bcrypt 用户认证、历史会话与消息查询，并通过 Docker Compose 完成前后端与 PostgreSQL 一键部署。}
+\end{itemize}
+
+\end{document}

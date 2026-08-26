@@ -171,17 +171,21 @@ backend/.venv/bin/python -m pip install -r backend/requirements.txt
 cp backend/.env.example backend/.env
 ```
 
-在 `backend/.env` 中至少配置一个 Provider。真实 API Key 只应保存在本地 `.env` 或
-Desktop 设置使用的系统凭据中，不要提交到 Git。
+首次使用可以通过 CLI 设置主模型。macOS 上 API Key 会保存到系统 Keychain，模型名称与
+API 地址等非敏感配置保存在本地 `.vesta` 目录；也可以继续使用 `backend/.env` 配置。
+真实 API Key 不要提交到 Git。
 
 ### 2. Start with CLI
 
 ```bash
 cd backend
-.venv/bin/python -m app.models.chat
+.venv/bin/python -m app --setup
+.venv/bin/python -m app
 ```
 
 CLI 可用于快速验证模型、工具、会话恢复、Memory、MCP、Run 和 Trace。
+已经完成设置时可以跳过第一条命令；旧入口 `.venv/bin/python -m app.models.chat`
+仍然兼容。
 
 ### 3. Start Vesta Host and Desktop
 

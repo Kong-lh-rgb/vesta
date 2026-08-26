@@ -2,8 +2,9 @@
 
 在 backend 目录运行：
 
+    .venv/bin/python -m app
+    .venv/bin/python -m app --setup
     .venv/bin/python -m app.models.chat
-    .venv/bin/python -m app.models.chat --provider qwen
 """
 
 from __future__ import annotations
@@ -25,6 +26,7 @@ from app.application import (
     title_from_content,
 )
 from app.checkpoint import RunCheckpoint
+from app.cli_ui import print_banner, print_startup_status, run_setup
 from app.conversation import (
     DEFAULT_DATABASE_PATH,
     Conversation,
@@ -62,46 +64,43 @@ from app.trace import AgentRunTrace
 from .types import Message, MessageRole, ModelProvider
 
 _COMMAND_OVERVIEW = (
-    "命令：/new 新建会话，/sessions 查看会话，/use <id> 切换会话，"
-    "/memories 查看长期记忆，/memory <id> 查看记忆详情，"
-    "/runs 查看运行（生命周期），/run <id> 查看详情，/run cancel <id> 取消，"
-    "/run recover <id> 恢复，/checkpoints 查看恢复点，/trace <id> 查看轨迹，"
-    "/automations 查看自动化，/automation <id> 查看详情，"
-    "/automation cancel|pause|resume <id> 管理自动化，"
-    "/mcp 查看 MCP Server 与工具，"
-    "/permissions 查看审批规则，"
-    "/skill-candidates 查看 Skill Learning 候选，"
-    "/clear 清空当前会话，/help 查看帮助，/exit 退出"
+    "常用命令：/new 新建会话 · /sessions 切换会话 · /runs 查看运行 · "
+    "/help 查看全部命令"
 )
 
 _HELP_TEXT = (
-    "/new [标题] 新建会话\n"
-    "/sessions 查看最近会话\n"
-    "/use <会话ID> 切换会话\n"
-    "/memories 查看活跃长期记忆及 Recall Cue\n"
-    "/memory <记忆ID> 查看一条长期记忆的完整内容\n"
-    "/mcp 查看 MCP Server 连接状态和已注册工具\n"
-    "/runs 查看最近 Run（生命周期状态）\n"
-    "/run <Run ID> 查看 Run 生命周期详情\n"
-    "/run cancel <Run ID> 取消正在执行的 Run\n"
-    "/run recover <Run ID> 恢复中断的 Run\n"
-    "/checkpoints 查看当前会话的运行恢复点\n"
-    "/automations 查看当前会话的自动化\n"
-    "/automation <ID> 查看自动化详情\n"
-    "/automation cancel <ID> 取消自动化\n"
-    "/automation pause <ID> 暂停自动化\n"
-    "/automation resume <ID> 恢复自动化\n"
-    "/trace <Run ID> 查看完整事件轨迹\n"
-    "/permissions 查看当前会话的审批规则\n"
-    "/permission remove <规则ID> 删除一条审批规则\n"
-    "/permissions clear 清除当前会话的全部审批规则\n"
-    "/skill-candidates 查看待人工评审的 Skill Learning 候选\n"
-    "/skill-candidate <ID> 查看候选详情\n"
-    "/skill-candidate <ID> accept [scope] 接受候选：CREATE 创建 / UPDATE 更新"
+    "\n会话\n"
+    "  /new [标题] 新建会话\n"
+    "  /sessions 查看最近会话\n"
+    "  /use <会话ID> 切换会话\n"
+    "  /clear 清空当前会话\n"
+    "\n运行与恢复\n"
+    "  /runs 查看最近 Run\n"
+    "  /run <Run ID> 查看 Run 生命周期详情\n"
+    "  /run cancel <Run ID> 取消正在执行的 Run\n"
+    "  /run recover <Run ID> 恢复中断的 Run\n"
+    "  /checkpoints 查看当前会话的运行恢复点\n"
+    "  /trace <Run ID> 查看完整事件轨迹\n"
+    "\n记忆与扩展\n"
+    "  /memories 查看活跃长期记忆及 Recall Cue\n"
+    "  /memory <记忆ID> 查看一条长期记忆的完整内容\n"
+    "  /mcp 查看 MCP Server 连接状态和已注册工具\n"
+    "  /skill-candidates 查看待人工评审的 Skill Learning 候选\n"
+    "  /skill-candidate <ID> 查看候选详情\n"
+    "  /skill-candidate <ID> accept [scope] 接受候选：CREATE 创建 / UPDATE 更新"
     "正式 Skill（默认 project）\n"
-    "/skill-candidate <ID> reject 拒绝候选\n"
-    "/clear 清空当前会话\n"
-    "/exit 退出聊天"
+    "  /skill-candidate <ID> reject 拒绝候选\n"
+    "\n自动化与权限\n"
+    "  /automations 查看当前会话的自动化\n"
+    "  /automation <ID> 查看自动化详情\n"
+    "  /automation cancel|pause|resume <ID> 管理自动化\n"
+    "  /permissions 查看当前会话的审批规则\n"
+    "  /permission remove <规则ID> 删除一条审批规则\n"
+    "  /permissions clear 清除当前会话的全部审批规则\n"
+    "\n系统\n"
+    "  /setup 查看模型设置入口\n"
+    "  /help 查看全部命令\n"
+    "  /exit 退出聊天"
 )
 
 
@@ -614,21 +613,44 @@ def _print_memory(memory: MemoryRecord) -> None:
     )
 
 
-async def _run(args: argparse.Namespace) -> int:
-    app = Application(
-        provider=args.provider,
-        model=args.model,
-        system_prompt=args.system,
-        database=args.database,
-        tasks_dir=args.tasks_dir,
-        mcp_config=args.mcp_config,
-        max_steps=args.max_steps,
-        max_tool_rounds=args.max_tool_rounds,
-        max_output_tokens=args.max_output_tokens,
-    )
+async def _run(
+    args: argparse.Namespace,
+    *,
+    offer_setup: bool = True,
+) -> int:
+    print_banner()
+    try:
+        app = Application(
+            provider=args.provider,
+            model=args.model,
+            system_prompt=args.system,
+            database=args.database,
+            tasks_dir=args.tasks_dir,
+            mcp_config=args.mcp_config,
+            max_steps=args.max_steps,
+            max_tool_rounds=args.max_tool_rounds,
+            max_output_tokens=args.max_output_tokens,
+        )
+    except ValueError as exc:
+        missing_provider = "No model provider is configured" in str(exc)
+        if (
+            offer_setup
+            and missing_provider
+            and args.message is None
+            and sys.stdin.isatty()
+        ):
+            print("尚未配置主模型，正在进入首次设置。")
+            if await run_setup():
+                return await _run(args, offer_setup=False)
+            return 0
+        print(f"启动失败：{exc}", file=sys.stderr)
+        print(
+            "请运行 `.venv/bin/python -m app --setup` 完成模型配置。",
+            file=sys.stderr,
+        )
+        return 2
     provider = app.provider
     model = app.model
-    print(f"Vesta Chat · provider={provider} · model={model}")
 
     try:
         await app.start()
@@ -664,47 +686,53 @@ async def _run(args: argparse.Namespace) -> int:
         return 2
 
     action = "已恢复" if resumed else "已创建"
-    print(
-        f"{action}会话：{conversation.id[:8]} · "
-        f"{conversation.title} · {conversation.message_count} 条消息"
-    )
     search_tool = tool_registry.get("web_search")
+    search_status = "未启用"
     if isinstance(search_tool, WebSearchTool):
         if search_tool.provider_name == "tavily":
-            print("联网搜索：Tavily（服务异常时自动回退 DuckDuckGo）")
+            search_status = "Tavily · DuckDuckGo fallback"
         else:
-            print("联网搜索：DuckDuckGo（配置 TAVILY_API_KEY 可启用 Tavily）")
+            search_status = "DuckDuckGo · 配置 TAVILY_API_KEY 可启用 Tavily"
+    learning_status = "关闭"
     if skill_learning.settings.skill_learning_enabled:
-        print(
-            "Skill Learning：每 "
-            f"{skill_learning.settings.skill_learning_batch_size} 个 Completed "
-            "Task 触发一次 Pattern Mining（候选需人工评审）"
+        learning_status = (
+            f"每 {skill_learning.settings.skill_learning_batch_size} 个 "
+            "Completed Task 扫描一次"
         )
     reflection_status = "启用" if app.memory_reflection_enabled else "关闭"
     reflection_model = app.memory_reflector.model_hint or "未解析"
     reflection_provider = app.memory_reflector.provider_hint or "未解析"
-    print(
-        "长期记忆：Sparse Memory（在线 Recall + 显式 Core + Post-Run Reflection）"
-    )
-    print(f"记忆反思：{reflection_status} · {reflection_provider}/{reflection_model}")
-    maintenance_status = "启用" if app.memory_maintenance_enabled else "关闭"
-    maintenance_model = app.memory_maintenance_reflector.model_hint or "未解析"
-    maintenance_provider = app.memory_maintenance_reflector.provider_hint or "未解析"
-    print(
-        f"容量维护：{maintenance_status} · "
-        f"{maintenance_provider}/{maintenance_model}"
-    )
     connected_mcp = sum(
         status.state is MCPServerState.RUNNING for status in app.mcp_statuses
     )
     failed_mcp = sum(
         status.state is MCPServerState.FAILED for status in app.mcp_statuses
     )
+    mcp_status = "未配置"
     if app.mcp_statuses:
-        print(
-            f"MCP：{connected_mcp} 个 Server 已连接，"
-            f"{failed_mcp} 个启动失败"
-        )
+        mcp_status = f"{connected_mcp} 已连接 · {failed_mcp} 启动失败"
+    notices = []
+    if failed_mcp:
+        notices.append("存在 MCP 启动失败，输入 /mcp 查看详情")
+    print_startup_status(
+        (
+            ("主模型", f"{provider}/{model}"),
+            (
+                "会话",
+                f"{action} {conversation.id[:8]} · {conversation.title} · "
+                f"{conversation.message_count} 条消息",
+            ),
+            ("搜索", search_status),
+            ("MCP", mcp_status),
+            (
+                "长期记忆",
+                f"Sparse Memory · 反思{reflection_status} "
+                f"{reflection_provider}/{reflection_model}",
+            ),
+            ("技能学习", learning_status),
+        ),
+        notices=notices,
+    )
     if app.reconciled_runs:
         _print_recovered_runs(app.reconciled_runs)
     try:
@@ -1036,6 +1064,10 @@ async def _run(args: argparse.Namespace) -> int:
                 await summary_store.delete(conversation.id)
                 print("上下文已清空。")
                 continue
+            if content == "/setup":
+                print("模型设置在下次启动时生效。请退出后运行：")
+                print("  .venv/bin/python -m app --setup")
+                continue
             if content == "/help":
                 print(_HELP_TEXT)
                 continue
@@ -1056,70 +1088,76 @@ async def _run(args: argparse.Namespace) -> int:
 
 def _parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Chat with a configured Vesta model provider."
+        prog="python -m app",
+        description="启动 Vesta CLI，或完成首次模型设置。",
     )
     parser.add_argument(
+        "-p",
         "--provider",
         choices=[provider.value for provider in ModelProvider],
-        help="Provider to use; auto-selects the default or only configured provider.",
+        help="指定本次使用的模型 Provider；默认使用设置中的主模型。",
     )
-    parser.add_argument("--model", help="Override the configured model name.")
+    parser.add_argument("-m", "--model", help="临时覆盖模型名称。")
     parser.add_argument(
         "--message",
-        help="Send one message and exit instead of opening interactive chat.",
+        help="发送一条消息后退出，不进入交互聊天。",
+    )
+    parser.add_argument(
+        "--setup",
+        action="store_true",
+        help="启动交互式模型设置，密钥优先保存到 macOS Keychain。",
     )
     parser.add_argument(
         "--system",
         default=DEFAULT_SYSTEM_PROMPT,
-        help="System prompt for this conversation.",
+        help="覆盖本次会话的系统提示词。",
     )
     parser.add_argument(
         "--max-output-tokens",
         type=int,
         default=None,
-        help=(
-            "Maximum output tokens for each reply; defaults to the configured "
-            "provider value."
-        ),
+        help="每次模型回复允许生成的最大 Token；默认使用 Provider 配置。",
     )
     parser.add_argument(
         "--max-steps",
         type=int,
         default=12,
-        help="Maximum model/tool loop steps for each message.",
+        help="每条消息最多执行的模型/工具循环步数。",
     )
     parser.add_argument(
         "--max-tool-rounds",
         type=int,
         default=15,
-        help="Maximum tool-calling rounds before forcing a final answer.",
+        help="强制模型收口最终回答前允许的最大工具轮数。",
     )
     parser.add_argument(
         "--database",
         type=Path,
         default=DEFAULT_DATABASE_PATH,
-        help="SQLite conversation database path.",
+        help="会话 SQLite 数据库路径。",
     )
     parser.add_argument(
         "--tasks-dir",
         type=Path,
         default=DEFAULT_TASKS_DIR,
-        help="Directory containing persistent task JSON files.",
+        help="持久化 Task JSON 文件目录。",
     )
     parser.add_argument(
         "--mcp-config",
         type=Path,
         default=DEFAULT_MCP_CONFIG_PATH,
-        help="Path to the MCP Server JSON configuration file.",
+        help="MCP Server JSON 配置文件路径。",
     )
     parser.add_argument(
         "--conversation",
-        help="Resume a conversation by full ID or unique ID prefix.",
+        help="使用完整会话 ID 或唯一前缀恢复会话。",
     )
     parser.add_argument(
+        "--new",
         "--new-conversation",
+        dest="new_conversation",
         action="store_true",
-        help="Start a new conversation instead of restoring the latest one.",
+        help="新建会话，不恢复最近会话。",
     )
     args = parser.parse_args()
     if args.max_output_tokens is not None and args.max_output_tokens <= 0:
@@ -1130,11 +1168,21 @@ def _parse_args() -> argparse.Namespace:
         parser.error("--max-tool-rounds must be greater than zero")
     if args.conversation and args.new_conversation:
         parser.error("--conversation and --new-conversation cannot be used together")
+    if args.setup and (args.message or args.conversation or args.new_conversation):
+        parser.error("--setup 不能和会话或单次消息参数同时使用")
     return args
 
 
+async def _main(args: argparse.Namespace) -> int:
+    if args.setup:
+        should_start = await run_setup()
+        if not should_start:
+            return 0
+    return await _run(args)
+
+
 def main() -> None:
-    raise SystemExit(asyncio.run(_run(_parse_args())))
+    raise SystemExit(asyncio.run(_main(_parse_args())))
 
 
 if __name__ == "__main__":
