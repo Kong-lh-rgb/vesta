@@ -5,6 +5,7 @@ from __future__ import annotations
 import re
 from collections.abc import Callable, Sequence
 
+from app.sandbox import SandboxSupervisor
 from app.tools.registry import ToolRegistry
 
 from .client import MCPClientProtocol, StdioMCPClient
@@ -27,13 +28,19 @@ class MCPClientManager:
         self,
         configs: Sequence[MCPServerConfig],
         *,
-        client_factory: MCPClientFactory = StdioMCPClient,
+        client_factory: MCPClientFactory | None = None,
+        sandbox_supervisor: SandboxSupervisor | None = None,
     ) -> None:
         names = [config.name for config in configs]
         if len(names) != len(set(names)):
             raise MCPConfigurationError("MCP Server 名称不能重复")
         self._configs = tuple(configs)
-        self._client_factory = client_factory
+        self._client_factory = client_factory or (
+            lambda config: StdioMCPClient(
+                config,
+                sandbox_supervisor=sandbox_supervisor,
+            )
+        )
         self._clients: dict[str, MCPClientProtocol] = {}
         self._registered_names: dict[str, tuple[str, ...]] = {}
         self._states = {
@@ -90,6 +97,12 @@ class MCPClientManager:
             config.name,
             MCPServerState.RUNNING,
             tool_names=tuple(registered),
+            sandboxed=getattr(getattr(client, "launch_spec", None), "sandboxed", None),
+            sandbox_backend=getattr(
+                getattr(client, "launch_spec", None),
+                "backend",
+                None,
+            ),
         )
 
     async def close(self, registry: ToolRegistry | None = None) -> None:
@@ -127,12 +140,16 @@ class MCPClientManager:
         *,
         tool_names: tuple[str, ...] = (),
         error: str | None = None,
+        sandboxed: bool | None = None,
+        sandbox_backend: str | None = None,
     ) -> None:
         self._states[name] = MCPServerStatus(
             name=name,
             state=state,
             tool_names=tool_names,
             error=error,
+            sandboxed=sandboxed,
+            sandbox_backend=sandbox_backend,
         )
 
 

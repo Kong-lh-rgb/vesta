@@ -9,6 +9,7 @@ from typing import Any
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from app.models.types import ToolPermission
+from app.sandbox import SandboxConfig
 
 _SERVER_NAME_RE = re.compile(r"^[a-zA-Z0-9_]+$")
 
@@ -43,6 +44,7 @@ class MCPServerConfig(BaseModel):
     startup_timeout_seconds: float = Field(default=15.0, gt=0)
     call_timeout_seconds: float = Field(default=30.0, gt=0)
     permission: ToolPermission = ToolPermission.HUMAN_APPROVAL
+    sandbox: SandboxConfig = Field(default_factory=SandboxConfig)
 
     @field_validator("name")
     @classmethod
@@ -92,6 +94,8 @@ class MCPServerStatus(BaseModel):
     state: MCPServerState
     tool_names: tuple[str, ...] = ()
     error: str | None = None
+    sandboxed: bool | None = None
+    sandbox_backend: str | None = None
 
 
 __all__ = [

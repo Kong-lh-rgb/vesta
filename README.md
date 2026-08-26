@@ -86,8 +86,8 @@ Core Memory 随 Run 进入上下文，Ordinary Memory 只提供索引，由模�
 ## What Vesta Can Do
 
 - **Multi-Provider Models** — 统一适配 OpenAI、Qwen、DeepSeek 和 Anthropic API。
-- **Tool System** — 本地文件、Shell、网页搜索、时间等工具共享注册、超时、权限和审计边界。
-- **MCP Extensions** — 通过 Desktop 导入和管理外部 stdio MCP Server，工具进入同一执行链。
+- **Tool System** — 本地文件、Shell、网页搜索、时间等工具共享注册、超时、权限和审计边界；Shell 默认在 workspace 沙箱中执行。
+- **MCP Extensions** — 通过 Desktop 导入和管理外部 stdio MCP Server；第三方进程使用白名单环境并在 macOS Seatbelt 中隔离。
 - **Memory** — Core Memory 常驻，Ordinary Memory 按索引由模型主动读取，并在 Run 后反思更新。
 - **Task / Plan Mode** — 一个整体目标对应一个 Task，使用 Steps 跟踪复杂工作的真实进度。
 - **Skill & Skill Learning** — 按需激活 Skill，并从多个 Completed Task 的 Trace 中提炼候选经验。
@@ -114,6 +114,8 @@ ConversationService
 Context          ToolRegistry → Permission → Executor → Hooks
   ↓                                      ↓
 Model Adapter                     Local / MCP / Computer
+                                      ↓
+                          Sandbox Supervisor (Shell / MCP)
            ↓
 Trace · Checkpoint · Usage · Artifact
 
@@ -212,7 +214,12 @@ npm run electron:dev
 
 Desktop 的“设置 → 扩展能力”支持粘贴 GitHub 地址或外部 `mcpServers` JSON，先展示解析
 结果和即将执行的命令，再由用户确认安装。MCP 工具注册后仍会经过 Vesta 的权限、执行、
-Hook 和 Trace 链路。
+Hook 和 Trace 链路；MCP 子进程默认只能读写 workspace，Host 环境变量使用白名单传递。
+可在扩展配置中关闭网络或收紧文件权限，显式选择宿主机执行会显示为危险模式。
+
+Sandbox V1 当前使用 macOS Seatbelt。平台无法落实请求策略时会拒绝启动对应进程，不会静默
+回退到宿主机；容器后端和域名级网络代理仍属于后续能力。设计与边界见
+[Sandbox V1](docs/sandbox.md)。
 
 ### Skills
 

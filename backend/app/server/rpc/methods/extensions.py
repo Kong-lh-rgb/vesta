@@ -58,6 +58,9 @@ async def extension_list(
                     "permission": config.permission.value,
                     # 只返回变量名，避免 Renderer 获得配置中的实际 secret 值。
                     "env_names": sorted(config.env),
+                    "sandbox": config.sandbox.model_dump(mode="json"),
+                    "sandboxed": status.sandboxed if status else None,
+                    "sandbox_backend": status.sandbox_backend if status else None,
                     "state": (
                         "restart_required"
                         if restart_required or status is None
@@ -255,6 +258,7 @@ async def mcp_add(
                     "call_timeout_seconds", 30.0
                 ),
                 "permission": params.get("permission", "human_approval"),
+                "sandbox": params.get("sandbox", {}),
             }
         )
         await ctx.application.mcp_config_store.add(server)
@@ -269,6 +273,9 @@ async def mcp_add(
             "enabled": server.enabled,
             "permission": server.permission.value,
             "env_names": sorted(server.env),
+            "sandbox": server.sandbox.model_dump(mode="json"),
+            "sandboxed": None,
+            "sandbox_backend": None,
             "state": "restart_required",
             "tool_names": [],
             "error": None,
@@ -341,6 +348,9 @@ def _server_dict(
         "enabled": server.enabled,
         "permission": server.permission.value,
         "env_names": sorted(server.env),
+        "sandbox": server.sandbox.model_dump(mode="json"),
+        "sandboxed": None,
+        "sandbox_backend": None,
         "state": state,
         "tool_names": [],
         "error": None,

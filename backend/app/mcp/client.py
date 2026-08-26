@@ -13,10 +13,21 @@ from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
 from mcp.types import CallToolResult
 
+from app.sandbox import SandboxLaunchSpec, SandboxSupervisor
+
 from .errors import MCPConnectionError, MCPToolCallError, MCPToolDiscoveryError
 from .models import MCPRemoteTool, MCPServerConfig
 
 _ENV_REFERENCE = re.compile(r"^\$\{([A-Za-z_][A-Za-z0-9_]*)\}$")
+_SAFE_INHERITED_ENVIRONMENT = (
+    "HOME",
+    "LANG",
+    "LC_ALL",
+    "PATH",
+    "SSL_CERT_DIR",
+    "SSL_CERT_FILE",
+    "TMPDIR",
+)
 
 
 class MCPClientProtocol(Protocol):
@@ -34,10 +45,17 @@ class MCPClientProtocol(Protocol):
 class StdioMCPClient:
     """维护一个 MCP stdio 子进程及其 ClientSession。"""
 
-    def __init__(self, config: MCPServerConfig) -> None:
+    def __init__(
+        self,
+        config: MCPServerConfig,
+        *,
+        sandbox_supervisor: SandboxSupervisor | None = None,
+    ) -> None:
         self.config = config
+        self.sandbox_supervisor = sandbox_supervisor
         self._stack: AsyncExitStack | None = None
         self._session: ClientSession | None = None
+        self.launch_spec: SandboxLaunchSpec | None = None
 
     async def start(self) -> None:
         """启动子进程并完成 MCP initialize 握手。"""
@@ -46,14 +64,16 @@ class StdioMCPClient:
             return
         stack = AsyncExitStack()
         try:
+            environment = _resolve_environment(self.config)
+            launch = self._prepare_launch(environment)
             async with asyncio.timeout(self.config.startup_timeout_seconds):
                 streams = await stack.enter_async_context(
                     stdio_client(
                         StdioServerParameters(
-                            command=self.config.command,
-                            args=list(self.config.args),
-                            env=_resolve_environment(self.config),
-                            cwd=self.config.cwd,
+                            command=launch.command,
+                            args=list(launch.args),
+                            env=launch.env,
+                            cwd=launch.cwd,
                         )
                     )
                 )
@@ -67,6 +87,7 @@ class StdioMCPClient:
             ) from exc
         self._stack = stack
         self._session = session
+        self.launch_spec = launch
 
     async def list_tools(self) -> tuple[MCPRemoteTool, ...]:
         """发现服务器暴露的全部工具。"""
@@ -117,6 +138,26 @@ class StdioMCPClient:
         if stack is not None:
             await stack.aclose()
 
+    def _prepare_launch(self, environment: dict[str, str]) -> SandboxLaunchSpec:
+        if self.sandbox_supervisor is None:
+            # 单元测试或显式底层调用可不注入 Supervisor；产品装配始终注入。
+            cwd = self.config.cwd or os.getcwd()
+            return SandboxLaunchSpec(
+                command=self.config.command,
+                args=self.config.args,
+                cwd=cwd,
+                env=environment,
+                backend="host_unmanaged",
+                sandboxed=False,
+            )
+        return self.sandbox_supervisor.prepare_launch(
+            command=self.config.command,
+            args=self.config.args,
+            env=environment,
+            cwd=self.config.cwd,
+            config=self.config.sandbox,
+        )
+
     def _require_session(self) -> ClientSession:
         if self._session is None:
             raise MCPConnectionError(
@@ -150,10 +191,14 @@ async def _close_quietly(stack: AsyncExitStack) -> None:
         pass
 
 
-def _resolve_environment(config: MCPServerConfig) -> dict[str, str] | None:
-    """解析配置中的环境变量引用，避免把密钥直接写入 JSON。"""
+def _resolve_environment(config: MCPServerConfig) -> dict[str, str]:
+    """从白名单环境开始解析引用，不再继承 Host 的全部密钥。"""
 
-    resolved: dict[str, str] = {}
+    resolved = {
+        key: os.environ[key]
+        for key in _SAFE_INHERITED_ENVIRONMENT
+        if os.environ.get(key)
+    }
     for key, value in config.env.items():
         match = _ENV_REFERENCE.fullmatch(value)
         if match is None:
@@ -165,7 +210,7 @@ def _resolve_environment(config: MCPServerConfig) -> dict[str, str] | None:
                 f"MCP Server '{config.name}' 缺少环境变量 {variable}"
             )
         resolved[key] = os.environ[variable]
-    return resolved or None
+    return resolved
 
 
 __all__ = ["MCPClientProtocol", "StdioMCPClient", "serialize_mcp_result"]

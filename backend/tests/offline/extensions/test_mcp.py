@@ -35,6 +35,7 @@ from app.models.types import (
     ToolCall,
     ToolPermission,
 )
+from app.sandbox import SandboxFilesystemMode, SandboxSupervisor
 from app.tools import ToolExecutor, ToolRegistry
 
 
@@ -402,6 +403,28 @@ async def test_missing_environment_reference_fails_only_that_server(
     assert "VESTA_MISSING_MCP_KEY" in (statuses[0].error or "")
 
 
+def test_mcp_config_defaults_to_workspace_sandbox() -> None:
+    config = MCPServerConfig(name="sandboxed", command="unused")
+
+    assert config.sandbox.filesystem is SandboxFilesystemMode.WORKSPACE_WRITE
+
+
+def test_mcp_environment_does_not_inherit_unlisted_host_secret(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from app.mcp.client import _resolve_environment
+
+    monkeypatch.setenv("VESTA_HOST_SECRET", "must-not-leak")
+    monkeypatch.setenv("PATH", "/usr/bin")
+
+    environment = _resolve_environment(
+        MCPServerConfig(name="safe_env", command="unused")
+    )
+
+    assert environment["PATH"] == "/usr/bin"
+    assert "VESTA_HOST_SECRET" not in environment
+
+
 def test_serialize_mcp_result_preserves_text_and_structured_content() -> None:
     plain = CallToolResult(content=[TextContent(type="text", text="hello")])
     structured = CallToolResult(
@@ -455,5 +478,24 @@ async def test_stdio_client_call_timeout() -> None:
     try:
         with pytest.raises(MCPToolCallError, match="TimeoutError"):
             await client.call_tool("slow", {"delay": 0.5})
+    finally:
+        await client.close()
+
+
+@pytest.mark.skipif(sys.platform != "darwin", reason="仅验证 macOS Seatbelt")
+@pytest.mark.asyncio
+async def test_stdio_client_runs_fake_server_inside_native_sandbox() -> None:
+    backend_root = Path(__file__).resolve().parents[3]
+    client = StdioMCPClient(
+        _stdio_config(),
+        sandbox_supervisor=SandboxSupervisor(backend_root),
+    )
+    await client.start()
+    try:
+        assert client.launch_spec is not None
+        assert client.launch_spec.sandboxed is True
+        assert client.launch_spec.backend == "macos_seatbelt"
+        output = json.loads(await client.call_tool("echo", {"text": "sandbox"}))
+        assert output["structured_content"] == {"result": "sandbox"}
     finally:
         await client.close()

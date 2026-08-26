@@ -2,6 +2,8 @@
 
 from pathlib import Path
 
+from app.sandbox import SandboxSupervisor
+
 from ..registry import ToolRegistry
 from ..search import SearchSettings
 from .current_time import CurrentTimeTool
@@ -17,6 +19,7 @@ def build_builtin_tool_registry(
     workspace_root: str | Path | None = None,
     *,
     search_settings: SearchSettings | None = None,
+    sandbox_supervisor: SandboxSupervisor | None = None,
 ) -> ToolRegistry:
     """创建注册了全部内置工具的工具注册表。"""
 
@@ -25,7 +28,12 @@ def build_builtin_tool_registry(
     registry.register(ListFilesTool(workspace_root))
     registry.register(ReadFileTool(workspace_root))
     registry.register(WriteFileTool(workspace_root))
-    registry.register(ShellCommandTool(workspace_root))
+    registry.register(
+        ShellCommandTool(
+            workspace_root,
+            sandbox_supervisor=sandbox_supervisor,
+        )
+    )
     registry.register(HttpRequestTool())
     registry.register(WebSearchTool(settings=search_settings))
     return registry

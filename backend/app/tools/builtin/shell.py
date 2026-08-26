@@ -15,6 +15,7 @@ from time import perf_counter
 from typing import Any
 
 from app.models.types import ToolDefinition, ToolPermission
+from app.sandbox import SandboxConfig, SandboxNetworkMode, SandboxSupervisor
 
 from ..base import BaseTool
 from ._workspace import resolve_workspace_path, workspace_root_path
@@ -23,8 +24,14 @@ MAX_SHELL_TIMEOUT_SECONDS = 120.0
 
 
 class ShellCommandTool(BaseTool):
-    def __init__(self, workspace_root: str | Path | None = None) -> None:
+    def __init__(
+        self,
+        workspace_root: str | Path | None = None,
+        *,
+        sandbox_supervisor: SandboxSupervisor | None = None,
+    ) -> None:
         self._workspace_root = workspace_root_path(workspace_root)
+        self._sandbox_supervisor = sandbox_supervisor
 
     @property
     def definition(self) -> ToolDefinition:
@@ -87,13 +94,32 @@ class ShellCommandTool(BaseTool):
 
         started_at = perf_counter()
         timed_out = False
-        process = await asyncio.create_subprocess_shell(
-            command,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-            cwd=str(cwd),
-            start_new_session=True,
-        )
+        if self._sandbox_supervisor is None:
+            process = await asyncio.create_subprocess_shell(
+                command,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+                cwd=str(cwd),
+                start_new_session=True,
+            )
+        else:
+            environment = _shell_environment()
+            launch = self._sandbox_supervisor.prepare_launch(
+                command="/bin/sh",
+                args=("-c", command),
+                env=environment,
+                cwd=str(cwd),
+                config=SandboxConfig(network=SandboxNetworkMode.DENIED),
+            )
+            process = await asyncio.create_subprocess_exec(
+                launch.command,
+                *launch.args,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+                cwd=launch.cwd,
+                env=launch.env,
+                start_new_session=True,
+            )
         try:
             async with asyncio.timeout(timeout):
                 stdout_bytes, stderr_bytes = await process.communicate()
@@ -129,3 +155,10 @@ def _terminate_process(process: asyncio.subprocess.Process) -> None:
             process.kill()
     except (ProcessLookupError, PermissionError):
         pass
+
+
+def _shell_environment() -> dict[str, str]:
+    """Shell 只继承执行所需环境，不向命令暴露 Provider 密钥。"""
+
+    safe_keys = ("HOME", "LANG", "LC_ALL", "PATH", "TMPDIR")
+    return {key: os.environ[key] for key in safe_keys if os.environ.get(key)}
