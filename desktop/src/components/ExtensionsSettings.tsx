@@ -381,6 +381,7 @@ function MCPList({
               </div>
               <div className="mcp-row__meta">
                 <span>{permissionLabel(server.permission)}</span>
+                <span>{server.sandboxed ? '沙箱已启用' : server.sandbox.filesystem === 'host' ? '宿主机执行' : '等待沙箱启动'}</span>
                 <span>{server.tool_names.length} 个工具</span>
                 {server.env_names.length ? <span>{server.env_names.length} 个环境变量</span> : null}
               </div>
@@ -460,12 +461,14 @@ export function MCPInstallForm({
   const [envText, setEnvText] = useState('')
   const [cwd, setCwd] = useState('')
   const [permission, setPermission] = useState<MCPPermission>('human_approval')
+  const [filesystem, setFilesystem] = useState<'none' | 'read_only' | 'workspace_write' | 'host'>('workspace_write')
+  const [network, setNetwork] = useState<'denied' | 'unrestricted'>('unrestricted')
   const [error, setError] = useState<string | null>(null)
   const args = useMemo(() => lines(argsText), [argsText])
   const envResult = useMemo(() => parseEnv(envText), [envText])
   const preview = useMemo(() => ({
-    servers: [{ name: name || 'example', transport: 'stdio', command: command || 'npx', args, ...(cwd.trim() ? { cwd: cwd.trim() } : {}), env: envResult.env, permission }],
-  }), [args, command, cwd, envResult.env, name, permission])
+    servers: [{ name: name || 'example', transport: 'stdio', command: command || 'npx', args, ...(cwd.trim() ? { cwd: cwd.trim() } : {}), env: envResult.env, permission, sandbox: { filesystem, network } }],
+  }), [args, command, cwd, envResult.env, filesystem, name, network, permission])
 
   const submit = async (): Promise<void> => {
     setError(null)
@@ -481,19 +484,21 @@ export function MCPInstallForm({
       setError(envResult.error)
       return
     }
-    await onSubmit({ name, command: command.trim(), args, env: envResult.env, cwd: cwd.trim() || undefined, enabled: true, permission })
+    await onSubmit({ name, command: command.trim(), args, env: envResult.env, cwd: cwd.trim() || undefined, enabled: true, permission, sandbox: { filesystem, network } })
   }
 
   return (
     <section className="extension-form">
       <div className="extension-form__fields">
-        <div className="extension-form__heading"><strong>添加 MCP Server</strong><span>当前支持 stdio；每行一个参数，避免引号和空格歧义</span></div>
+        <div className="extension-form__heading"><strong>添加 MCP Server</strong><span>当前支持 stdio；第三方进程默认在原生沙箱中运行</span></div>
         <label><span>Server 名称</span><input value={name} onChange={(event) => setName(event.target.value)} placeholder="例如 filesystem" /></label>
         <label><span>启动命令</span><input value={command} onChange={(event) => setCommand(event.target.value)} placeholder="例如 npx 或 /usr/local/bin/uvx" /></label>
         <label><span>参数（每行一个）</span><textarea rows={6} value={argsText} onChange={(event) => setArgsText(event.target.value)} placeholder={'-y\n@modelcontextprotocol/server-filesystem\n/Users/me/workspace'} /></label>
         <label><span>工作目录（可选）</span><input value={cwd} onChange={(event) => setCwd(event.target.value)} placeholder="留空则继承 Host 工作目录" /></label>
         <label><span>环境变量（每行 KEY=VALUE）</span><textarea rows={4} value={envText} onChange={(event) => setEnvText(event.target.value)} placeholder={'API_KEY=${API_KEY}\nLOG_LEVEL=info'} /><small>密钥请写成 <code>{'${ENV_NAME}'}</code> 引用，不要把真实密钥保存进 JSON。</small></label>
         <label><span>权限</span><select value={permission} onChange={(event) => setPermission(event.target.value as MCPPermission)}><option value="human_approval">每次按规则审批（推荐）</option><option value="allowed">自动允许（仅可信只读工具）</option><option value="forbidden">禁止调用</option></select></label>
+        <label><span>文件权限</span><select value={filesystem} onChange={(event) => setFilesystem(event.target.value as typeof filesystem)}><option value="workspace_write">workspace 可读写（推荐）</option><option value="read_only">workspace 只读</option><option value="none">不访问 workspace</option><option value="host">宿主机执行（危险）</option></select></label>
+        <label><span>网络权限</span><select value={network} onChange={(event) => setNetwork(event.target.value as typeof network)}><option value="unrestricted">允许联网</option><option value="denied">禁止联网</option></select></label>
       </div>
       <div className="extension-form__preview"><span>mcp.json 预览</span><pre>{JSON.stringify(preview, null, 2)}</pre></div>
       {(error || serverError) ? <div className="error-text extension-form__error">{error ?? String(serverError)}</div> : null}

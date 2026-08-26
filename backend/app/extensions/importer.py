@@ -103,6 +103,7 @@ class ExtensionImportPlan:
                     "cwd": server.cwd,
                     "env_names": sorted(server.env),
                     "permission": server.permission.value,
+                    "sandbox": server.sandbox.model_dump(mode="json"),
                 }
             )
             actions.append(f"写入 MCP {server.name}：{command}")
@@ -178,6 +179,7 @@ def parse_import_plan(
                             "permission": raw_server.get(
                                 "permission", mcp_permission
                             ),
+                            "sandbox": raw_server.get("sandbox", {}),
                         }
                     )
                 )

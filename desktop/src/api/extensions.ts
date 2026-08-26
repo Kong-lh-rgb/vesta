@@ -19,6 +19,16 @@ export interface SkillDiagnostic {
 }
 
 export type MCPPermission = 'allowed' | 'human_approval' | 'forbidden'
+export type MCPSandboxFilesystem = 'none' | 'read_only' | 'workspace_write' | 'host'
+export type MCPSandboxNetwork = 'denied' | 'unrestricted'
+
+export interface MCPSandboxConfig {
+  filesystem: MCPSandboxFilesystem
+  network: MCPSandboxNetwork
+  readable_roots: string[]
+  writable_roots: string[]
+  allowed_domains: string[]
+}
 export type MCPServerState =
   | 'stopped'
   | 'starting'
@@ -34,6 +44,9 @@ export interface ManagedMCPServer {
   enabled: boolean
   permission: MCPPermission
   env_names: string[]
+  sandbox: MCPSandboxConfig
+  sandboxed: boolean | null
+  sandbox_backend: string | null
   state: MCPServerState
   tool_names: string[]
   error: string | null
@@ -65,6 +78,7 @@ export interface AddMCPServerInput {
   cwd?: string
   enabled: boolean
   permission: MCPPermission
+  sandbox?: Partial<MCPSandboxConfig>
   startup_timeout_seconds?: number
   call_timeout_seconds?: number
 }

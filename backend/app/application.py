@@ -88,6 +88,7 @@ from app.models.config import ModelSettings
 from app.models.registry import ModelAdapterRegistry
 from app.models.types import ModelProvider
 from app.run import RunManager, RunStatus, SQLiteRunStore
+from app.sandbox import SandboxSupervisor
 from app.skill_learning import (
     SkillCandidateStore,
     SkillLearningService,
@@ -383,7 +384,11 @@ class Application:
                 rule_label_factory=describe_safe_rule,
             )
 
-        tool_registry = build_builtin_tool_registry(self.workspace_root)
+        sandbox_supervisor = SandboxSupervisor(self.workspace_root)
+        tool_registry = build_builtin_tool_registry(
+            self.workspace_root,
+            sandbox_supervisor=sandbox_supervisor,
+        )
 
         artifact_store = SQLiteArtifactStore(database)
         await artifact_store.initialize()
@@ -510,7 +515,10 @@ class Application:
         mcp_error: str | None = None
         try:
             mcp_settings = await self.mcp_config_store.load()
-            mcp_manager = MCPClientManager(mcp_settings.servers)
+            mcp_manager = MCPClientManager(
+                mcp_settings.servers,
+                sandbox_supervisor=sandbox_supervisor,
+            )
             mcp_statuses = await mcp_manager.start(tool_registry)
         except MCPConfigurationError as exc:
             mcp_error = f"{type(exc).__name__}: {exc}"
