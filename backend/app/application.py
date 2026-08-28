@@ -63,6 +63,13 @@ from app.conversation import (
     SQLiteConversationStore,
 )
 from app.conversation.service import ConversationService
+from app.conversation.tools import register_history_tools
+from app.evidence import (
+    EvidenceContextProvider,
+    EvidenceRecorder,
+    SQLiteEvidenceStore,
+    register_evidence_tools,
+)
 from app.mcp import (
     DEFAULT_MCP_CONFIG_PATH,
     MCPClientManager,
@@ -108,6 +115,7 @@ from app.task import (
     DEFAULT_TASKS_DIR,
     FileTaskStore,
     TaskContextProvider,
+    TaskEvidenceAttributionResolver,
     register_task_tools,
 )
 from app.tools import (
@@ -144,6 +152,10 @@ DEFAULT_SYSTEM_PROMPT = (
     "才创建多个 Task。简单的一次性问题不要创建任务。完成任务步骤、计划"
     "变化或任务状态变化后调用 task_update，必要时用 task_get/task_list"
     "重新确认任务状态。"
+    "模型当前看到的是受预算控制的工作上下文，不等于原始事实已被删除。"
+    "当摘要缺少旧对话中的用户约束或决定时，用 tool_search 激活 history_search/"
+    "history_read；当历史工具输出被截断、清理或摘要时，激活 evidence_search/"
+    "evidence_read 按需取回不可变原文。无法取回时如实说明，不要凭摘要补造。"
     "如果生成了用户需要保留、下载或查看的文件（如报告、CSV、代码、图片），"
     "在最终回答前调用 artifact_publish 发布它；如果最终交付的是结果链接，"
     "也用 artifact_publish 发布。普通中间文件、临时文件、Trace、"
@@ -316,6 +328,7 @@ class Application:
         # 在 start() 中构建的依赖。
         self.conversation_store: SQLiteConversationStore | None = None
         self.summary_store: SQLiteConversationSummaryStore | None = None
+        self.evidence_store: SQLiteEvidenceStore | None = None
         self.trace_store: SQLiteTraceStore | None = None
         self.checkpoint_store: SQLiteCheckpointStore | None = None
         self.rule_store: SQLitePermissionRuleStore | None = None
@@ -365,6 +378,8 @@ class Application:
         database = self.database
         conversation_store = SQLiteConversationStore(database)
         await conversation_store.initialize()
+        evidence_store = SQLiteEvidenceStore(database)
+        await evidence_store.initialize()
         summary_store = SQLiteConversationSummaryStore(database)
         await summary_store.initialize()
         trace_store = SQLiteTraceStore(database)
@@ -402,6 +417,12 @@ class Application:
         task_store = FileTaskStore(self.tasks_dir)
         await task_store.initialize()
         register_task_tools(tool_registry, task_store)
+        register_history_tools(tool_registry, conversation_store)
+        register_evidence_tools(tool_registry, evidence_store)
+        evidence_recorder = EvidenceRecorder(
+            evidence_store,
+            attribution_resolver=TaskEvidenceAttributionResolver(task_store),
+        )
 
         memory_manager = MemoryManager(
             memory_dir=self.memory_dir or DEFAULT_MEMORY_DIR
@@ -557,6 +578,8 @@ class Application:
                 ),
             ),
             task_context_provider=TaskContextProvider(task_store),
+            evidence_context_provider=EvidenceContextProvider(evidence_store),
+            tool_output_recorder=evidence_recorder,
             checkpoint_store=checkpoint_store,
             memory_manager=memory_manager,
             memory_reflector=memory_reflector,
@@ -619,6 +642,7 @@ class Application:
         # 挂到 self，供 CLI / Server 读取。
         self.conversation_store = conversation_store
         self.summary_store = summary_store
+        self.evidence_store = evidence_store
         self.trace_store = trace_store
         self.checkpoint_store = checkpoint_store
         self.rule_store = rule_store

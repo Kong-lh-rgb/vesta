@@ -23,6 +23,10 @@ _PLAN_MODE_ALLOWED_TOOLS = frozenset(
         "web_search",
         "current_time",
         "memory_read",
+        "history_search",
+        "history_read",
+        "evidence_search",
+        "evidence_read",
         "task_create",
         "task_update",
         "task_get",
@@ -79,6 +83,25 @@ class ToolRegistry:
     def is_deferred(self, name: str) -> bool:
         return name in self._deferred_names
 
+    def is_available_for_mode(
+        self,
+        name: str,
+        mode: AgentMode,
+        *,
+        activated_names: Collection[str] = (),
+    ) -> bool:
+        """工具是否已对当前模式开放。
+
+        Plan 白名单本身就是严格的只读能力边界，因此其中的延迟检索工具可以
+        直接使用；Normal 仍必须先通过 tool_search 激活，避免常驻 Schema。
+        """
+
+        if name not in self._deferred_names:
+            return True
+        if name in activated_names:
+            return True
+        return mode is AgentMode.PLAN and name in _PLAN_MODE_ALLOWED_TOOLS
+
     def model_definitions(
         self,
         *,
@@ -133,7 +156,11 @@ class ToolRegistry:
             for name in sorted(self._tools)
             if name in allowed
             and self._tools[name].definition.permission.model_visible()
-            and (name not in self._deferred_names or name in activated)
+            and self.is_available_for_mode(
+                name,
+                mode,
+                activated_names=activated,
+            )
         )
 
     def closing_definitions_for_mode(

@@ -17,6 +17,7 @@ from app.checkpoint import (
     render_checkpoint_context,
 )
 from app.context import ContextManager, ConversationSummaryState
+from app.evidence import EvidenceContextProvider
 from app.memory import (
     MaintenanceAction,
     MemoryMaintenanceCandidate,
@@ -58,6 +59,7 @@ from app.tools.catalog import (
 from app.tools.executor import ToolExecutor
 from app.tools.hooks import ToolExecutionContext, ToolHook
 from app.tools.observability import ToolExecutionRecord
+from app.tools.output import ToolOutputRecorder
 from app.tools.permissions.policy import PermissionPolicyEngine
 from app.tools.permissions.store import PermissionRuleStore
 from app.tools.registry import ToolRegistry
@@ -101,7 +103,8 @@ _LEGACY_DATE_PATTERN = re.compile(r"当前日期是 \d{4}-\d{2}-\d{2}。")
 _PLAN_MODE_SYSTEM_MESSAGE = (
     "你现在处于 PLAN MODE（规划模式）：只分析、调查并形成计划，不要修改用户环境。\n"
     "你可以使用只读 / 搜索工具（read_file、list_files、web_search、current_time、"
-    "memory_read）与任务工具（task_create、task_update、task_get、task_list）。\n"
+    "memory_read、history_search/read、evidence_search/read）与任务工具"
+    "（task_create、task_update、task_get、task_list）。\n"
     "完成必要调查后，必须创建（task_create）或更新（task_update）一个 PENDING 任务"
     "作为本轮计划，至少包含 title、goal 与具体可执行的 steps；不要伪造 DONE 步骤、"
     "已完成 state 或已验证 key_facts。\n"
@@ -196,6 +199,8 @@ class AgentRuntime:
         memory_maintenance_reflector: MemoryMaintenanceReflector | None = None,
         skill_store: SkillStore | None = None,
         skill_context_provider: SkillContextProvider | None = None,
+        evidence_context_provider: EvidenceContextProvider | None = None,
+        tool_output_recorder: ToolOutputRecorder | None = None,
         post_run_submit: Callable[[Callable[[], Any]], bool] | None = None,
         run_budget_config: RunBudgetConfig | None = None,
     ) -> None:
@@ -234,6 +239,7 @@ class AgentRuntime:
         self._memory_maintenance_reflector = memory_maintenance_reflector
         self._skill_store = skill_store
         self._skill_context_provider = skill_context_provider
+        self._evidence_context_provider = evidence_context_provider
         self._post_run_submit = post_run_submit
         self._run_budget = RunBudget(run_budget_config)
         self._tool_executor = tool_executor or ToolExecutor(
@@ -242,6 +248,7 @@ class AgentRuntime:
             policy_engine=policy_engine,
             rule_store=rule_store,
             hooks=tool_hooks,
+            output_recorder=tool_output_recorder,
         )
 
     @property
@@ -416,6 +423,8 @@ class AgentRuntime:
         current_summary_state = summary_state
         memory_context_messages: tuple[Message, ...] = ()
         memory_context_loaded = False
+        evidence_context_message: Message | None = None
+        evidence_context_loaded = False
         active_skills: dict[str, Skill] = {}
         skill_catalog_loaded = False
         catalog_metadata: tuple[SkillMetadata, ...] = ()
@@ -628,6 +637,22 @@ class AgentRuntime:
                         memory_context_messages = ()
                 if memory_context_messages:
                     ephemeral_messages.extend(memory_context_messages)
+                if (
+                    self._evidence_context_provider is not None
+                    and not evidence_context_loaded
+                ):
+                    evidence_context_loaded = True
+                    try:
+                        evidence_context_message = (
+                            await self._evidence_context_provider.message_for(
+                                conversation_id
+                            )
+                        )
+                    except Exception:
+                        evidence_context_message = None
+                if evidence_context_message is not None:
+                    # 每个 Run 只取一次索引快照，避免工具执行后改变请求前缀。
+                    ephemeral_messages.append(evidence_context_message)
                 if (
                     self._skill_context_provider is not None
                     and self._skill_store is not None
@@ -1299,8 +1324,11 @@ class AgentRuntime:
                     )
                     await tool_event_hook.after_execute(execution_context, result)
                 elif (
-                    self._tool_registry.is_deferred(tool_call.name)
-                    and tool_call.name not in activated_tools
+                    not self._tool_registry.is_available_for_mode(
+                        tool_call.name,
+                        mode,
+                        activated_names=activated_tools,
+                    )
                 ):
                     await tool_event_hook.before_execute(execution_context)
                     result = ToolResult(

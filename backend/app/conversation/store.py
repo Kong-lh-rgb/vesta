@@ -13,7 +13,7 @@ import aiosqlite
 
 from app.models.types import Message, ToolCall
 
-from .models import Conversation
+from .models import Conversation, ConversationMessageRecord
 
 DEFAULT_DATABASE_PATH = (
     Path(__file__).resolve().parents[2] / ".vesta" / "vesta.db"
@@ -162,6 +162,67 @@ class SQLiteConversationStore:
             )
             rows = await cursor.fetchall()
         return tuple(_message_from_row(row) for row in rows)
+
+    async def search_messages(
+        self,
+        conversation_id: str,
+        query: str,
+        *,
+        limit: int = 10,
+    ) -> tuple[ConversationMessageRecord, ...]:
+        """在当前会话的原始消息中检索，不读取压缩后的模型请求视图。"""
+
+        normalized = query.strip()
+        if not normalized:
+            raise ValueError("query must be a non-empty string")
+        if limit < 1 or limit > 20:
+            raise ValueError("limit must be between 1 and 20")
+        if await self.get(conversation_id) is None:
+            raise KeyError(f"会话不存在：{conversation_id}")
+        async with self._connect() as database:
+            cursor = await database.execute(
+                """
+                SELECT sequence, role, content, name, tool_call_id,
+                       tool_calls_json, reasoning, created_at
+                FROM messages
+                WHERE conversation_id = ?
+                  AND instr(lower(coalesce(content, '')), lower(?)) > 0
+                ORDER BY sequence DESC LIMIT ?
+                """,
+                (conversation_id, normalized, limit),
+            )
+            rows = await cursor.fetchall()
+        return tuple(_message_record_from_row(row) for row in rows)
+
+    async def load_message_window(
+        self,
+        conversation_id: str,
+        sequence: int,
+        *,
+        before: int = 2,
+        after: int = 2,
+    ) -> tuple[ConversationMessageRecord, ...]:
+        """按会话内序号读取一段原始消息窗口。"""
+
+        if sequence < 0:
+            raise ValueError("sequence cannot be negative")
+        if before < 0 or after < 0 or before > 10 or after > 10:
+            raise ValueError("before and after must be between 0 and 10")
+        if await self.get(conversation_id) is None:
+            raise KeyError(f"会话不存在：{conversation_id}")
+        async with self._connect() as database:
+            cursor = await database.execute(
+                """
+                SELECT sequence, role, content, name, tool_call_id,
+                       tool_calls_json, reasoning, created_at
+                FROM messages
+                WHERE conversation_id = ? AND sequence BETWEEN ? AND ?
+                ORDER BY sequence ASC
+                """,
+                (conversation_id, max(0, sequence - before), sequence + after),
+            )
+            rows = await cursor.fetchall()
+        return tuple(_message_record_from_row(row) for row in rows)
 
     async def replace_messages(
         self,
@@ -331,6 +392,14 @@ def _message_from_row(row: aiosqlite.Row) -> Message:
         tool_call_id=row["tool_call_id"],
         tool_calls=tuple(ToolCall.model_validate(item) for item in raw_tool_calls),
         reasoning=row["reasoning"],
+    )
+
+
+def _message_record_from_row(row: aiosqlite.Row) -> ConversationMessageRecord:
+    return ConversationMessageRecord(
+        sequence=row["sequence"],
+        message=_message_from_row(row),
+        created_at=datetime.fromisoformat(row["created_at"]),
     )
 
 
