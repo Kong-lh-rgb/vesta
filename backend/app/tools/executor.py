@@ -27,6 +27,7 @@ from .observability import (
     ToolExecutionRecord,
     _now_iso,
 )
+from .output import ToolOutputRecorder
 from .permission_hook import PermissionHook
 from .permissions.policy import PermissionPolicyEngine
 from .permissions.rule_factory import build_safe_rule
@@ -49,6 +50,7 @@ class ToolExecutor:
         policy_engine: PermissionPolicyEngine | None = None,
         rule_store: PermissionRuleStore | None = None,
         rule_factory: Any = build_safe_rule,
+        output_recorder: ToolOutputRecorder | None = None,
     ) -> None:
         if timeout_seconds <= 0:
             raise ValueError("timeout_seconds must be greater than zero")
@@ -85,6 +87,7 @@ class ToolExecutor:
             ObservabilityHook(self.logger),
             *hooks,
         )
+        self._output_recorder = output_recorder
 
     @property
     def execution_records(self) -> tuple[ToolExecutionRecord, ...]:
@@ -235,13 +238,44 @@ class ToolExecutor:
                 started_at,
             )
 
+        serialized_output = _serialize_output(output)
+        evidence_id: str | None = None
+        output_sha256: str | None = None
+        evidence_error: str | None = None
+        if self._output_recorder is not None:
+            try:
+                recorded = await self._output_recorder.record(
+                    context,
+                    serialized_output,
+                )
+            except Exception as exc:
+                # 工具副作用已经发生，不能因为证据落盘失败把成功伪装成失败并
+                # 诱导模型重试；返回结构化告警，让调用方知道本次不可回读。
+                evidence_error = f"{type(exc).__name__}: {exc}"
+            else:
+                if recorded is not None:
+                    evidence_id = recorded.id
+                    output_sha256 = recorded.sha256
+
+        output_truncated = len(serialized_output) > self._max_output_chars
         return ToolResult(
             tool_call_id=tool_call.id,
             tool_name=tool_call.name,
             success=True,
-            output=_truncate(_serialize_output(output), self._max_output_chars),
+            output=_truncate(serialized_output, self._max_output_chars),
             error=None,
             duration_ms=_duration_ms(started_at),
+            evidence_id=evidence_id,
+            output_chars=(
+                len(serialized_output)
+                if evidence_id is not None
+                or output_truncated
+                or evidence_error is not None
+                else None
+            ),
+            output_sha256=output_sha256,
+            output_truncated=True if output_truncated else None,
+            evidence_error=evidence_error,
         )
 
     def _failure(

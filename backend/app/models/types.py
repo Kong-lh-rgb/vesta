@@ -116,6 +116,13 @@ class ToolResult(BaseModel):
     output: str | None = None
     error: str | None = None
     duration_ms: float = Field(ge=0)
+    # 工具原始输出已在截断前进入不可变 Evidence Store 时返回。模型请求可以
+    # 只携带有界预览，并在需要时通过 evidence_read 重新读取完整内容。
+    evidence_id: str | None = None
+    output_chars: int | None = Field(default=None, ge=0)
+    output_sha256: str | None = None
+    output_truncated: bool | None = None
+    evidence_error: str | None = None
 
 
 class ModelRequest(BaseModel):

@@ -5,6 +5,7 @@ from .context import (
     TaskContextProvider,
     render_task_context,
 )
+from .evidence import TaskEvidenceAttributionResolver
 from .models import (
     Task,
     TaskPatch,
@@ -28,6 +29,7 @@ __all__ = [
     "Task",
     "TaskCreateTool",
     "TaskContextProvider",
+    "TaskEvidenceAttributionResolver",
     "TaskGetTool",
     "TaskListTool",
     "TaskPatch",
