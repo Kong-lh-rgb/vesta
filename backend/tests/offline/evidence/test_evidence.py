@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+import asyncio
 from typing import Any
 
 import pytest
 
 from app.evidence import (
+    EvidenceCapacityError,
     EvidenceReadTool,
     EvidenceRecorder,
     EvidenceSearchTool,
@@ -13,11 +15,11 @@ from app.evidence import (
 from app.models.types import ToolCall, ToolDefinition
 from app.task import (
     FileTaskStore,
-    TaskEvidenceAttributionResolver,
     TaskPatch,
     TaskStatus,
     TaskStep,
     TaskStepStatus,
+    TaskToolOutputAttributionResolver,
 )
 from app.tools import BaseTool, ToolExecutionContext, ToolExecutor, ToolRegistry
 
@@ -34,6 +36,17 @@ class LargeOutputTool(BaseTool):
 class FailingRecorder:
     async def record(self, context, content):
         raise OSError("disk unavailable")
+
+
+class FailingAttributionResolver:
+    async def resolve(self, conversation_id):
+        raise OSError("task store unavailable")
+
+
+class UnrecordedOutputTool(LargeOutputTool):
+    @property
+    def definition(self) -> ToolDefinition:
+        return ToolDefinition(name="unrecorded", record_output=False)
 
 
 @pytest.mark.asyncio
@@ -138,6 +151,60 @@ async def test_evidence_create_is_idempotent_but_content_is_immutable(
 
 
 @pytest.mark.asyncio
+async def test_concurrent_idempotent_create_returns_one_evidence(tmp_path) -> None:
+    store = SQLiteEvidenceStore(tmp_path / "vesta.db")
+    await store.initialize()
+    arguments = {
+        "conversation_id": "conversation-a",
+        "run_id": "run-a",
+        "tool_call_id": "call-a",
+        "tool_name": "read_file",
+        "content": "原始结果",
+        "sha256": "d" * 64,
+    }
+
+    first, second = await asyncio.gather(
+        store.create(**arguments),
+        store.create(**arguments),
+    )
+
+    assert first.id == second.id
+
+
+@pytest.mark.asyncio
+async def test_evidence_capacity_rejects_new_content_without_changing_existing(
+    tmp_path,
+) -> None:
+    store = SQLiteEvidenceStore(
+        tmp_path / "vesta.db",
+        max_item_bytes=4,
+        max_total_bytes=6,
+    )
+    await store.initialize()
+    first = await store.create(
+        conversation_id="conversation-a",
+        run_id="run-a",
+        tool_call_id="call-a",
+        tool_name="read_file",
+        content="abc",
+        sha256="e" * 64,
+    )
+
+    with pytest.raises(EvidenceCapacityError, match="max_total_bytes"):
+        await store.create(
+            conversation_id="conversation-a",
+            run_id="run-b",
+            tool_call_id="call-b",
+            tool_name="read_file",
+            content="defg",
+            sha256="f" * 64,
+        )
+
+    assert await store.resolve(first.id, conversation_id="conversation-a")
+    assert len(await store.list_recent(conversation_id="conversation-a")) == 1
+
+
+@pytest.mark.asyncio
 async def test_recorder_failure_does_not_turn_successful_tool_into_failure() -> None:
     registry = ToolRegistry()
     registry.register(LargeOutputTool())
@@ -156,6 +223,57 @@ async def test_recorder_failure_does_not_turn_successful_tool_into_failure() -> 
     assert result.success is True
     assert result.evidence_id is None
     assert result.evidence_error == "OSError: disk unavailable"
+
+
+@pytest.mark.asyncio
+async def test_tool_definition_can_disable_output_recording(tmp_path) -> None:
+    store = SQLiteEvidenceStore(tmp_path / "vesta.db")
+    await store.initialize()
+    registry = ToolRegistry()
+    registry.register(UnrecordedOutputTool())
+    executor = ToolExecutor(registry, output_recorder=EvidenceRecorder(store))
+    call = ToolCall(id="call-skip", name="unrecorded", arguments={})
+
+    result = await executor.execute(
+        call,
+        context=ToolExecutionContext(
+            tool_call=call,
+            run_id="run-a",
+            conversation_id="conversation-a",
+        ),
+    )
+
+    assert result.success is True
+    assert result.evidence_id is None
+    assert await store.list_recent(conversation_id="conversation-a") == ()
+
+
+@pytest.mark.asyncio
+async def test_attribution_failure_still_archives_raw_output(tmp_path) -> None:
+    store = SQLiteEvidenceStore(tmp_path / "vesta.db")
+    await store.initialize()
+    recorder = EvidenceRecorder(
+        store,
+        attribution_resolver=FailingAttributionResolver(),
+    )
+    call = ToolCall(id="call-a", name="read_file", arguments={})
+
+    recorded = await recorder.record(
+        ToolExecutionContext(
+            tool_call=call,
+            run_id="run-a",
+            conversation_id="conversation-a",
+        ),
+        "仍需保存",
+    )
+
+    assert recorded is not None
+    document = await store.resolve(
+        recorded.id,
+        conversation_id="conversation-a",
+    )
+    assert document is not None
+    assert document.record.task_id is None
 
 
 @pytest.mark.asyncio
@@ -182,7 +300,7 @@ async def test_recorder_attributes_evidence_to_active_task_step(tmp_path) -> Non
     await store.initialize()
     recorder = EvidenceRecorder(
         store,
-        attribution_resolver=TaskEvidenceAttributionResolver(task_store),
+        attribution_resolver=TaskToolOutputAttributionResolver(task_store),
     )
     call = ToolCall(id="call-a", name="web_search", arguments={})
 

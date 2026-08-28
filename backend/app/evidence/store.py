@@ -43,13 +43,31 @@ CREATE INDEX IF NOT EXISTS idx_evidence_run
 ON evidence(run_id, created_at ASC);
 """
 _EVIDENCE_ID_RE = re.compile(r"^[0-9a-f]{4,32}$")
+DEFAULT_MAX_EVIDENCE_ITEM_BYTES = 16 * 1024 * 1024
+DEFAULT_MAX_EVIDENCE_TOTAL_BYTES = 512 * 1024 * 1024
+
+
+class EvidenceCapacityError(ValueError):
+    """Evidence 容量边界拒绝了新原文，已有证据保持不变。"""
 
 
 class SQLiteEvidenceStore:
     """保存完整工具输出，并强制所有模型查询先按会话隔离。"""
 
-    def __init__(self, database_path: str | Path = DEFAULT_DATABASE_PATH) -> None:
+    def __init__(
+        self,
+        database_path: str | Path = DEFAULT_DATABASE_PATH,
+        *,
+        max_item_bytes: int = DEFAULT_MAX_EVIDENCE_ITEM_BYTES,
+        max_total_bytes: int = DEFAULT_MAX_EVIDENCE_TOTAL_BYTES,
+    ) -> None:
+        if max_item_bytes < 1 or max_total_bytes < 1:
+            raise ValueError("evidence capacity limits must be positive")
+        if max_item_bytes > max_total_bytes:
+            raise ValueError("max_item_bytes cannot exceed max_total_bytes")
         self.database_path = Path(database_path).expanduser().resolve()
+        self.max_item_bytes = max_item_bytes
+        self.max_total_bytes = max_total_bytes
 
     async def initialize(self) -> None:
         self.database_path.parent.mkdir(parents=True, exist_ok=True)
@@ -79,46 +97,67 @@ class SQLiteEvidenceStore:
         created_at = datetime.now(UTC)
         content_bytes = len(content.encode("utf-8"))
         async with self._connect() as database:
-            cursor = await database.execute(
-                "SELECT * FROM evidence WHERE run_id = ? AND tool_call_id = ?",
-                (run_id, tool_call_id),
-            )
-            existing = await cursor.fetchone()
-            if existing is not None:
-                if (
-                    existing["sha256"] != sha256
-                    or existing["conversation_id"] != conversation_id
-                    or existing["tool_name"] != tool_name
-                ):
-                    raise ValueError(
-                        "evidence conflict: tool call already has different facts"
+            try:
+                # 串行化“幂等检查 + 容量检查 + 写入”，避免并发重放绕过限制。
+                await database.execute("BEGIN IMMEDIATE")
+                cursor = await database.execute(
+                    "SELECT * FROM evidence WHERE run_id = ? AND tool_call_id = ?",
+                    (run_id, tool_call_id),
+                )
+                existing = await cursor.fetchone()
+                if existing is not None:
+                    if (
+                        existing["sha256"] != sha256
+                        or existing["conversation_id"] != conversation_id
+                        or existing["tool_name"] != tool_name
+                    ):
+                        raise ValueError(
+                            "evidence conflict: tool call already has different facts"
+                        )
+                    await database.commit()
+                    return _record_from_row(existing)
+                if content_bytes > self.max_item_bytes:
+                    raise EvidenceCapacityError(
+                        "evidence item exceeds max_item_bytes: "
+                        f"{content_bytes} > {self.max_item_bytes}"
                     )
-                return _record_from_row(existing)
-            await database.execute(
-                """
-                INSERT INTO evidence (
-                    id, conversation_id, run_id, tool_call_id, tool_name,
-                    content_type, content, content_chars, content_bytes, sha256,
-                    task_id, task_step_id, created_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                """,
-                (
-                    evidence_id,
-                    conversation_id,
-                    run_id,
-                    tool_call_id,
-                    tool_name,
-                    "text/plain; charset=utf-8",
-                    content,
-                    len(content),
-                    content_bytes,
-                    sha256,
-                    task_id,
-                    task_step_id,
-                    created_at.isoformat(),
-                ),
-            )
-            await database.commit()
+                cursor = await database.execute(
+                    "SELECT COALESCE(SUM(content_bytes), 0) AS total FROM evidence"
+                )
+                total_bytes = int((await cursor.fetchone())["total"])
+                if total_bytes + content_bytes > self.max_total_bytes:
+                    raise EvidenceCapacityError(
+                        "evidence store exceeds max_total_bytes: "
+                        f"{total_bytes + content_bytes} > {self.max_total_bytes}"
+                    )
+                await database.execute(
+                    """
+                    INSERT INTO evidence (
+                        id, conversation_id, run_id, tool_call_id, tool_name,
+                        content_type, content, content_chars, content_bytes, sha256,
+                        task_id, task_step_id, created_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        evidence_id,
+                        conversation_id,
+                        run_id,
+                        tool_call_id,
+                        tool_name,
+                        "text/plain; charset=utf-8",
+                        content,
+                        len(content),
+                        content_bytes,
+                        sha256,
+                        task_id,
+                        task_step_id,
+                        created_at.isoformat(),
+                    ),
+                )
+                await database.commit()
+            except Exception:
+                await database.rollback()
+                raise
         return EvidenceRecord(
             id=evidence_id,
             conversation_id=conversation_id,
@@ -296,4 +335,9 @@ def _required(value: str, field_name: str) -> str:
     return normalized
 
 
-__all__ = ["SQLiteEvidenceStore"]
+__all__ = [
+    "DEFAULT_MAX_EVIDENCE_ITEM_BYTES",
+    "DEFAULT_MAX_EVIDENCE_TOTAL_BYTES",
+    "EvidenceCapacityError",
+    "SQLiteEvidenceStore",
+]

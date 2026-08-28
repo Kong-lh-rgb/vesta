@@ -1,11 +1,11 @@
 """任务领域：长任务目标、状态、步骤与关联的持久化，以及模型可用工具。"""
 
+from .attribution import TaskToolOutputAttributionResolver
 from .context import (
     TASK_CONTEXT_MESSAGE_NAME,
     TaskContextProvider,
     render_task_context,
 )
-from .evidence import TaskEvidenceAttributionResolver
 from .models import (
     Task,
     TaskPatch,
@@ -29,7 +29,7 @@ __all__ = [
     "Task",
     "TaskCreateTool",
     "TaskContextProvider",
-    "TaskEvidenceAttributionResolver",
+    "TaskToolOutputAttributionResolver",
     "TaskGetTool",
     "TaskListTool",
     "TaskPatch",

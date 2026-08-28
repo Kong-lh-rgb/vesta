@@ -65,7 +65,6 @@ from app.conversation import (
 from app.conversation.service import ConversationService
 from app.conversation.tools import register_history_tools
 from app.evidence import (
-    EvidenceContextProvider,
     EvidenceRecorder,
     SQLiteEvidenceStore,
     register_evidence_tools,
@@ -115,7 +114,7 @@ from app.task import (
     DEFAULT_TASKS_DIR,
     FileTaskStore,
     TaskContextProvider,
-    TaskEvidenceAttributionResolver,
+    TaskToolOutputAttributionResolver,
     register_task_tools,
 )
 from app.tools import (
@@ -421,7 +420,7 @@ class Application:
         register_evidence_tools(tool_registry, evidence_store)
         evidence_recorder = EvidenceRecorder(
             evidence_store,
-            attribution_resolver=TaskEvidenceAttributionResolver(task_store),
+            attribution_resolver=TaskToolOutputAttributionResolver(task_store),
         )
 
         memory_manager = MemoryManager(
@@ -578,7 +577,6 @@ class Application:
                 ),
             ),
             task_context_provider=TaskContextProvider(task_store),
-            evidence_context_provider=EvidenceContextProvider(evidence_store),
             tool_output_recorder=evidence_recorder,
             checkpoint_store=checkpoint_store,
             memory_manager=memory_manager,

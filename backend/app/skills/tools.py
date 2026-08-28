@@ -40,6 +40,7 @@ class SkillReadTool(BaseTool):
     def definition(self) -> ToolDefinition:
         return ToolDefinition(
             name="skill_read",
+            record_output=False,
             description=(
                 "请求激活一个 Skill。只有当 Available Skills 目录中出现当前"
                 "任务匹配的 Skill 时才调用；激活后其完整指令会在本 Run 内"
@@ -91,6 +92,7 @@ class SkillResourceReadTool(BaseTool):
     def definition(self) -> ToolDefinition:
         return ToolDefinition(
             name="skill_resource_read",
+            record_output=False,
             description=(
                 "读取当前已激活 Skill 目录内的一个资源文件（Active Skill 指令"
                 "列出的 references/scripts/assets 相对路径）。只能读取本 Run "

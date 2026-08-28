@@ -1,23 +1,23 @@
-"""Task 与不可变 Evidence 之间的只读归因适配器。"""
+"""把当前 Task 工作位置适配为中立工具输出归因。"""
 
 from __future__ import annotations
 
-from app.evidence import EvidenceAttribution
+from app.tools.output import ToolOutputAttribution
 
 from .models import TaskStepStatus
 from .store import FileTaskStore
 
 
-class TaskEvidenceAttributionResolver:
-    """把工具输出关联到当前活动 Task 与唯一执行中 Step。"""
+class TaskToolOutputAttributionResolver:
+    """读取当前活动 Task 与唯一执行中 Step，不依赖 Evidence 领域。"""
 
     def __init__(self, store: FileTaskStore) -> None:
         self._store = store
 
-    async def resolve(self, conversation_id: str) -> EvidenceAttribution:
+    async def resolve(self, conversation_id: str) -> ToolOutputAttribution:
         task = await self._store.active_for_conversation(conversation_id)
         if task is None:
-            return EvidenceAttribution()
+            return ToolOutputAttribution()
         step = next(
             (
                 item
@@ -26,10 +26,10 @@ class TaskEvidenceAttributionResolver:
             ),
             None,
         )
-        return EvidenceAttribution(
+        return ToolOutputAttribution(
             task_id=task.id,
             task_step_id=step.id if step is not None else None,
         )
 
 
-__all__ = ["TaskEvidenceAttributionResolver"]
+__all__ = ["TaskToolOutputAttributionResolver"]

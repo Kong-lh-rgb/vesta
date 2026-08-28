@@ -33,6 +33,7 @@ class MemoryReadTool(BaseTool):
     def definition(self) -> ToolDefinition:
         return ToolDefinition(
             name="memory_read",
+            record_output=False,
             description=(
                 "读取一条完整长期记忆。仅当 Memory Index 中的某个 cue 与当前任务"
                 "明显相关时才调用；不要无谓读取。每次读取会记录访问次数。"
@@ -77,6 +78,7 @@ class MemoryListTool(BaseTool):
     def definition(self) -> ToolDefinition:
         return ToolDefinition(
             name="memory_list",
+            record_output=False,
             description=(
                 "列出当前 active 长期记忆的 id、标题与摘要（Recall Cue）。"
                 "不返回完整正文；需要详情时用 memory_read。"
@@ -113,6 +115,7 @@ class MemoryCreateTool(BaseTool):
     def definition(self) -> ToolDefinition:
         return ToolDefinition(
             name="memory_create",
+            record_output=False,
             description=(
                 "创建一条长期记忆。只有对未来跨会话仍有明显价值的信息才创建；"
                 "当前任务状态属于 Task、可复用流程属于 Skills，都不应写入。"
@@ -176,6 +179,7 @@ class MemoryUpdateTool(BaseTool):
     def definition(self) -> ToolDefinition:
         return ToolDefinition(
             name="memory_update",
+            record_output=False,
             description=(
                 "基于最近一次读取的 revision，替换已有长期记忆的标题、Recall "
                 "Cue 和完整正文。新信息属于旧主题时优先 update，避免重复记忆。"
@@ -268,6 +272,7 @@ class MemoryArchiveTool(BaseTool):
     def definition(self) -> ToolDefinition:
         return ToolDefinition(
             name="memory_archive",
+            record_output=False,
             description=(
                 "把一条过时或不再需要的长期记忆归档。归档后不再出现在 Memory "
                 "Index 中，也不会进入模型上下文。"
@@ -311,6 +316,7 @@ class CoreMemoryUpdateTool(BaseTool):
     def definition(self) -> ToolDefinition:
         return ToolDefinition(
             name="core_memory_update",
+            record_output=False,
             description=(
                 "按稳定 key 创建或更新一条 Core Memory。调用前先判断：即使当前 "
                 "Run 与当前项目或仓库完全无关，这条信息是否仍应在每次 Run 常驻？"
@@ -395,6 +401,7 @@ class CoreMemoryRemoveTool(BaseTool):
     def definition(self) -> ToolDefinition:
         return ToolDefinition(
             name="core_memory_remove",
+            record_output=False,
             description=(
                 "移除一个不再成立的 Core Memory 条目。只能在当前用户明确撤销"
                 "稳定身份、全局长期偏好或全局安全/隐私约束时调用；必须逐字复制"

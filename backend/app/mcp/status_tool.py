@@ -17,6 +17,7 @@ class MCPStatusTool(BaseTool):
 
     definition = ToolDefinition(
         name=MCP_STATUS_TOOL_NAME,
+        record_output=False,
         description=(
             "List configured MCP servers, their live connection status, errors, "
             "and registered MCP tool names. Use this for questions about which "

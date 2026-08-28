@@ -46,6 +46,14 @@ Conversation Store
 7. 滚动摘要只保留重要 Evidence 的用途和完整 ID，不复制大段工具原文。
 8. Normal 模式下回读工具采用延迟 Schema，由 `tool_search` 激活；Plan 模式可直接使用白名单内的
    只读 History/Evidence 工具。
+9. Evidence 不再生成常驻模型上下文的全量索引。本轮工具结果直接携带稳定引用，历史证据则由
+   `evidence_search/read` 按需发现，避免每个 Step 重复发送固定索引。
+10. 是否归档由工具定义的 `record_output` 声明决定。执行类、读取类工具默认归档；Task、Memory、
+    History、Evidence 等管理或回读工具显式关闭，避免硬编码名称判断和递归归档。
+11. 单条原文默认最多 16 MiB，Evidence Store 默认总量最多 512 MiB。达到边界时拒绝新增证据、
+    保留已有证据，工具原本的执行结果仍如实返回，并在 `ToolResult.evidence_error` 暴露归档失败。
+12. 幂等检查、容量检查和写入位于同一个 `BEGIN IMMEDIATE` 事务中；Task/Step 归因属于可选元数据，
+    归因失败不会阻止原始证据落盘。
 
 ## 一次流程示例
 
@@ -61,7 +69,8 @@ Conversation Store
 ## 当前边界
 
 - 只对本次功能上线后的成功工具调用生成 Evidence，旧 Trace 中已经截断的输出无法反向恢复。
-- Evidence 当前保存在本地 SQLite，尚未增加独立的容量维护、加密或 UI 浏览页面。
+- Evidence 当前保存在本地 SQLite，已有硬容量边界，但尚未实现自动归档/清理、加密或 UI 浏览页面；
+  容量不足时采用 fail closed，不会静默删除旧证据。
 - 搜索使用 SQLite 确定性文本匹配，先保证可解释和离线可测；后续可在 Store 内部替换为 FTS，
   不改变 Agent 工具接口。
 - Evidence 解决“原文可找回”，Task 解决“当前做到哪里”；它们互补，但不能相互替代。

@@ -16,6 +16,7 @@ class CurrentTimeTool(BaseTool):
 
     definition = ToolDefinition(
         name="get_current_time",
+        record_output=False,
         description=(
             "Get the actual current date and time on demand. Use this before "
             "answering questions involving today, tomorrow, yesterday, now, "

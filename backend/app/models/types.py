@@ -103,6 +103,9 @@ class ToolDefinition(BaseModel):
     ui_scope: ToolUiScope = ToolUiScope.SANDBOX
     # 仅由 Harness 使用，不会发送给模型提供商。
     closing_allowed: bool = False
+    # 是否把成功输出归档为不可变 Evidence；管理/回读工具应显式关闭，避免
+    # 递归归档和重复数据。仅由 Harness 使用，不发送给模型提供商。
+    record_output: bool = True
 
 
 class ToolResult(BaseModel):

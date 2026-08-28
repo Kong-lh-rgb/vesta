@@ -10,6 +10,7 @@ from .approval import (
     ConsoleApprovalGate,
     DenyAllGate,
 )
+from .availability import PLAN_MODE_ALLOWED_TOOLS, ToolAvailabilityPolicy
 from .base import BaseTool
 from .builtin import (
     CurrentTimeTool,
@@ -76,6 +77,7 @@ __all__ = [
     "PermissionRule",
     "PermissionRuleStore",
     "PermissionVerdict",
+    "PLAN_MODE_ALLOWED_TOOLS",
     "ReadFileTool",
     "SQLitePermissionRuleStore",
     "ShellCommandTool",
@@ -92,6 +94,7 @@ __all__ = [
     "ToolHookDecision",
     "ToolHookRunner",
     "ToolRegistry",
+    "ToolAvailabilityPolicy",
     "WebSearchTool",
     "WriteFileTool",
     "build_builtin_tool_registry",
