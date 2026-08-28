@@ -78,6 +78,7 @@ class ToolSearchTool(BaseTool):
 
     definition = ToolDefinition(
         name=TOOL_SEARCH_NAME,
+        record_output=False,
         description=(
             "搜索当前可用但尚未加载的工具。需要外部或 MCP 能力时先调用；"
             "第三方工具通常使用英文描述，中文需求请同时提供对应英文关键词。"

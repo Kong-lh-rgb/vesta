@@ -2,43 +2,19 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+import logging
 from hashlib import sha256
-from typing import Protocol
 
 from app.tools.hooks import ToolExecutionContext
-from app.tools.output import RecordedToolOutput
+from app.tools.output import (
+    RecordedToolOutput,
+    ToolOutputAttribution,
+    ToolOutputAttributionResolver,
+)
 
 from .store import SQLiteEvidenceStore
 
-
-@dataclass(frozen=True, slots=True)
-class EvidenceAttribution:
-    """工具证据在记录时所属的活动任务与步骤。"""
-
-    task_id: str | None = None
-    task_step_id: str | None = None
-
-
-class EvidenceAttributionResolver(Protocol):
-    async def resolve(
-        self,
-        conversation_id: str,
-    ) -> EvidenceAttribution:
-        """解析当前会话的活动工作位置。"""
-
-
-_SKIPPED_PREFIXES = (
-    "evidence_",
-    "history_",
-    "task_",
-    "memory_",
-    "core_memory_",
-    "skill_",
-    "artifact_",
-    "automation_",
-)
-_SKIPPED_NAMES = frozenset({"tool_search", "current_time", "mcp_status"})
+logger = logging.getLogger("vesta.evidence.recorder")
 
 
 class EvidenceRecorder:
@@ -48,7 +24,7 @@ class EvidenceRecorder:
         self,
         store: SQLiteEvidenceStore,
         *,
-        attribution_resolver: EvidenceAttributionResolver | None = None,
+        attribution_resolver: ToolOutputAttributionResolver | None = None,
     ) -> None:
         self._store = store
         self._attribution_resolver = attribution_resolver
@@ -61,13 +37,23 @@ class EvidenceRecorder:
         if not context.run_id or not context.conversation_id:
             return None
         tool_name = context.tool_call.name
-        if tool_name in _SKIPPED_NAMES or tool_name.startswith(_SKIPPED_PREFIXES):
+        definition = context.tool_definition
+        if definition is not None and not definition.record_output:
             return None
-        attribution = EvidenceAttribution()
+        attribution = ToolOutputAttribution()
         if self._attribution_resolver is not None:
-            attribution = await self._attribution_resolver.resolve(
-                context.conversation_id
-            )
+            try:
+                attribution = await self._attribution_resolver.resolve(
+                    context.conversation_id
+                )
+            except Exception as exc:
+                # 归因只是可选元数据；Task 扫描失败不能阻止原始证据落盘。
+                logger.warning(
+                    "Evidence attribution failed conversation_id=%s error=%s: %s",
+                    context.conversation_id,
+                    type(exc).__name__,
+                    exc,
+                )
         digest = sha256(content.encode("utf-8")).hexdigest()
         record = await self._store.create(
             conversation_id=context.conversation_id,
@@ -87,7 +73,5 @@ class EvidenceRecorder:
 
 
 __all__ = [
-    "EvidenceAttribution",
-    "EvidenceAttributionResolver",
     "EvidenceRecorder",
 ]

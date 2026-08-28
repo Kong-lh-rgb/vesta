@@ -7,38 +7,22 @@ from collections.abc import Collection
 
 from app.models.types import AgentMode, ToolDefinition
 
+from .availability import ToolAvailabilityPolicy
 from .base import BaseTool
 
 _VALID_NAME = re.compile(r"^[a-zA-Z0-9_]+$")
 
-# Plan 模式允许的工具白名单（只读 / 搜索 / 规划）。
-# 不允许任何会修改用户环境或产生外部副作用的工具：
-# 文件写/删（write_file）、shell、网络写（http_request）、automation 创建/控制、
-# memory/skill 修改、tool_search（激活延迟工具）等一律排除。
-# 执行层（AgentRuntime._execute_tool）同时按此白名单硬阻断，不仅隐藏定义。
-_PLAN_MODE_ALLOWED_TOOLS = frozenset(
-    {
-        "read_file",
-        "list_files",
-        "web_search",
-        "current_time",
-        "memory_read",
-        "history_search",
-        "history_read",
-        "evidence_search",
-        "evidence_read",
-        "task_create",
-        "task_update",
-        "task_get",
-        "task_list",
-    }
-)
-
-
 class ToolRegistry:
-    def __init__(self) -> None:
+    def __init__(
+        self,
+        *,
+        availability_policy: ToolAvailabilityPolicy | None = None,
+    ) -> None:
         self._tools: dict[str, BaseTool] = {}
         self._deferred_names: set[str] = set()
+        self._availability_policy = (
+            availability_policy or ToolAvailabilityPolicy()
+        )
 
     def register(self, tool: BaseTool, *, deferred: bool = False) -> None:
         """注册工具；延迟工具只在当前 Run 被激活后暴露完整定义。"""
@@ -96,11 +80,12 @@ class ToolRegistry:
         直接使用；Normal 仍必须先通过 tool_search 激活，避免常驻 Schema。
         """
 
-        if name not in self._deferred_names:
-            return True
-        if name in activated_names:
-            return True
-        return mode is AgentMode.PLAN and name in _PLAN_MODE_ALLOWED_TOOLS
+        return self._availability_policy.is_available(
+            name,
+            mode,
+            deferred_names=self._deferred_names,
+            activated_names=activated_names,
+        )
 
     def model_definitions(
         self,
@@ -124,9 +109,10 @@ class ToolRegistry:
         - PLAN：只读 / 搜索 / 规划工具白名单。
         """
 
-        if mode is AgentMode.PLAN:
-            return _PLAN_MODE_ALLOWED_TOOLS
-        return frozenset(self._tools)
+        return self._availability_policy.allowed_names(
+            mode,
+            registered_names=self._tools,
+        )
 
     def is_allowed_for_mode(self, name: str, mode: AgentMode) -> bool:
         """工具是否允许在该模式执行（执行层的硬性能力过滤）。"""

@@ -26,6 +26,7 @@ class ArtifactPublishTool(BaseTool):
     def definition(self) -> ToolDefinition:
         return ToolDefinition(
             name="artifact_publish",
+            record_output=False,
             description=(
                 "把真正交付给用户的文件或链接发布为 Artifact（不可变结果）。"
                 "path（workspace 相对路径）或 url（http/https）二选一。"

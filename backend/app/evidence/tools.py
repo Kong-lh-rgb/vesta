@@ -22,6 +22,7 @@ class EvidenceSearchTool(BaseTool):
     def definition(self) -> ToolDefinition:
         return ToolDefinition(
             name="evidence_search",
+            record_output=False,
             description=(
                 "搜索当前会话中已归档的完整工具原始输出。上下文里的工具结果"
                 "被截断、清理或摘要后，用它重新定位原始证据；只返回片段，"
@@ -101,6 +102,7 @@ class EvidenceReadTool(BaseTool):
     def definition(self) -> ToolDefinition:
         return ToolDefinition(
             name="evidence_read",
+            record_output=False,
             description=(
                 "按 Evidence ID 读取当前会话的一段原始工具输出。内容很大时使用"
                 " offset/limit 分页；跨会话证据统一表现为不存在。"

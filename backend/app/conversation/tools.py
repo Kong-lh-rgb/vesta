@@ -23,6 +23,7 @@ class HistorySearchTool(BaseTool):
     def definition(self) -> ToolDefinition:
         return ToolDefinition(
             name="history_search",
+            record_output=False,
             description=(
                 "搜索当前会话数据库中的完整原始消息。滚动摘要遗漏了用户约束、"
                 "决定或旧讨论细节时使用；结果中的 sequence 可交给 history_read。"
@@ -80,6 +81,7 @@ class HistoryReadTool(BaseTool):
     def definition(self) -> ToolDefinition:
         return ToolDefinition(
             name="history_read",
+            record_output=False,
             description=(
                 "按 sequence 读取当前会话的一段原始消息窗口。只在 history_search"
                 "已定位到相关消息，或明确知道消息序号时使用。"

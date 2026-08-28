@@ -42,6 +42,7 @@ class TaskCreateTool(BaseTool):
     def definition(self) -> ToolDefinition:
         return ToolDefinition(
             name="task_create",
+            record_output=False,
             description=(
                 "创建一个任务用于长期跟踪一个整体目标。当工作复杂需要拆解、跨多轮"
                 "跟踪，或用户明确要求记录任务时调用。同一整体目标中的阶段、模块和"
@@ -157,6 +158,7 @@ class TaskUpdateTool(BaseTool):
     def definition(self) -> ToolDefinition:
         return ToolDefinition(
             name="task_update",
+            record_output=False,
             description=(
                 "更新一个已有任务。当某个步骤完成、任务状态变化、需要补充用户"
                 "约束或关键事实时调用。当前会话和运行由系统自动关联；至少提供 "
@@ -426,6 +428,7 @@ class TaskGetTool(BaseTool):
     def definition(self) -> ToolDefinition:
         return ToolDefinition(
             name="task_get",
+            record_output=False,
             description=(
                 "获取一个任务的完整详情（目标、状态、步骤、约束、关键事实与关联"
                 "记录）。当模型需要重新确认当前活动任务时，优先使用 current；"
@@ -481,6 +484,7 @@ class TaskListTool(BaseTool):
     def definition(self) -> ToolDefinition:
         return ToolDefinition(
             name="task_list",
+            record_output=False,
             description=(
                 "列出任务（可按状态过滤）。当需要总览当前有哪些任务、查看进度，"
                 "或用户明确要求列出任务时调用。"

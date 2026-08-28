@@ -35,6 +35,7 @@ class AutomationCreateTool(BaseTool):
     def definition(self) -> ToolDefinition:
         return ToolDefinition(
             name="automation_create",
+            record_output=False,
             description=(
                 "创建一个自动化：在未来某个时间，自动用指定 prompt 启动一次 "
                 "Agent Run（可选一次性、固定间隔、cron 计划）。当用户要求"
@@ -138,6 +139,7 @@ class AutomationListTool(BaseTool):
     def definition(self) -> ToolDefinition:
         return ToolDefinition(
             name="automation_list",
+            record_output=False,
             description="列出当前会话创建的全部自动化及其状态。",
             parameters={
                 "type": "object",
@@ -172,6 +174,7 @@ class AutomationGetTool(BaseTool):
     def definition(self) -> ToolDefinition:
         return ToolDefinition(
             name="automation_get",
+            record_output=False,
             description="按 ID 查看一条自动化的完整详情。",
             parameters={
                 "type": "object",
@@ -202,6 +205,7 @@ class AutomationCancelTool(BaseTool):
     def definition(self) -> ToolDefinition:
         return ToolDefinition(
             name="automation_cancel",
+            record_output=False,
             description="取消一条自动化：状态变为 cancelled，不再触发。",
             parameters={
                 "type": "object",
@@ -230,6 +234,7 @@ class AutomationPauseTool(BaseTool):
     def definition(self) -> ToolDefinition:
         return ToolDefinition(
             name="automation_pause",
+            record_output=False,
             description="暂停一条自动化：状态变为 paused，暂时不再触发。",
             parameters={
                 "type": "object",
@@ -258,6 +263,7 @@ class AutomationResumeTool(BaseTool):
     def definition(self) -> ToolDefinition:
         return ToolDefinition(
             name="automation_resume",
+            record_output=False,
             description="恢复一个已暂停的自动化：重新按计划触发。",
             parameters={
                 "type": "object",
