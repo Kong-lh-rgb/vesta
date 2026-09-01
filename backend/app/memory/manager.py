@@ -16,7 +16,7 @@ from __future__ import annotations
 import asyncio
 import logging
 from collections.abc import AsyncIterator
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, suppress
 from dataclasses import replace
 from datetime import UTC, datetime
 from pathlib import Path
@@ -90,6 +90,7 @@ class MemoryManager:
         )
         self._recall_service = MemoryRecallService(self)
         self._search_ok = False
+        self._search_backfill_task: asyncio.Task[None] | None = None
         self._lock = asyncio.Lock()
         self._lock_path = self.memory_dir / ".memory.lock"
 
@@ -111,9 +112,16 @@ class MemoryManager:
             try:
                 await self._search_index.initialize()
                 await self._search_index.reconcile(
-                    await self.store.list_active()
+                    await self.store.list_active(),
+                    generate_embeddings=False,
                 )
                 self._search_ok = True
+                # FTS 投影已经可用，远程 Embedding 补全移到后台，避免服务
+                # 超时或重试阻塞 Host 启动。补全期间检索自然降级为 FTS。
+                self._search_backfill_task = asyncio.create_task(
+                    self._search_index.backfill_embeddings(),
+                    name="memory-embedding-backfill",
+                )
             except Exception as exc:
                 # SQLite / FTS5 / 重建全部失败：回到 Legacy INDEX 注入模式。
                 self._search_ok = False
@@ -121,6 +129,18 @@ class MemoryManager:
                     "memory search index unavailable, fallback to index cues: %s",
                     exc,
                 )
+
+    async def close(self) -> None:
+        """停止后台向量补全任务；由 Application 在关闭 Adapter 前调用。"""
+
+        task = self._search_backfill_task
+        self._search_backfill_task = None
+        if task is None:
+            return
+        if not task.done():
+            task.cancel()
+        with suppress(asyncio.CancelledError):
+            await task
 
     # ------------------------------------------------------------------
     # Runtime 注入

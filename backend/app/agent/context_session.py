@@ -5,7 +5,12 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from app.checkpoint import RunCheckpoint, render_checkpoint_context
-from app.memory import MemoryManager, MemoryRecallQueryInputs, MemoryRecallSnapshot
+from app.memory import (
+    MemoryManager,
+    MemoryRecallQueryInputs,
+    MemoryRecallSnapshot,
+    SearchMode,
+)
 from app.models.types import Message, ToolResult
 from app.skills import Skill, SkillContextProvider, SkillMetadata, SkillStore
 from app.task.context import TaskContextProvider
@@ -169,6 +174,11 @@ class RuntimeContextSession:
             # 自动召回失败不能阻塞 Run：退回 Legacy INDEX 注入。
             return await _legacy_context_messages(manager)
         self._recall_snapshot = snapshot
+        if snapshot.mode is SearchMode.UNAVAILABLE:
+            # 索引可能在 Host 启动后损坏或暂时不可读。此时不能继续按
+            # Hybrid 模式构建空上下文，否则普通记忆既没有候选，也没有
+            # INDEX cue。保留失败快照用于 Trace，同时回退到 Legacy INDEX。
+            return await _legacy_context_messages(manager)
         return await manager.context_messages(recall=snapshot)
 
     async def _recall_query_with_task(

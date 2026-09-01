@@ -9,6 +9,7 @@ access_count、只有 memory_read 才授权 Reflection Update。
 
 from __future__ import annotations
 
+import asyncio
 import json
 from pathlib import Path
 
@@ -30,6 +31,7 @@ from app.memory import (
     MemoryRecallQueryInputs,
     SearchMode,
 )
+from app.memory.search_index import MemorySearchIndex, _ChunkHit
 from app.models.adapter import ModelAdapter
 from app.models.config import ModelSettings, ProviderConfig
 from app.models.registry import ModelAdapterRegistry
@@ -77,6 +79,20 @@ class FailingEmbedding:
 
     async def close(self) -> None:
         return None
+
+
+class BlockingEmbedding(FakeEmbeddingAdapter):
+    """阻塞文档向量化，用于证明 Host 初始化不等待远程 Embedding。"""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.started = asyncio.Event()
+        self.release = asyncio.Event()
+
+    async def embed_documents(self, texts):
+        self.started.set()
+        await self.release.wait()
+        return await super().embed_documents(texts)
 
 
 @pytest.fixture
@@ -302,6 +318,36 @@ async def test_embedding_failure_degrades_to_fts(memory_root: Path) -> None:
 
 
 @pytest.mark.asyncio
+async def test_embedding_backfill_does_not_block_manager_initialize(
+    memory_root: Path,
+) -> None:
+    seed_manager = MemoryManager(memory_root, embedding=None)
+    await seed_manager.initialize()
+    await seed_manager.create(
+        title="启动期向量补全",
+        summary="Host 不应等待远程 Embedding",
+        content="FTS 投影先可用，向量随后在后台补齐。",
+    )
+    await seed_manager.close()
+
+    embedding = BlockingEmbedding()
+    manager = MemoryManager(memory_root, embedding=embedding)
+    await asyncio.wait_for(manager.initialize(), timeout=0.5)
+
+    # initialize 已经返回，后台任务才会停在远程向量请求上。
+    await asyncio.wait_for(embedding.started.wait(), timeout=0.5)
+    before = await manager.search("启动期向量补全")
+    assert before.mode is SearchMode.FTS
+
+    embedding.release.set()
+    assert manager._search_backfill_task is not None
+    await asyncio.wait_for(manager._search_backfill_task, timeout=0.5)
+    after = await manager.search("启动期向量补全")
+    assert after.mode is SearchMode.HYBRID
+    await manager.close()
+
+
+@pytest.mark.asyncio
 async def test_corrupted_index_does_not_break_markdown(memory_root: Path) -> None:
     manager = MemoryManager(memory_root, embedding=FakeEmbeddingAdapter())
     await manager.initialize()
@@ -393,6 +439,35 @@ async def test_context_messages_hybrid_injects_recall_instead_of_index(
     legacy_names = [message.name for message in legacy_messages]
     assert MEMORY_INDEX_MESSAGE_NAME in legacy_names
     assert MEMORY_RECALL_MESSAGE_NAME not in legacy_names
+
+
+@pytest.mark.asyncio
+async def test_runtime_index_failure_falls_back_to_legacy_index(
+    memory_root: Path,
+) -> None:
+    manager = MemoryManager(memory_root, embedding=FakeEmbeddingAdapter())
+    await manager.initialize()
+    await _seed(manager)
+    (memory_root / "search.sqlite").write_bytes(b"broken at runtime")
+
+    session = RuntimeContextSession(
+        memory_manager=manager,
+        skill_store=None,
+        skill_context_provider=None,
+        task_context_provider=None,
+        recall_query=MemoryRecallQueryInputs(user_message="数据库迁移决定是什么"),
+    )
+    context = await session.build(
+        conversation_id="conversation-runtime-fallback",
+        recovery_checkpoint=None,
+        trailing_system_messages=(),
+    )
+
+    names = [message.name for message in context.messages]
+    assert MEMORY_INDEX_MESSAGE_NAME in names
+    assert MEMORY_RECALL_MESSAGE_NAME not in names
+    assert context.recall_mode == SearchMode.UNAVAILABLE.value
+    await manager.close()
 
 
 @pytest.mark.asyncio
@@ -562,6 +637,38 @@ async def test_session_recalls_once_and_reuses_across_steps(
     assert first_recall[0].content == second_recall[0].content
     assert first.recall_candidate_ids == second.recall_candidate_ids
     assert first.recall_mode == SearchMode.HYBRID.value
+
+
+@pytest.mark.asyncio
+async def test_rrf_scores_each_memory_once_per_retrieval_path(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    index = MemorySearchIndex(tmp_path / "rrf.sqlite", embedding=None)
+    await index.initialize()
+
+    async def vector_hits(query: str, fetch: int):
+        del query, fetch
+        return (
+            _ChunkHit("M001", 0, "长记忆", "chunk 0", 0.9),
+            _ChunkHit("M001", 1, "长记忆", "chunk 1", 0.8),
+            _ChunkHit("M002", 0, "双路命中", "vector chunk", 0.7),
+        )
+
+    async def fts_hits(query: str, fetch: int):
+        del query, fetch
+        return (_ChunkHit("M002", 0, "", "exact keyword", 0.0),)
+
+    monkeypatch.setattr(index, "_vector_search", vector_hits)
+    monkeypatch.setattr(index, "_fts_search", fts_hits)
+
+    result = await index.search("query", limit=2)
+
+    assert [candidate.memory_id for candidate in result.candidates] == [
+        "M002",
+        "M001",
+    ]
+    assert result.candidates[1].rrf_score == pytest.approx(1 / 61)
 
 
 # ----------------------------------------------------------------------

@@ -224,6 +224,8 @@ class MemorySearchIndex:
         self.settings = settings or MemorySearchSettings()
         self._write_lock = asyncio.Lock()
         self._fts_available = False
+        # 启动对账与后台补全完成前禁止使用部分向量，避免新旧投影混排。
+        self._embeddings_ready = False
         self._initialized = False
 
     # ------------------------------------------------------------------
@@ -279,8 +281,14 @@ class MemorySearchIndex:
     async def reconcile(
         self,
         records: tuple[MemoryRecord, ...],
+        *,
+        generate_embeddings: bool = True,
     ) -> None:
-        """以 Markdown 为权威对账：删多余行、重算缺失或过期的 Chunk。"""
+        """以 Markdown 为权威对账：删多余行、重算缺失或过期的 Chunk。
+
+        ``generate_embeddings=False`` 用于 Host 启动关键路径：同步建立可用的
+        FTS 投影，但不等待远程 Embedding。缺失向量随后由后台补全。
+        """
 
         if not self._initialized:
             return
@@ -300,7 +308,10 @@ class MemorySearchIndex:
             for record in records:
                 if record.status is not MemoryStatus.ACTIVE:
                     continue
-                await self._upsert_rows(record)
+                await self._upsert_rows(
+                    record,
+                    generate_embeddings=generate_embeddings,
+                )
 
     # ------------------------------------------------------------------
     # 增量同步（create / update / archive 后调用）
@@ -318,7 +329,12 @@ class MemorySearchIndex:
         async with self._write_lock:
             await self._remove_rows(memory_id)
 
-    async def _upsert_rows(self, record: MemoryRecord) -> None:
+    async def _upsert_rows(
+        self,
+        record: MemoryRecord,
+        *,
+        generate_embeddings: bool = True,
+    ) -> None:
         chunks = chunk_memory_text(record, settings=self.settings)
         model_name = self._embedding_model_name
         try:
@@ -354,8 +370,10 @@ class MemorySearchIndex:
                         (record.revision, record.id, *reusable),
                     )
                 if pending:
-                    vectors = await self._embed_texts(
-                        tuple(item[1] for item in pending)
+                    vectors = (
+                        await self._embed_texts(tuple(item[1] for item in pending))
+                        if generate_embeddings
+                        else None
                     )
                     for position, (index, text, digest) in enumerate(pending):
                         vector = vectors[position] if vectors is not None else None
@@ -400,6 +418,66 @@ class MemorySearchIndex:
                 record.id,
                 exc,
             )
+
+    async def backfill_embeddings(self) -> None:
+        """在后台为当前投影补齐缺失或模型不匹配的向量。
+
+        远程请求期间不持有写锁；写回时用正文摘要做条件更新，避免并发
+        Memory Update 后把旧文本向量覆盖到新 Chunk 上。
+        """
+
+        if not self._initialized or self.embedding is None:
+            return
+        model_name = self._embedding_model_name
+        try:
+            async with self._connect() as database:
+                rows = await database.execute_fetchall(
+                    "SELECT memory_id, chunk_index, text, text_sha256 "
+                    "FROM memory_chunks WHERE embedding IS NULL "
+                    "OR embedding_model IS NULL OR embedding_model != ?",
+                    (model_name,),
+                )
+            if not rows:
+                self._embeddings_ready = True
+                return
+            texts = tuple(str(row[2]) for row in rows)
+            vectors = await self._embed_texts(texts)
+            if vectors is None:
+                return
+            if len(vectors) != len(rows):
+                logger.warning(
+                    "memory embedding response count mismatch: expected=%s actual=%s",
+                    len(rows),
+                    len(vectors),
+                )
+                return
+            prepared: list[tuple[bytes, int, str, int, str]] = []
+            for row, vector in zip(rows, vectors, strict=True):
+                normalized, blob = _normalize_vector(vector)
+                prepared.append(
+                    (blob, len(normalized), str(row[0]), int(row[1]), str(row[3]))
+                )
+            async with self._write_lock:
+                async with self._connect() as database:
+                    for blob, dimensions, memory_id, chunk_index, digest in prepared:
+                        await database.execute(
+                            "UPDATE memory_chunks SET embedding_model = ?, "
+                            "embedding_dim = ?, embedding = ? WHERE memory_id = ? "
+                            "AND chunk_index = ? AND text_sha256 = ?",
+                            (
+                                model_name,
+                                dimensions,
+                                blob,
+                                memory_id,
+                                chunk_index,
+                                digest,
+                            ),
+                        )
+                    await database.commit()
+            self._embeddings_ready = True
+        except Exception as exc:
+            # 后台向量补全失败只影响本轮检索质量，FTS 投影仍然可用。
+            logger.warning("memory embedding backfill failed: %s", exc)
 
     async def _remove_rows(self, memory_id: str) -> None:
         try:
@@ -487,17 +565,21 @@ class MemorySearchIndex:
                 degrade_reason=degrade_reason or "no retrieval path available",
             )
 
+        # RRF 的排名单位必须是 Memory，而不是 Chunk。同一条长记忆即使有
+        # 多个 Chunk 命中，在每条检索路径中也只能贡献一次排名分数。
+        vector_memory_hits = _first_hit_per_memory(vector_hits or ())
+        fts_memory_hits = _first_hit_per_memory(fts_hits or ())
         scores: dict[str, float] = {}
-        best_chunk: dict[str, tuple[float, str]] = {}
+        best_chunk: dict[str, tuple[float, str, str]] = {}
         matched_vector: set[str] = set()
         matched_fts: set[str] = set()
-        for rank, hit in enumerate(vector_hits or (), start=1):
+        for rank, hit in enumerate(vector_memory_hits, start=1):
             scores[hit.memory_id] = scores.get(hit.memory_id, 0.0) + 1.0 / (
                 _RRF_K + rank
             )
             matched_vector.add(hit.memory_id)
             _keep_best_chunk(best_chunk, hit)
-        for rank, hit in enumerate(fts_hits or (), start=1):
+        for rank, hit in enumerate(fts_memory_hits, start=1):
             scores[hit.memory_id] = scores.get(hit.memory_id, 0.0) + 1.0 / (
                 _RRF_K + rank
             )
@@ -536,7 +618,7 @@ class MemorySearchIndex:
         query: str,
         fetch: int,
     ) -> tuple[_ChunkHit, ...] | None:
-        if self.embedding is None:
+        if self.embedding is None or not self._embeddings_ready:
             return None
         try:
             query_vector_raw = await self.embedding.embed_query(query)
@@ -647,6 +729,19 @@ class _ChunkHit:
     title: str
     text: str
     score: float
+
+
+def _first_hit_per_memory(hits: tuple[_ChunkHit, ...]) -> tuple[_ChunkHit, ...]:
+    """保留每条检索路径中一个 Memory 排名最靠前的 Chunk。"""
+
+    seen: set[str] = set()
+    unique: list[_ChunkHit] = []
+    for hit in hits:
+        if hit.memory_id in seen:
+            continue
+        seen.add(hit.memory_id)
+        unique.append(hit)
+    return tuple(unique)
 
 
 def _keep_best_chunk(
