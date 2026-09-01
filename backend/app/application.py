@@ -732,6 +732,8 @@ class Application:
             close_runtime = getattr(self.computer_runtime, "close", None)
             if callable(close_runtime):
                 await close_runtime()
+        if self.memory_manager is not None:
+            await self.memory_manager.close()
         if self.memory_embedding_adapter is not None:
             await self.memory_embedding_adapter.close()
             self.memory_embedding_adapter = None
