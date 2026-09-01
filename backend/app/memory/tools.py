@@ -22,6 +22,8 @@ DEFAULT_DEFERRED_MEMORY_TOOL_NAMES = frozenset(
     {"memory_list", "core_memory_update", "core_memory_remove"}
 )
 
+MEMORY_SEARCH_TOOL_NAME = "memory_search"
+
 
 class MemoryReadTool(BaseTool):
     """读取一条完整长期记忆。"""
@@ -65,6 +67,83 @@ class MemoryReadTool(BaseTool):
             "title": record.title,
             "revision": record.revision,
             "content": record.render_full(),
+        }
+
+
+class MemorySearchTool(BaseTool):
+    """Hybrid（FTS5 + 向量）检索当前 active 长期记忆。"""
+
+    def __init__(self, manager: MemoryManager) -> None:
+        self._manager = manager
+
+    @property
+    def definition(self) -> ToolDefinition:
+        return ToolDefinition(
+            name="memory_search",
+            record_output=False,
+            description=(
+                "在当前 active 长期记忆中做混合检索（关键词 + 语义），用于初始"
+                "自动召回遗漏、或 Run 中途切换话题时补充候选。只返回 id、标题、"
+                "摘要、revision 与最相关片段，不返回完整正文；需要依赖完整记忆时"
+                "必须继续调用 memory_read。本搜索不计入记忆读取次数。"
+            ),
+            parameters={
+                "type": "object",
+                "properties": {
+                    "query": {
+                        "type": "string",
+                        "description": "检索查询：任务描述、关键词或主题短语。",
+                    },
+                    "limit": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "maximum": 10,
+                        "description": "返回候选数量上限，默认 5。",
+                    },
+                },
+                "required": ["query"],
+                "additionalProperties": False,
+            },
+            strict=False,
+        )
+
+    async def execute(self, arguments: dict[str, Any]) -> dict[str, Any]:
+        query = arguments.get("query")
+        if not isinstance(query, str) or not query.strip():
+            raise ValueError("'query' must be a non-empty string")
+        limit = arguments.get("limit")
+        if limit is not None and (not isinstance(limit, int) or limit < 1):
+            raise ValueError("'limit' must be a positive integer")
+        result = await self._manager.search(query, limit=limit)
+        if result.mode.value == "unavailable":
+            return {
+                "available": False,
+                "query": query,
+                "reason": result.degrade_reason or "search index unavailable",
+                "hint": "fall back to Memory Index cues and memory_read",
+            }
+        return {
+            "available": True,
+            "query": query,
+            "mode": result.mode.value,
+            "results": [
+                {
+                    "memory_id": candidate.memory_id,
+                    "title": candidate.title,
+                    "summary": candidate.summary,
+                    "revision": candidate.revision,
+                    "snippet": candidate.snippet,
+                    "matched_by": [
+                        source
+                        for source, hit in (
+                            ("vector", candidate.matched_by_vector),
+                            ("fts", candidate.matched_by_fts),
+                        )
+                        if hit
+                    ],
+                }
+                for candidate in result.candidates
+            ],
         }
 
 
@@ -455,9 +534,14 @@ def register_memory_tools(
     registry: ToolRegistry,
     manager: MemoryManager,
 ) -> None:
-    """注册 Main Agent 的在线 Recall 与显式 Core 操作。"""
+    """注册 Main Agent 的在线 Recall 与显式 Core 操作。
+
+    ``memory_search`` 常驻可见（不做 deferred）：它是初始自动召回遗漏时
+    的补充通道，延迟激活会让模型在需要时找不到它。
+    """
 
     registry.register(MemoryReadTool(manager))
+    registry.register(MemorySearchTool(manager))
     registry.register(MemoryListTool(manager))
     registry.register(CoreMemoryUpdateTool(manager))
     registry.register(CoreMemoryRemoveTool(manager))
@@ -483,12 +567,14 @@ def _required_string(arguments: dict[str, Any], name: str) -> str:
 
 __all__ = [
     "DEFAULT_DEFERRED_MEMORY_TOOL_NAMES",
+    "MEMORY_SEARCH_TOOL_NAME",
     "CoreMemoryRemoveTool",
     "CoreMemoryUpdateTool",
     "MemoryArchiveTool",
     "MemoryCreateTool",
     "MemoryListTool",
     "MemoryReadTool",
+    "MemorySearchTool",
     "MemoryUpdateTool",
     "register_memory_tools",
     "register_memory_write_tools",

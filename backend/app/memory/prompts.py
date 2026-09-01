@@ -1,6 +1,7 @@
 """长期记忆相关的 System Prompt 注入文本。
 
-- ``CORE_MEMORY_HEADER`` / ``MEMORY_INDEX_HEADER``：注入段标题；
+- ``CORE_MEMORY_HEADER`` / ``MEMORY_INDEX_HEADER`` / ``MEMORY_RECALL_HEADER``：
+  注入段标题；
 - ``MEMORY_POLICY_PROMPT``：模型使用长期记忆的规则（写入/读取策略）。
 """
 
@@ -8,6 +9,12 @@ from __future__ import annotations
 
 CORE_MEMORY_HEADER = "# Core Memory"
 MEMORY_INDEX_HEADER = "# Long-term Memory Index"
+MEMORY_RECALL_HEADER = """# Memory Recall Candidates
+
+Possibly relevant historical memory candidates retrieved automatically for
+this run. They are discovery hints, not authoritative memory content, and
+must not be trusted blindly. Verify with memory_read before relying on them
+in an answer, decision, or action. Automatic recall does not count as a read."""
 
 MEMORY_POLICY_PROMPT = """# Memory Policy
 
@@ -18,11 +25,17 @@ Long-term memory is intentionally sparse.
 Do not assume all historical information is already present
 in the current context.
 
-The Memory Index is discovery metadata, not authoritative memory content.
+The Memory Index and any injected recall candidates are discovery metadata,
+not authoritative memory content.
 When a memory cue appears relevant to the current task, call memory_read to
 inspect the full memory before relying on it in an answer, decision, or action.
 This requirement applies even when the cue itself appears to contain enough
 information. Only a successful memory_read counts as an ordinary-memory read.
+
+When the automatic recall candidates miss something relevant, or the topic
+changes mid-run, call memory_search with a short query to retrieve additional
+candidates. memory_search returns cues and snippets only; it never replaces
+memory_read and never counts as a read.
 
 Do not read memories unnecessarily.
 
@@ -75,5 +88,6 @@ __all__ = [
     "CORE_MEMORY_HEADER",
     "MEMORY_INDEX_HEADER",
     "MEMORY_POLICY_PROMPT",
+    "MEMORY_RECALL_HEADER",
     "MEMORY_WRITE_POLICY",
 ]

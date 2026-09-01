@@ -6,14 +6,18 @@ Runtime 不直接操作文件路径，统一通过 ``MemoryManager``：
 - 为在线 Recall、显式 Core 写入与 Post-Run Reflection 提供统一 API；
 - 维护运行时元数据（access_count、last_accessed_at、updated_at）；
 - 执行容量管理与 INDEX 重建；
-- 不做任何 query-driven 自动检索或 Top-K 注入。
+- 提供 Hybrid（FTS5 + 向量 + RRF）普通记忆检索与 Harness 自动召回；
+  Markdown 文件仍是唯一权威存储，SQLite 只是可重建的搜索投影，
+  索引失败只降级检索，不影响记忆读写与 Host 启动。
 """
 
 from __future__ import annotations
 
 import asyncio
+import logging
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
+from dataclasses import replace
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import BinaryIO
@@ -26,14 +30,29 @@ except ImportError:  # pragma: no cover - Windows 暂时只保留进程内锁
 from app.models.types import Message, MessageRole
 
 from .core import DEFAULT_MAX_CORE_TOKENS, CoreMemoryEntry, CoreMemoryManager
+from .embedding import EmbeddingAdapter
 from .index import MemoryIndex
 from .maintenance import MemoryMaintenance
-from .models import MemoryRecord
+from .models import MemoryRecord, MemoryStatus
 from .prompts import (
     CORE_MEMORY_HEADER,
     MEMORY_POLICY_PROMPT,
 )
+from .recall import (
+    MemoryRecallQueryInputs,
+    MemoryRecallService,
+    MemoryRecallSnapshot,
+)
+from .search_index import (
+    DEFAULT_SEARCH_DATABASE_NAME,
+    MemorySearchIndex,
+    MemorySearchResult,
+    MemorySearchSettings,
+    SearchMode,
+)
 from .store import DEFAULT_MEMORY_DIR, MemoryStore
+
+logger = logging.getLogger("vesta.memory.manager")
 
 CORE_MEMORY_MESSAGE_NAME = "vesta_core_memory"
 MEMORY_INDEX_MESSAGE_NAME = "vesta_memory_index"
@@ -49,6 +68,9 @@ class MemoryManager:
         *,
         max_active: int = 25,
         max_core_tokens: int = DEFAULT_MAX_CORE_TOKENS,
+        embedding: EmbeddingAdapter | None = None,
+        search_settings: MemorySearchSettings | None = None,
+        hybrid_search_enabled: bool = True,
     ) -> None:
         self.memory_dir = Path(memory_dir).expanduser().resolve()
         self.max_active = max_active
@@ -59,24 +81,63 @@ class MemoryManager:
         )
         self.index = MemoryIndex(self.memory_dir)
         self.maintenance = MemoryMaintenance(max_active=max_active)
+        self.search_settings = search_settings or MemorySearchSettings()
+        self._hybrid_search_enabled = hybrid_search_enabled
+        self._search_index = MemorySearchIndex(
+            self.memory_dir / DEFAULT_SEARCH_DATABASE_NAME,
+            embedding=embedding,
+            settings=self.search_settings,
+        )
+        self._recall_service = MemoryRecallService(self)
+        self._search_ok = False
         self._lock = asyncio.Lock()
         self._lock_path = self.memory_dir / ".memory.lock"
 
+    @property
+    def hybrid_recall_enabled(self) -> bool:
+        """Hybrid 自动召回是否可用（索引初始化成功且未被关闭）。"""
+
+        return self._hybrid_search_enabled and self._search_ok
+
     async def initialize(self) -> None:
-        """创建 memory 目录结构。"""
+        """创建 memory 目录结构；搜索投影失败只降级，不阻止启动。"""
 
         async with self._mutation_guard():
             await self.store.initialize()
             await self.core.initialize()
             # INDEX 是 active 文件的投影；启动时重建可修复中断或人工编辑造成的陈旧。
             await self._rebuild_index()
+        if self._hybrid_search_enabled:
+            try:
+                await self._search_index.initialize()
+                await self._search_index.reconcile(
+                    await self.store.list_active()
+                )
+                self._search_ok = True
+            except Exception as exc:
+                # SQLite / FTS5 / 重建全部失败：回到 Legacy INDEX 注入模式。
+                self._search_ok = False
+                logger.warning(
+                    "memory search index unavailable, fallback to index cues: %s",
+                    exc,
+                )
 
     # ------------------------------------------------------------------
     # Runtime 注入
     # ------------------------------------------------------------------
 
-    async def context_messages(self) -> tuple[Message, ...]:
-        """返回应注入请求上下文的消息（Core + Index + Policy）。"""
+    async def context_messages(
+        self,
+        *,
+        recall: MemoryRecallSnapshot | None = None,
+    ) -> tuple[Message, ...]:
+        """返回应注入请求上下文的消息。
+
+        - ``recall`` 非 None 表示 Hybrid 模式：注入 Core + 本 Run 的 Recall
+          Candidates + Policy，不再注入完整 INDEX.md；
+        - ``recall`` 为 None 表示 Legacy 模式（搜索投影不可用）：注入
+          Core + INDEX.md + Policy，行为与旧版本一致。
+        """
 
         async with self._lock:
             messages: list[Message] = []
@@ -92,15 +153,22 @@ class MemoryManager:
                         content=core_content,
                     )
                 )
-            index_text = await self.index.load()
-            if index_text is not None:
-                messages.append(
-                    Message(
-                        role=MessageRole.SYSTEM,
-                        name=MEMORY_INDEX_MESSAGE_NAME,
-                        content=index_text,
+            if recall is None:
+                index_text = await self.index.load()
+                if index_text is not None:
+                    messages.append(
+                        Message(
+                            role=MessageRole.SYSTEM,
+                            name=MEMORY_INDEX_MESSAGE_NAME,
+                            content=index_text,
+                        )
                     )
+            else:
+                recall_message = recall.render_message(
+                    max_chars=self.search_settings.recall_message_max_chars
                 )
+                if recall_message is not None:
+                    messages.append(recall_message)
             messages.append(
                 Message(
                     role=MessageRole.SYSTEM,
@@ -140,6 +208,58 @@ class MemoryManager:
         async with self._lock:
             return await self.store.list_archived()
 
+    # ------------------------------------------------------------------
+    # Hybrid 检索与自动召回（只读，不更新 access_count）
+    # ------------------------------------------------------------------
+
+    async def search(
+        self,
+        query: str,
+        *,
+        limit: int | None = None,
+    ) -> MemorySearchResult:
+        """Hybrid（FTS5 + 向量 + RRF）检索 active 记忆。
+
+        结果用权威 Markdown 记录补全 title/summary/revision，并剔除已经
+        不在 active 集合中的陈旧索引行；检索不增加 access_count。
+        """
+
+        if not self._search_ok:
+            return MemorySearchResult(
+                mode=SearchMode.UNAVAILABLE,
+                candidates=(),
+                query=query,
+                degrade_reason="search index unavailable",
+            )
+        result = await self._search_index.search(query, limit=limit)
+        enriched: list = []
+        for candidate in result.candidates:
+            record = await self.store.load(candidate.memory_id)
+            if record is None or record.status is not MemoryStatus.ACTIVE:
+                continue
+            enriched.append(
+                replace(
+                    candidate,
+                    title=record.title,
+                    summary=record.summary,
+                    revision=record.revision,
+                )
+            )
+        return MemorySearchResult(
+            mode=result.mode,
+            candidates=tuple(enriched),
+            query=result.query,
+            degrade_reason=result.degrade_reason,
+        )
+
+    async def recall(
+        self,
+        inputs: MemoryRecallQueryInputs,
+    ) -> MemoryRecallSnapshot:
+        """执行一次自动召回（Harness 每 Run 只调用一次）。"""
+
+        return await self._recall_service.recall(inputs)
+
     async def create(
         self,
         *,
@@ -158,6 +278,7 @@ class MemoryManager:
                 content=content,
             )
             await self._rebuild_index()
+            await self._sync_search_index(record)
             return record
 
     async def create_if_capacity(
@@ -178,6 +299,7 @@ class MemoryManager:
                 content=content,
             )
             await self._rebuild_index()
+            await self._sync_search_index(record)
             return record
 
     @staticmethod
@@ -220,6 +342,7 @@ class MemoryManager:
                 reason=reason,
             )
             await self._rebuild_index()
+            await self._sync_search_index(record)
             return record
 
     async def update_if_revision(
@@ -244,6 +367,7 @@ class MemoryManager:
                 expected_revision=expected_revision,
             )
             await self._rebuild_index()
+            await self._sync_search_index(record)
             return record
 
     async def archive(self, memory_id: str, *, reason: str) -> MemoryRecord:
@@ -252,6 +376,7 @@ class MemoryManager:
         async with self._mutation_guard():
             record = await self.store.archive(memory_id, reason=reason)
             await self._rebuild_index()
+            await self._drop_search_index(record.id)
             return record
 
     async def archive_if_unchanged(
@@ -273,6 +398,7 @@ class MemoryManager:
                 )
             record = await self.store.archive(memory_id, reason=reason)
             await self._rebuild_index()
+            await self._drop_search_index(record.id)
             return record
 
     async def upsert_core(
@@ -340,6 +466,34 @@ class MemoryManager:
     async def _rebuild_index(self) -> None:
         await self.index.rebuild(await self.store.list_active())
 
+    async def _sync_search_index(self, record: MemoryRecord) -> None:
+        """写入后增量同步搜索投影；失败只降级检索，不影响 Markdown。"""
+
+        if not self._search_ok:
+            return
+        try:
+            await self._search_index.upsert(record)
+        except Exception as exc:
+            logger.warning(
+                "memory search index sync failed for %s: %s",
+                record.id,
+                exc,
+            )
+
+    async def _drop_search_index(self, memory_id: str) -> None:
+        """归档后从搜索投影删除对应行。"""
+
+        if not self._search_ok:
+            return
+        try:
+            await self._search_index.remove(memory_id)
+        except Exception as exc:
+            logger.warning(
+                "memory search index remove failed for %s: %s",
+                memory_id,
+                exc,
+            )
+
     @asynccontextmanager
     async def _mutation_guard(self) -> AsyncIterator[None]:
         """串行化同一实例，并在 POSIX 上协调同目录的进程与 Manager。"""
@@ -372,4 +526,9 @@ __all__ = [
     "MEMORY_INDEX_MESSAGE_NAME",
     "MEMORY_POLICY_MESSAGE_NAME",
     "MemoryManager",
+    "MemoryRecallQueryInputs",
+    "MemoryRecallSnapshot",
+    "MemorySearchResult",
+    "MemorySearchSettings",
+    "SearchMode",
 ]

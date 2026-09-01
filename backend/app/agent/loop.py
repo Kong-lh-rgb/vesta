@@ -7,7 +7,7 @@ from dataclasses import replace
 
 from app.checkpoint import RunCheckpoint, SQLiteCheckpointStore
 from app.context import ContextManager, ConversationSummaryState
-from app.memory import MemoryManager
+from app.memory import MemoryManager, MemoryRecallQueryInputs, recent_user_message_texts
 from app.models.registry import ModelAdapterRegistry
 from app.models.types import (
     AgentMode,
@@ -64,7 +64,7 @@ from .tool_round_executor import ToolRoundExecutor
 _PLAN_MODE_SYSTEM_MESSAGE = (
     "你现在处于 PLAN MODE（规划模式）：只分析、调查并形成计划，不要修改用户环境。\n"
     "你可以使用只读 / 搜索工具（read_file、list_files、web_search、get_current_time、"
-    "memory_read、history_search/read、evidence_search/read）与任务工具"
+    "memory_read、memory_search、history_search/read、evidence_search/read）与任务工具"
     "（task_create、task_update、task_get、task_list）。\n"
     "完成必要调查后，必须创建（task_create）或更新（task_update）一个 PENDING 任务"
     "作为本轮计划，至少包含 title、goal 与具体可执行的 steps；不要伪造 DONE 步骤、"
@@ -200,6 +200,22 @@ class AgentLoop:
             skill_store=self._skill_store,
             skill_context_provider=self._skill_context_provider,
             task_context_provider=self._task_context_provider,
+            # Memory 自动召回的确定性 Query 输入：当前用户消息 + 近期用户
+            # 消息 + 会话摘要目标（活动 Task 字段由 Session 首次构建时补齐）。
+            recall_query=(
+                MemoryRecallQueryInputs(
+                    user_message=user_input,
+                    recent_user_messages=recent_user_message_texts(history),
+                    summary_objective=(
+                        summary_state.summary.current_objective
+                        if summary_state is not None
+                        and summary_state.summary.current_objective
+                        else None
+                    ),
+                )
+                if self._memory_manager is not None
+                else None
+            ),
         )
         activated_tools: set[str] = set()
         ensure_tool_search_registered(self._tool_registry)
@@ -705,6 +721,8 @@ class AgentLoop:
                 active_skill_message_names=(
                     context_injection.active_skill_message_names
                 ),
+                recall_candidate_ids=context_injection.recall_candidate_ids,
+                recall_mode=context_injection.recall_mode,
                 **run_budget_event_fields(budget_decision, budget_config),
             )
             if context_decision.exceeds_input_budget:
