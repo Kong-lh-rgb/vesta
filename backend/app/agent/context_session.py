@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from app.checkpoint import RunCheckpoint, render_checkpoint_context
-from app.memory import MemoryManager
+from app.memory import MemoryManager, MemoryRecallQueryInputs, MemoryRecallSnapshot
 from app.models.types import Message, ToolResult
 from app.skills import Skill, SkillContextProvider, SkillMetadata, SkillStore
 from app.task.context import TaskContextProvider
@@ -17,7 +17,7 @@ from .runtime_helpers import skill_read_outcome
 
 @dataclass(frozen=True, slots=True)
 class RuntimeContextInjection:
-    """一次模型请求需要插入的临时消息与 Skill 观测字段。"""
+    """一次模型请求需要插入的临时消息与 Skill / Memory Recall 观测字段。"""
 
     messages: tuple[Message, ...]
     available_skill_count: int | None
@@ -25,10 +25,17 @@ class RuntimeContextInjection:
     active_skill_names: tuple[str, ...]
     active_skill_tokens: int | None
     active_skill_message_names: tuple[str, ...]
+    recall_candidate_ids: tuple[str, ...] = ()
+    recall_mode: str | None = None
 
 
 class RuntimeContextSession:
-    """缓存 Run 级上下文，并在每个 Step 重新读取可变 Task 状态。"""
+    """缓存 Run 级上下文，并在每个 Step 重新读取可变 Task 状态。
+
+    Memory 自动召回遵循"每 Run 一次"：首次 ``build()`` 时用确定性
+    Recall Query 检索并缓存快照，后续所有 Step 复用同一份 Recall Context，
+    不重复检索，也不写入原始聊天历史或滚动摘要。
+    """
 
     def __init__(
         self,
@@ -37,13 +44,16 @@ class RuntimeContextSession:
         skill_store: SkillStore | None,
         skill_context_provider: SkillContextProvider | None,
         task_context_provider: TaskContextProvider | None,
+        recall_query: MemoryRecallQueryInputs | None = None,
     ) -> None:
         self._memory_manager = memory_manager
         self._skill_store = skill_store
         self._skill_context_provider = skill_context_provider
         self._task_context_provider = task_context_provider
+        self._recall_query = recall_query
         self._memory_messages: tuple[Message, ...] = ()
         self._memory_loaded = False
+        self._recall_snapshot: MemoryRecallSnapshot | None = None
         self._catalog: tuple[SkillMetadata, ...] = ()
         self._catalog_loaded = False
         self._active_skills: dict[str, Skill] = {}
@@ -65,8 +75,8 @@ class RuntimeContextSession:
         if self._memory_manager is not None and not self._memory_loaded:
             self._memory_loaded = True
             try:
-                self._memory_messages = (
-                    await self._memory_manager.context_messages()
+                self._memory_messages = await self._load_memory_messages(
+                    conversation_id
                 )
             except Exception:
                 self._memory_messages = ()
@@ -120,7 +130,61 @@ class RuntimeContextSession:
                 else None
             ),
             active_skill_message_names=injected_active_names,
+            recall_candidate_ids=tuple(
+                candidate.memory_id
+                for candidate in (
+                    self._recall_snapshot.candidates
+                    if self._recall_snapshot is not None
+                    else ()
+                )
+            ),
+            recall_mode=(
+                self._recall_snapshot.mode.value
+                if self._recall_snapshot is not None
+                else None
+            ),
         )
+
+    async def _load_memory_messages(
+        self,
+        conversation_id: str | None,
+    ) -> tuple[Message, ...]:
+        """加载 Memory 注入消息；Hybrid 可用时执行一次自动召回。
+
+        Hybrid 模式注入 Core + 本 Run 的 Recall Candidates + Policy，
+        不再注入完整 INDEX.md；召回失败或索引不可用时回退 Legacy 注入。
+        检索结果缓存在 ``self._recall_snapshot``，所有 Step 复用。
+        """
+
+        manager = self._memory_manager
+        if manager is None:
+            return ()
+        hybrid = bool(getattr(manager, "hybrid_recall_enabled", False))
+        if not hybrid or self._recall_query is None:
+            return await _legacy_context_messages(manager)
+        try:
+            query = await self._recall_query_with_task(conversation_id)
+            snapshot = await manager.recall(query)
+        except Exception:
+            # 自动召回失败不能阻塞 Run：退回 Legacy INDEX 注入。
+            return await _legacy_context_messages(manager)
+        self._recall_snapshot = snapshot
+        return await manager.context_messages(recall=snapshot)
+
+    async def _recall_query_with_task(
+        self,
+        conversation_id: str | None,
+    ) -> MemoryRecallQueryInputs:
+        """补上活动 Task 标题与进行中步骤（确定性输入，不调用模型）。"""
+
+        assert self._recall_query is not None
+        task_title: str | None = None
+        task_steps: tuple[str, ...] = ()
+        provider = self._task_context_provider
+        recall_fields = getattr(provider, "recall_fields_for", None)
+        if callable(recall_fields):
+            task_title, task_steps = await recall_fields(conversation_id)
+        return self._recall_query.with_task(task_title, task_steps)
 
     async def activate_skill(
         self,
@@ -193,6 +257,12 @@ class RuntimeContextSession:
             skill_name=skill_name,
             skill_error=error,
         )
+
+
+async def _legacy_context_messages(manager: MemoryManager) -> tuple[Message, ...]:
+    """兼容鸭子类型 Memory 门面：不加参数地调用 context_messages。"""
+
+    return await manager.context_messages()
 
 
 __all__ = ["RuntimeContextInjection", "RuntimeContextSession"]

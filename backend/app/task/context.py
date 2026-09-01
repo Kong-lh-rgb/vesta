@@ -59,6 +59,28 @@ class TaskContextProvider:
             ),
         )
 
+    async def recall_fields_for(
+        self,
+        conversation_id: str | None,
+    ) -> tuple[str | None, tuple[str, ...]]:
+        """只读返回活动任务标题与进行中步骤标题。
+
+        供 Memory Recall Query 的确定性构造使用；不渲染、不修改任何
+        Task 状态，也不改变 ``message_for`` 的注入行为。
+        """
+
+        if not conversation_id:
+            return (None, ())
+        task = await self._store.active_for_conversation(conversation_id)
+        if task is None:
+            return (None, ())
+        active_steps = tuple(
+            step.title
+            for step in task.steps
+            if step.status is TaskStepStatus.IN_PROGRESS
+        )
+        return (task.title, active_steps)
+
     async def pending_plan_is_valid(
         self,
         conversation_id: str | None,

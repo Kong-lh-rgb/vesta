@@ -15,6 +15,7 @@ PLAN_MODE_ALLOWED_TOOLS = frozenset(
         # 兼容离线测试或第三方注册的旧工具名。
         "current_time",
         "memory_read",
+        "memory_search",
         "history_search",
         "history_read",
         "evidence_search",

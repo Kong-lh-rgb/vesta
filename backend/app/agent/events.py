@@ -143,6 +143,9 @@ class AgentEvent(BaseModel):
     active_skill_names: tuple[str, ...] = ()
     active_skill_tokens: int | None = Field(default=None, ge=0)
     active_skill_message_names: tuple[str, ...] = ()
+    # Memory 自动召回观测字段（每 Run 一次检索的候选与实际融合模式）。
+    recall_candidate_ids: tuple[str, ...] = ()
+    recall_mode: str | None = None
     run_budget_status: str | None = None
     run_budget_reason: str | None = None
     run_budget_chargeable_tokens: int | None = Field(default=None, ge=0)

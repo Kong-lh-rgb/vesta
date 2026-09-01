@@ -804,6 +804,7 @@ async def test_register_memory_tools_exposes_only_main_agent_tools(
 
     assert set(registry.names()) == {
         "memory_read",
+        "memory_search",
         "memory_list",
         "core_memory_update",
         "core_memory_remove",

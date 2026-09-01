@@ -79,11 +79,14 @@ from app.mcp import (
 from app.memory import (
     DEFAULT_DEFERRED_MEMORY_TOOL_NAMES,
     DEFAULT_MEMORY_DIR,
+    MemoryEmbeddingSettings,
     MemoryMaintenanceConfig,
     MemoryMaintenanceReflector,
     MemoryManager,
     MemoryReflectionConfig,
+    OpenAICompatibleEmbeddingAdapter,
     PostRunMemoryReflector,
+    build_embedding_adapter,
     register_memory_tools,
 )
 from app.model_settings import (
@@ -343,6 +346,7 @@ class Application:
         self.tool_registry: ToolRegistry | None = None
         self.task_store: FileTaskStore | None = None
         self.memory_manager: MemoryManager | None = None
+        self.memory_embedding_adapter: OpenAICompatibleEmbeddingAdapter | None = None
         self.skill_store: SkillStore | None = None
         self.skill_context_provider: SkillContextProvider | None = None
         self.skill_learning: SkillLearningService | None = None
@@ -423,8 +427,15 @@ class Application:
             attribution_resolver=TaskToolOutputAttributionResolver(task_store),
         )
 
+        memory_embedding_adapter = build_embedding_adapter(
+            MemoryEmbeddingSettings()
+        )
+        self.memory_embedding_adapter = memory_embedding_adapter
         memory_manager = MemoryManager(
-            memory_dir=self.memory_dir or DEFAULT_MEMORY_DIR
+            memory_dir=self.memory_dir or DEFAULT_MEMORY_DIR,
+            # Embedding 独立分层：可与主模型 Provider 不同；未配置时检索
+            # 自动降级 FTS5，投影失败回退 Legacy INDEX 注入。
+            embedding=memory_embedding_adapter,
         )
         await memory_manager.initialize()
         register_memory_tools(tool_registry, memory_manager)
@@ -721,5 +732,8 @@ class Application:
             close_runtime = getattr(self.computer_runtime, "close", None)
             if callable(close_runtime):
                 await close_runtime()
+        if self.memory_embedding_adapter is not None:
+            await self.memory_embedding_adapter.close()
+            self.memory_embedding_adapter = None
         await self.registry.close()
         self._started = False
