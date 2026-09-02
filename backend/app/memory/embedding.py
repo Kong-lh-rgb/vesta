@@ -45,6 +45,10 @@ class MemoryEmbeddingSettings(BaseSettings):
     max_retries: int = Field(default=1, ge=0)
     # 单次请求最多打包的文本条数。
     batch_size: int = Field(default=16, ge=1)
+    # 向量命中的最低余弦相似度。不同模型分布差异很大（bge-m3 无关文本约
+    # 0.33-0.38、强相关约 0.7，建议 0.45；OpenAI 系无关约 0.05-0.15，可不设）。
+    # None 表示使用索引默认值（宽松，可能带入弱噪声命中）。
+    min_similarity: float | None = Field(default=None, ge=0.0, lt=1.0)
 
     @field_validator("base_url", "model", mode="before")
     @classmethod
@@ -100,6 +104,7 @@ class OpenAICompatibleEmbeddingAdapter:
         max_retries: int = 1,
         batch_size: int = 16,
     ) -> None:
+        import httpx
         from openai import AsyncOpenAI
 
         if not model:
@@ -111,6 +116,11 @@ class OpenAICompatibleEmbeddingAdapter:
         }
         if base_url:
             client_kwargs["base_url"] = base_url
+        if base_url and _is_local_base_url(base_url):
+            # 本地端点（Ollama / LM Studio 等）禁止读取系统代理：macOS 的
+            # 系统级代理配置会让 httpx 把 127.0.0.1 请求也发给代理，本地
+            # 服务反而拿到空 502。云端端点继续尊重系统代理。
+            client_kwargs["http_client"] = httpx.AsyncClient(trust_env=False)
         self._client = AsyncOpenAI(**client_kwargs)
         self._model = model
         self._dimensions = dimensions
@@ -142,11 +152,15 @@ class OpenAICompatibleEmbeddingAdapter:
         self,
         texts: list[str],
     ) -> list[tuple[float, ...]]:
-        response = await self._client.embeddings.create(
-            model=self._model,
-            input=texts,
-            dimensions=self._dimensions,
-        )
+        # 未配置 dimensions 时不传该参数：显式 None 会被序列化成 null，
+        # Ollama 等本地端点对不支持降维的模型会拒绝该字段。
+        request: dict[str, object] = {
+            "model": self._model,
+            "input": texts,
+        }
+        if self._dimensions is not None:
+            request["dimensions"] = self._dimensions
+        response = await self._client.embeddings.create(**request)
         ordered = sorted(response.data, key=lambda item: item.index)
         return tuple(
             tuple(float(value) for value in item.embedding) for item in ordered
@@ -211,6 +225,18 @@ class FakeEmbeddingAdapter:
 _TOKEN_SEPARATOR = re.compile(
     r"[\s,.;:!?，。；：！？、()\[\]{}\"'`|/\\<>@#$%^&*+=~\-_""]+"
 )
+
+# 视为"本地端点"的主机名：这些地址上的 Embedding 服务不需要也不应该经过代理。
+_LOCAL_HOSTS = frozenset({"localhost", "127.0.0.1", "::1", "[::1]", "0.0.0.0"})
+
+
+def _is_local_base_url(base_url: str) -> bool:
+    """判断 base_url 是否指向本机（用于决定是否绕过系统代理）。"""
+
+    from urllib.parse import urlsplit
+
+    host = (urlsplit(base_url).hostname or "").strip().lower()
+    return host in _LOCAL_HOSTS
 
 
 def _semantic_tokens(text: str) -> list[str]:

@@ -70,6 +70,7 @@ class MemoryManager:
         max_core_tokens: int = DEFAULT_MAX_CORE_TOKENS,
         embedding: EmbeddingAdapter | None = None,
         search_settings: MemorySearchSettings | None = None,
+        min_vector_similarity: float | None = None,
         hybrid_search_enabled: bool = True,
     ) -> None:
         self.memory_dir = Path(memory_dir).expanduser().resolve()
@@ -81,6 +82,12 @@ class MemoryManager:
         )
         self.index = MemoryIndex(self.memory_dir)
         self.maintenance = MemoryMaintenance(max_active=max_active)
+        # 向量相似度阈值随 Embedding 模型分布校准（由 Embedding 配置传入），
+        # 未指定时保持索引默认值。
+        if search_settings is None and min_vector_similarity is not None:
+            search_settings = MemorySearchSettings(
+                min_vector_similarity=min_vector_similarity
+            )
         self.search_settings = search_settings or MemorySearchSettings()
         self._hybrid_search_enabled = hybrid_search_enabled
         self._search_index = MemorySearchIndex(

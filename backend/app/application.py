@@ -427,15 +427,18 @@ class Application:
             attribution_resolver=TaskToolOutputAttributionResolver(task_store),
         )
 
+        memory_embedding_settings = MemoryEmbeddingSettings()
         memory_embedding_adapter = build_embedding_adapter(
-            MemoryEmbeddingSettings()
+            memory_embedding_settings
         )
         self.memory_embedding_adapter = memory_embedding_adapter
         memory_manager = MemoryManager(
             memory_dir=self.memory_dir or DEFAULT_MEMORY_DIR,
             # Embedding 独立分层：可与主模型 Provider 不同；未配置时检索
-            # 自动降级 FTS5，投影失败回退 Legacy INDEX 注入。
+            # 自动降级 FTS5，投影失败回退 Legacy INDEX 注入。相似度阈值
+            # 随 Embedding 模型分布校准（bge-m3 实测无关约 0.33-0.38）。
             embedding=memory_embedding_adapter,
+            min_vector_similarity=memory_embedding_settings.min_similarity,
         )
         await memory_manager.initialize()
         register_memory_tools(tool_registry, memory_manager)

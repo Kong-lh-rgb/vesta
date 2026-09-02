@@ -892,3 +892,30 @@ async def test_fake_embedding_is_deterministic() -> None:
     assert first == second
     assert first != other
     assert len(first) == fake.dimensions
+
+
+# ----------------------------------------------------------------------
+# 相似度阈值随 Embedding 模型校准
+# ----------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_min_vector_similarity_threshold_is_wired(
+    memory_root: Path,
+) -> None:
+    """阈值调到 1.0 时向量路径必然空手，检索退化为 FTS 单路。"""
+
+    manager = MemoryManager(
+        memory_root,
+        embedding=FakeEmbeddingAdapter(),
+        min_vector_similarity=0.99,
+    )
+    await manager.initialize()
+    await _seed(manager)
+
+    assert manager.search_settings.min_vector_similarity == 0.99
+    result = await manager.search("pg-migration")
+    # 向量被阈值全部过滤，但 FTS 路径仍然命中（mode 只反映路径可用性）。
+    assert [candidate.memory_id for candidate in result.candidates] == ["M001"]
+    assert result.candidates[0].matched_by_vector is False
+    assert result.candidates[0].matched_by_fts is True
