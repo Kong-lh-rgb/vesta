@@ -29,6 +29,7 @@ from app.models.types import (
 from app.skill_learning import (
     SkillCandidate,
     SkillCandidateAction,
+    SkillCandidateOrigin,
     SkillCandidateStatus,
     SkillCandidateStore,
     SkillLearningService,
@@ -1740,12 +1741,10 @@ async def test_accept_update_write_failure_keeps_pending(
     await env["candidate_store"].create(_update_candidate())
     service = _learning_service(env, root)
 
-    from app.skill_learning import service as svc
-
-    def boom(path, content):  # noqa: ARG001
+    async def boom(**kwargs):  # noqa: ARG001
         raise OSError("disk full")
 
-    monkeypatch.setattr(svc, "_atomic_write_text", boom)
+    monkeypatch.setattr(env["skill_store"], "update", boom)
     with pytest.raises(OSError):
         await service.accept((await service_candidates(env))[0].id)
     # 写失败：Candidate 仍 PENDING，正式 Skill 原样。
@@ -1796,6 +1795,44 @@ async def test_accept_create_regression(tmp_path: Path) -> None:
     skill = await env["skill_store"].load("new-skill")
     assert skill is not None
     assert "步骤" in skill.content
+
+
+@pytest.mark.asyncio
+async def test_accept_agent_proposal_creates_formal_skill(tmp_path: Path) -> None:
+    """主 Agent 提案也必须经过 Human Gate 后才进入正式 Skill 目录。"""
+
+    from datetime import UTC, datetime
+    from uuid import uuid4
+
+    env, root = await _make_env(tmp_path)
+    candidate = SkillCandidate(
+        id=uuid4().hex,
+        origin=SkillCandidateOrigin.AGENT_PROPOSAL,
+        action=SkillCandidateAction.CREATE,
+        proposed_name="workspace-explainer",
+        description="解释工作区结构",
+        reason="用户明确要求沉淀已验证流程",
+        procedure=("扫描目录", "识别入口", "解释调用关系"),
+        source_run_ids=("run-1",),
+        source_conversation_id="conversation-1",
+        source_tool_call_id="call-1",
+        created_at=datetime.now(UTC),
+    )
+    await env["candidate_store"].create(candidate)
+    service = _learning_service(env, root)
+
+    accepted, target = await service.accept(candidate.id)
+
+    assert accepted.status is SkillCandidateStatus.ACCEPTED
+    expected = (
+        env["skill_store"].project_dir
+        / candidate.proposed_name
+        / "SKILL.md"
+    )
+    assert target == expected
+    skill = await env["skill_store"].load(candidate.proposed_name)
+    assert skill is not None
+    assert "识别入口" in skill.content
 
 
 # ---------------------------------------------------------------------------
