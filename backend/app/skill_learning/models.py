@@ -147,8 +147,15 @@ class SkillCandidateAction(StrEnum):
     UPDATE = "update"
 
 
+class SkillCandidateOrigin(StrEnum):
+    """候选的产生来源。"""
+
+    PATTERN_MINING = "pattern_mining"
+    AGENT_PROPOSAL = "agent_proposal"
+
+
 class SkillCandidate(BaseModel):
-    """从多个 Completed Task 提炼出的、尚未生效的候选过程知识。
+    """从历史模式或当前 Run 提出的、尚未生效的候选过程知识。
 
     可追溯性要求：必须保存 source_task_ids / source_run_ids / reason /
     evidence_summary，不允许只保存一份最终 Markdown。
@@ -157,6 +164,7 @@ class SkillCandidate(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     id: str
+    origin: SkillCandidateOrigin = SkillCandidateOrigin.PATTERN_MINING
     action: SkillCandidateAction
     proposed_name: str
     description: str
@@ -166,6 +174,8 @@ class SkillCandidate(BaseModel):
     verification: tuple[str, ...] = ()
     source_task_ids: tuple[str, ...] = ()
     source_run_ids: tuple[str, ...] = ()
+    source_conversation_id: str | None = None
+    source_tool_call_id: str | None = None
     existing_skill_name: str | None = None
     status: SkillCandidateStatus = SkillCandidateStatus.PENDING
     created_at: datetime
@@ -192,7 +202,12 @@ class SkillCandidate(BaseModel):
         except ValueError as exc:
             raise ValueError(f"proposed skill name is invalid: {exc}") from exc
 
-    @field_validator("existing_skill_name", mode="before")
+    @field_validator(
+        "existing_skill_name",
+        "source_conversation_id",
+        "source_tool_call_id",
+        mode="before",
+    )
     @classmethod
     def normalize_optional_skill_name(cls, value: object) -> str | None:
         if value is None:
@@ -243,8 +258,20 @@ class SkillCandidate(BaseModel):
             and self.existing_skill_name is not None
         ):
             raise ValueError("create candidate cannot have existing_skill_name")
-        if not self.source_task_ids:
-            raise ValueError("candidate must reference at least one source task")
+        if self.origin is SkillCandidateOrigin.PATTERN_MINING:
+            if not self.source_task_ids:
+                raise ValueError(
+                    "pattern mining candidate must reference at least one source task"
+                )
+        elif not (
+            self.source_run_ids
+            and self.source_conversation_id
+            and self.source_tool_call_id
+        ):
+            raise ValueError(
+                "agent proposal candidate requires run, conversation, "
+                "and tool call provenance"
+            )
         if not self.procedure:
             raise ValueError("candidate must contain at least one procedure step")
         return self
@@ -254,6 +281,7 @@ __all__ = [
     "PatternMiningResult",
     "SkillCandidate",
     "SkillCandidateAction",
+    "SkillCandidateOrigin",
     "SkillCandidateStatus",
     "TaskCard",
     "TaskPatternCluster",

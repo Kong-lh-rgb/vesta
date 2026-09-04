@@ -102,6 +102,7 @@ from app.skill_learning import (
     SkillCandidateStore,
     SkillLearningService,
     SkillLearningSettings,
+    register_skill_learning_tools,
 )
 from app.skills import (
     SkillContextProvider,
@@ -472,6 +473,11 @@ class Application:
             settings=skill_learning_settings,
             default_provider=self.provider,
             default_model=self.model,
+        )
+        register_skill_learning_tools(
+            tool_registry,
+            skill_candidate_store,
+            skill_store,
         )
 
         # Computer Runtime 可注入真实 macOS 实现或测试 Fake；未注入则不注册，

@@ -136,15 +136,11 @@ class SkillStore:
         if target.exists() or disabled_target.exists():
             raise ValueError(f"skill '{normalized_name}' already exists")
 
-        front_matter = yaml.safe_dump(
-            {
-                "name": normalized_name,
-                "description": normalized_description,
-            },
-            allow_unicode=True,
-            sort_keys=False,
-        ).strip()
-        markdown = f"---\n{front_matter}\n---\n\n{normalized_instructions}\n"
+        markdown = _render_skill_document(
+            normalized_name,
+            normalized_description,
+            normalized_instructions,
+        )
         # 写入前复用正式 Parser 校验，避免 UI 与 Runtime 出现两套格式规则。
         parse_skill_document(markdown, expected_name=normalized_name)
 
@@ -166,6 +162,45 @@ class SkillStore:
         if installed is None:
             raise RuntimeError("installed skill could not be loaded")
         return installed
+
+    async def update(
+        self,
+        *,
+        name: str,
+        description: str,
+        instructions: str,
+    ) -> Skill:
+        """原子更新一个已启用 Skill，保留其目录与资源文件。"""
+
+        normalized_name = validate_skill_name(name.strip())
+        existing = await self.load(normalized_name)
+        if existing is None:
+            raise ValueError(f"skill '{normalized_name}' not found")
+        target = existing.metadata.location
+        if target.name != "SKILL.md" or target.parent.name != normalized_name:
+            raise ValueError(f"refusing to update unexpected skill path: {target}")
+
+        markdown = _render_skill_document(
+            normalized_name,
+            description.strip(),
+            instructions.strip(),
+        )
+        parse_skill_document(markdown, expected_name=normalized_name)
+        temporary = target.with_name(f".{target.name}.{uuid4().hex}.tmp")
+        try:
+            with temporary.open("w", encoding="utf-8") as handle:
+                handle.write(markdown)
+                handle.flush()
+                os.fsync(handle.fileno())
+            os.replace(temporary, target)
+        finally:
+            if temporary.exists():
+                temporary.unlink()
+
+        updated = await self.load(normalized_name)
+        if updated is None:
+            raise RuntimeError("updated skill could not be loaded")
+        return updated
 
     async def install_package(
         self,
@@ -348,6 +383,21 @@ class SkillStore:
             references=_list_resource_dir(skill_dir, "references"),
             assets=_list_resource_dir(skill_dir, "assets"),
         )
+
+
+def _render_skill_document(
+    name: str,
+    description: str,
+    instructions: str,
+) -> str:
+    """用同一格式渲染新建与更新的正式 SKILL.md。"""
+
+    front_matter = yaml.safe_dump(
+        {"name": name, "description": description},
+        allow_unicode=True,
+        sort_keys=False,
+    ).strip()
+    return f"---\n{front_matter}\n---\n\n{instructions}\n"
 
 
 def _list_resource_dir(skill_dir: Path, subdir: str) -> tuple[str, ...]:
