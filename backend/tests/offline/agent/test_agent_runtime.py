@@ -31,6 +31,7 @@ from app.context import (
     ModelCapabilityRegistry,
     RollingConversationSummary,
     SummaryGenerationResult,
+    TokenEstimator,
 )
 from app.memory import (
     CORE_MEMORY_MESSAGE_NAME,
@@ -129,6 +130,8 @@ class FixedContextSummarizer(ContextSummarizer):
         self,
         previous_summary: RollingConversationSummary | None,
         messages: Sequence[Message],
+        *,
+        max_output_tokens: int | None = None,
     ) -> SummaryGenerationResult:
         return SummaryGenerationResult(
             summary=RollingConversationSummary(current_objective="保留当前目标"),
@@ -1208,6 +1211,9 @@ async def test_runtime_rebuilds_prefix_for_late_compaction_with_active_skill(
         budget_policy=ContextBudgetPolicy(
             safety_margin_tokens=100,
             working_trigger_ratio=0.70,
+            # 压到与触发线重合（int(1528*0.70)=1069）：禁用 defer 区间，
+            # 越线即刻强制压缩，还原"复用期间越线必须重建"的被测场景。
+            compact_input_tokens=1_069,
         ),
         conversation_reducer=ConversationReducer(
             FixedContextSummarizer(),
@@ -2393,3 +2399,257 @@ async def test_computer_stagnation_halts_before_max_steps() -> None:
     assert adapter.requests[3].tools == ()
     final_tool_result = json.loads(adapter.requests[3].messages[-2].content or "{}")
     assert "Computer attempts halted" in final_tool_result["error"]
+
+
+# ----------------------------------------------------------------------
+# 前缀复用优先的压缩决策（defer / 强制压缩线）
+# ----------------------------------------------------------------------
+
+
+class DeterministicTokenEstimator(TokenEstimator):
+    """按 content 字符数计 token 的确定性估算器，用于精确构造压缩场景。"""
+
+    def estimate_text(
+        self,
+        text: str,
+        *,
+        model: str | None = None,
+        provider: str | None = None,
+    ) -> int:
+        return len(text)
+
+    def estimate_messages(
+        self,
+        messages,
+        *,
+        model: str | None = None,
+        provider: str | None = None,
+    ) -> int:
+        total = 0
+        for message in messages:
+            total += 4 + len(message.content or "")
+            if message.tool_calls:
+                total += sum(8 + len(call.name) for call in message.tool_calls)
+        return total
+
+    def estimate_tools(
+        self,
+        tools,
+        *,
+        model: str | None = None,
+        provider: str | None = None,
+    ) -> int:
+        return 10 * len(tools)
+
+    def estimate_request(
+        self,
+        messages,
+        *,
+        tools=(),
+        model: str | None = None,
+        provider: str | None = None,
+    ) -> int:
+        return self.estimate_messages(messages) + self.estimate_tools(tools)
+
+
+class SizedEchoTool(BaseTool):
+    """返回固定长度文本的工具，配合确定性估算器控制请求体积。"""
+
+    def __init__(self, name: str, payload: str) -> None:
+        self._definition = ToolDefinition(
+            name=name,
+            description="Return fixed size text",
+            parameters={"type": "object", "properties": {}},
+        )
+        self._payload = payload
+
+    @property
+    def definition(self) -> ToolDefinition:
+        return self._definition
+
+    async def execute(self, arguments: dict[str, object]) -> str:
+        return self._payload
+
+
+class CountingFixedSummarizer(FixedContextSummarizer):
+    """统计调用次数的固定摘要器。"""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.calls = 0
+
+    async def summarize(
+        self,
+        previous_summary,
+        messages,
+        *,
+        max_output_tokens: int | None = None,
+    ) -> SummaryGenerationResult:
+        self.calls += 1
+        return await super().summarize(
+            previous_summary, messages, max_output_tokens=max_output_tokens
+        )
+
+
+def _defer_budget_policy() -> ContextBudgetPolicy:
+    # 窗口 2140 / 输出 512 / 安全余量 100：
+    #   input_budget=1528，trigger=1069，ceiling=1222，target=687。
+    return ContextBudgetPolicy(
+        safety_margin_tokens=100,
+        working_trigger_ratio=0.70,
+        compact_input_tokens=1_222,
+    )
+
+
+@pytest.mark.asyncio
+async def test_runtime_defers_soft_compaction_while_prefix_reusable() -> None:
+    """越软线但前缀可复用时不压缩；越强制线才回到 canonical 重建。"""
+
+    tool_a = SizedEchoTool("echo_a", "X" * 1_000)
+    tool_b = SizedEchoTool("echo_b", "Y" * 100)
+    model_registry, adapter = fake_registry(
+        [
+            model_response(
+                tool_calls=(
+                    ToolCall(id="call-1", name="echo_a", arguments={}),
+                )
+            ),
+            model_response(
+                tool_calls=(
+                    ToolCall(id="call-2", name="echo_b", arguments={}),
+                )
+            ),
+            model_response(content="完成"),
+        ]
+    )
+    capability_registry = ModelCapabilityRegistry()
+    capability_registry.register_override(
+        "fake",
+        "fake-model",
+        context_window=2_140,
+        max_output_tokens=512,
+    )
+    summarizer = CountingFixedSummarizer()
+    context_manager = ContextManager(
+        estimator=DeterministicTokenEstimator(),
+        registry=capability_registry,
+        budget_policy=_defer_budget_policy(),
+        conversation_reducer=ConversationReducer(
+            summarizer, keep_recent_conversation_blocks=1
+        ),
+    )
+    tools = ToolRegistry()
+    tools.register(tool_a)
+    tools.register(tool_b)
+    events = InMemoryEventHandler()
+
+    result = await AgentRuntime(
+        model_registry,
+        tools,
+        provider="fake",
+        max_output_tokens=512,
+        context_manager=context_manager,
+    ).run(
+        "go",
+        history=(
+            Message(role=MessageRole.USER, content="u1"),
+            Message(role=MessageRole.ASSISTANT, content="a1"),
+        ),
+        event_handler=events,
+    )
+
+    assert result.ok is True
+    started = [
+        event for event in events.events if event.type is AgentEventType.MODEL_STARTED
+    ]
+    assert len(started) == 3
+    # Step1（首请求，canonical，未越线）：重建基线。
+    assert started[0].prefix_decision == "rebuild"
+    assert started[0].requires_compaction is False
+    assert started[0].cache_prefix_reused is False
+    # Step2（纯 append，越过软线 1069 但低于强制线 1222）：defer，不压缩。
+    assert started[1].prefix_decision == "defer"
+    assert started[1].requires_compaction is True
+    assert started[1].cache_prefix_reused is True
+    assert started[1].summary_updated is False
+    # Step3（继续 append 越过强制线 1222）：强制压缩，前缀重建。
+    assert started[2].prefix_decision == "compact"
+    assert started[2].cache_prefix_reused is False
+    # defer 期间从未调用摘要模型。
+    assert summarizer.calls == 0
+    # 三个请求的估算均落在构造区间（工具结果为 JSON 包装，长度有小幅波动）：
+    # step1 38；step2 ∈ [1069, 1222)（软线之上、强制线之下）；step3 ≥ 1222。
+    assert started[0].original_estimated_input_tokens == 38
+    assert 1_069 <= started[1].original_estimated_input_tokens < 1_222
+    assert 1_222 <= started[2].original_estimated_input_tokens < 1_528
+
+
+@pytest.mark.asyncio
+async def test_runtime_block_limit_compacts_despite_reusable_prefix() -> None:
+    """未摘要块数超限时不允许 defer：前缀可复用也强制重建。"""
+
+    model_registry, _ = fake_registry(
+        [
+            model_response(
+                tool_calls=(
+                    ToolCall(id="call-1", name="echo_a", arguments={}),
+                )
+            ),
+            model_response(content="完成"),
+        ]
+    )
+    capability_registry = ModelCapabilityRegistry()
+    capability_registry.register_override(
+        "fake",
+        "fake-model",
+        context_window=200_000,
+        max_output_tokens=8_192,
+    )
+    # 历史固定 3 个对话块，上限 2：token 永远不越线，块数是唯一触发源。
+    history = tuple(
+        message
+        for index in range(3)
+        for message in (
+            Message(role=MessageRole.USER, content=f"问题 {index}"),
+            Message(role=MessageRole.ASSISTANT, content=f"回答 {index}"),
+        )
+    )
+    context_manager = ContextManager(
+        estimator=DeterministicTokenEstimator(),
+        registry=capability_registry,
+        budget_policy=ContextBudgetPolicy(safety_margin_tokens=100),
+        context_settings=ContextSettings(
+            _env_file=None,
+            context_max_unsummarized_conversation_blocks=2,
+        ),
+        conversation_reducer=ConversationReducer(
+            FixedContextSummarizer(),
+            keep_recent_conversation_blocks=3,
+        ),
+    )
+    tools = ToolRegistry()
+    tools.register(SizedEchoTool("echo", "ok"))
+    events = InMemoryEventHandler()
+
+    result = await AgentRuntime(
+        model_registry,
+        tools,
+        provider="fake",
+        max_output_tokens=512,
+        context_manager=context_manager,
+    ).run(
+        "go",
+        history=history,
+        event_handler=events,
+    )
+
+    assert result.ok is True
+    started = [
+        event for event in events.events if event.type is AgentEventType.MODEL_STARTED
+    ]
+    assert len(started) == 2
+    # token 远未越线，但块数超限在 defer 判定中触发强制重建。
+    assert started[1].original_estimated_input_tokens < started[1].trigger_tokens
+    assert started[1].conversation_block_triggered is True
+    assert started[1].prefix_decision == "compact"
+    assert started[1].cache_prefix_reused is False

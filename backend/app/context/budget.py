@@ -1,11 +1,19 @@
 """上下文预算策略。
 
-根据模型能力与本次 ``max_output_tokens`` 计算两套预算：
+根据模型能力与本次 ``max_output_tokens`` 计算预算与压缩线：
 
     input_budget = 模型窗口硬上限扣除输出预留和安全余量
     working_input_budget = min(input_budget, preferred_input_tokens)
     trigger_tokens = min(硬保护触发线, 日常工作触发线)
     target_tokens = min(硬保护目标线, 日常工作目标线)
+    compact_ceiling_tokens = min(强制压缩线, 硬保护触发线)
+    forced_target_tokens = 强制压缩后的回落目标（约等于软线）
+
+压缩线语义（前缀复用优先）：
+- ``trigger_tokens`` 是软线：命中只标记需要压缩；若缓存前缀可复用，
+  允许继续追加（defer），直到强制线或未摘要块数超限才真正压缩；
+- ``compact_ceiling_tokens`` 是强制线：前缀再稳定也必须压缩；
+- 前缀断裂时的压缩沿用 ``target_tokens``（深压，反正缓存已丢）。
 
 本次显式 ``max_output_tokens`` 优先于模型默认值；非法配置抛出清晰错误，
 不允许静默产生负数预算。
@@ -36,6 +44,8 @@ class ContextBudget:
     hard_target_tokens: int
     trigger_tokens: int
     target_tokens: int
+    compact_ceiling_tokens: int
+    forced_target_tokens: int
     tool_result_budget_tokens: int
 
 
@@ -51,6 +61,7 @@ class ContextBudgetPolicy:
         preferred_input_tokens: int = 64_000,
         working_trigger_ratio: float = 0.80,
         working_target_ratio: float = 0.45,
+        compact_input_tokens: int | None = None,
         tool_result_budget_ratio: float = 0.35,
     ) -> None:
         if not 0.0 < trigger_ratio < 1.0:
@@ -69,6 +80,8 @@ class ContextBudgetPolicy:
             raise ValueError(
                 "working_target_ratio must be lower than working_trigger_ratio"
             )
+        if compact_input_tokens is not None and compact_input_tokens <= 0:
+            raise ValueError("compact_input_tokens must be greater than zero")
         if not 0.0 < tool_result_budget_ratio < 1.0:
             raise ValueError("tool_result_budget_ratio must be in (0, 1)")
         self._trigger_ratio = trigger_ratio
@@ -77,6 +90,7 @@ class ContextBudgetPolicy:
         self._preferred_input_tokens = preferred_input_tokens
         self._working_trigger_ratio = working_trigger_ratio
         self._working_target_ratio = working_target_ratio
+        self._compact_input_tokens = compact_input_tokens
         self._tool_result_budget_ratio = tool_result_budget_ratio
 
     def compute(
@@ -122,6 +136,27 @@ class ContextBudgetPolicy:
             hard_target_tokens,
             int(working_input_budget * self._working_target_ratio),
         )
+        # 强制压缩线：缺省为软线（日常工作预算）的两倍；永不高于硬保护
+        # 触发线。小窗口模型上两者重合，defer 区间消失，退化为"到软线
+        # 即压"的旧行为。
+        resolved_compact_input_tokens = (
+            self._compact_input_tokens
+            if self._compact_input_tokens is not None
+            else 2 * self._preferred_input_tokens
+        )
+        compact_ceiling_tokens = min(
+            resolved_compact_input_tokens,
+            hard_trigger_tokens,
+        )
+        # 强制压缩后的回落目标：压回软线附近（约等于强制线的一半），
+        # 不低于深压目标、不超过强制线本身。
+        forced_target_tokens = min(
+            compact_ceiling_tokens,
+            max(
+                target_tokens,
+                min(working_input_budget, compact_ceiling_tokens // 2),
+            ),
+        )
         return ContextBudget(
             context_window=context_window,
             reserved_output_tokens=reserved_output,
@@ -132,6 +167,8 @@ class ContextBudgetPolicy:
             hard_target_tokens=hard_target_tokens,
             trigger_tokens=trigger_tokens,
             target_tokens=target_tokens,
+            compact_ceiling_tokens=compact_ceiling_tokens,
+            forced_target_tokens=forced_target_tokens,
             tool_result_budget_tokens=int(
                 target_tokens * self._tool_result_budget_ratio
             ),
@@ -151,6 +188,7 @@ def build_budget_policy(
         preferred_input_tokens=resolved.context_preferred_input_tokens,
         working_trigger_ratio=resolved.context_working_trigger_ratio,
         working_target_ratio=resolved.context_working_target_ratio,
+        compact_input_tokens=resolved.context_compact_input_tokens,
         tool_result_budget_ratio=resolved.context_tool_result_budget_ratio,
     )
 

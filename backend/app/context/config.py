@@ -39,11 +39,18 @@ class ContextSettings(BaseSettings):
     context_preferred_input_tokens: int = Field(default=64_000, gt=0)
     context_working_trigger_ratio: float = Field(default=0.80, gt=0.0, le=1.0)
     context_working_target_ratio: float = Field(default=0.45, gt=0.0, lt=1.0)
+    # 强制压缩线：前缀可复用时允许越软线继续追加（defer）的上限；
+    # 缺省为 preferred 的两倍，且永不高于硬保护触发线。
+    context_compact_input_tokens: int | None = Field(default=None, gt=0)
     context_tool_result_budget_ratio: float = Field(default=0.35, gt=0.0, lt=1.0)
     context_keep_recent_tool_rounds: int = Field(default=2, ge=0)
     context_keep_recent_conversation_blocks: int = Field(default=4, ge=0)
     context_max_unsummarized_conversation_blocks: int = Field(default=30, gt=0)
     context_summary_max_output_tokens: int = Field(default=1_024, gt=0)
+    # 大折叠保护：单次折叠跨度（压缩前估算 − 压缩目标）超过该值时，摘要
+    # 输出上限放宽到下面的值，避免超大跨度被硬塞进过小的摘要。
+    context_large_fold_span_tokens: int = Field(default=50_000, ge=0)
+    context_summary_max_output_tokens_large_fold: int = Field(default=2_048, gt=0)
     context_max_tool_result_chars: int = Field(default=8_000, gt=0)
     context_tool_result_head_chars: int = Field(default=4_000, ge=0)
     context_tool_result_tail_chars: int = Field(default=2_000, ge=0)
@@ -70,6 +77,14 @@ class ContextSettings(BaseSettings):
             raise ValueError(
                 "context_working_target_ratio must be lower than "
                 "context_working_trigger_ratio"
+            )
+        if (
+            self.context_summary_max_output_tokens_large_fold
+            < self.context_summary_max_output_tokens
+        ):
+            raise ValueError(
+                "context_summary_max_output_tokens_large_fold must not be lower "
+                "than context_summary_max_output_tokens"
             )
         return self
 

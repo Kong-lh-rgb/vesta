@@ -50,6 +50,8 @@ class FakeSummarizer(ContextSummarizer):
         self,
         previous_summary: RollingConversationSummary | None,
         messages: Sequence[Message],
+        *,
+        max_output_tokens: int | None = None,
     ) -> SummaryGenerationResult:
         self.calls.append((previous_summary, tuple(messages)))
         if self.error is not None:
@@ -112,6 +114,8 @@ class LongThenShortSummarizer(ContextSummarizer):
         self,
         previous_summary: RollingConversationSummary | None,
         messages: Sequence[Message],
+        *,
+        max_output_tokens: int | None = None,
     ) -> SummaryGenerationResult:
         self.initial_calls += 1
         return SummaryGenerationResult(
@@ -125,6 +129,7 @@ class LongThenShortSummarizer(ContextSummarizer):
         messages: Sequence[Message],
         *,
         reason: str,
+        max_output_tokens: int | None = None,
     ) -> SummaryGenerationResult:
         self.retry_calls += 1
         self.retry_reason = reason

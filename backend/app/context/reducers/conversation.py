@@ -56,11 +56,21 @@ class ConversationReducer:
         *,
         keep_recent_conversation_blocks: int = 4,
         keep_recent_tool_rounds: int = 2,
+        large_fold_span_tokens: int = 50_000,
+        large_fold_max_output_tokens: int | None = None,
     ) -> None:
         if keep_recent_conversation_blocks < 0:
             raise ValueError("keep_recent_conversation_blocks cannot be negative")
         if keep_recent_tool_rounds < 0:
             raise ValueError("keep_recent_tool_rounds cannot be negative")
+        if large_fold_span_tokens < 0:
+            raise ValueError("large_fold_span_tokens cannot be negative")
+        if large_fold_max_output_tokens is not None and (
+            large_fold_max_output_tokens <= 0
+        ):
+            raise ValueError(
+                "large_fold_max_output_tokens must be greater than zero"
+            )
         self._summarizer = summarizer
         self.summary_provider = _optional_text(
             getattr(summarizer, "provider_hint", None)
@@ -70,6 +80,8 @@ class ConversationReducer:
         )
         self.keep_recent_conversation_blocks = keep_recent_conversation_blocks
         self.keep_recent_tool_rounds = keep_recent_tool_rounds
+        self._large_fold_span_tokens = large_fold_span_tokens
+        self._large_fold_max_output_tokens = large_fold_max_output_tokens
 
     async def reduce(
         self,
@@ -120,6 +132,19 @@ class ConversationReducer:
             message for item in summary_blocks for message in item.block.messages
         )
         previous_summary = previous_state.summary if previous_state else None
+        # 大折叠保护：跨度（压缩前估算 − 目标）越大，摘要信息密度要求越高，
+        # 放宽本次调用的输出上限，避免超大跨度被硬塞进过小的摘要。
+        fold_span_tokens = max(
+            0, initial_estimated_input_tokens - target_tokens
+        )
+        summary_output_limit = (
+            self._large_fold_max_output_tokens
+            if (
+                self._large_fold_max_output_tokens is not None
+                and fold_span_tokens >= self._large_fold_span_tokens
+            )
+            else None
+        )
         total_usage = ModelUsage()
         last_error = "summary generation failed"
         started = time.perf_counter()
@@ -129,12 +154,14 @@ class ConversationReducer:
                     await self._summarizer.summarize(
                         previous_summary,
                         source_messages,
+                        max_output_tokens=summary_output_limit,
                     )
                     if attempt == 0
                     else await self._summarizer.retry_compact(
                         previous_summary,
                         source_messages,
                         reason=last_error,
+                        max_output_tokens=summary_output_limit,
                     )
                 )
             except Exception as exc:
