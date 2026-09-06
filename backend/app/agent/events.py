@@ -146,6 +146,11 @@ class AgentEvent(BaseModel):
     # Memory 自动召回观测字段（每 Run 一次检索的候选与实际融合模式）。
     recall_candidate_ids: tuple[str, ...] = ()
     recall_mode: str | None = None
+    # 前缀复用决策：reuse=纯续用；defer=越软线仍续用；compact=发生压缩；
+    # rebuild=前缀断裂但未触发压缩。
+    prefix_decision: str | None = None
+    compact_ceiling_tokens: int | None = Field(default=None, ge=0)
+    forced_target_tokens: int | None = Field(default=None, ge=0)
     run_budget_status: str | None = None
     run_budget_reason: str | None = None
     run_budget_chargeable_tokens: int | None = Field(default=None, ge=0)

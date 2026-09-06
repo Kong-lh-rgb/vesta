@@ -53,8 +53,14 @@ class ContextSummarizer(ABC):
         self,
         previous_summary: RollingConversationSummary | None,
         messages: Sequence[Message],
+        *,
+        max_output_tokens: int | None = None,
     ) -> SummaryGenerationResult:
-        """返回完整新摘要；失败时抛出异常且调用方不得删除原消息。"""
+        """返回完整新摘要；失败时抛出异常且调用方不得删除原消息。
+
+        ``max_output_tokens`` 为本次调用的输出上限覆写（大折叠保护）；
+        None 使用实现自带的默认上限。
+        """
 
     async def retry_compact(
         self,
@@ -62,10 +68,15 @@ class ContextSummarizer(ABC):
         messages: Sequence[Message],
         *,
         reason: str,
+        max_output_tokens: int | None = None,
     ) -> SummaryGenerationResult:
         """首次摘要失败后的唯一重试入口；默认复用原摘要实现。"""
 
-        return await self.summarize(previous_summary, messages)
+        return await self.summarize(
+            previous_summary,
+            messages,
+            max_output_tokens=max_output_tokens,
+        )
 
 
 class SummaryGenerationError(ValueError):
@@ -113,11 +124,14 @@ class ModelContextSummarizer(ContextSummarizer):
         self,
         previous_summary: RollingConversationSummary | None,
         messages: Sequence[Message],
+        *,
+        max_output_tokens: int | None = None,
     ) -> SummaryGenerationResult:
         return await self._summarize(
             previous_summary,
             messages,
             retry_reason=None,
+            max_output_tokens=max_output_tokens,
         )
 
     async def retry_compact(
@@ -126,6 +140,7 @@ class ModelContextSummarizer(ContextSummarizer):
         messages: Sequence[Message],
         *,
         reason: str,
+        max_output_tokens: int | None = None,
     ) -> SummaryGenerationResult:
         """用更严格提示执行一次压缩重试。"""
 
@@ -133,6 +148,7 @@ class ModelContextSummarizer(ContextSummarizer):
             previous_summary,
             messages,
             retry_reason=reason,
+            max_output_tokens=max_output_tokens,
         )
 
     async def _summarize(
@@ -141,6 +157,7 @@ class ModelContextSummarizer(ContextSummarizer):
         messages: Sequence[Message],
         *,
         retry_reason: str | None,
+        max_output_tokens: int | None = None,
     ) -> SummaryGenerationResult:
         if not messages:
             raise ValueError("summary messages cannot be empty")
@@ -187,7 +204,11 @@ class ModelContextSummarizer(ContextSummarizer):
                     ),
                 ),
                 tools=(),
-                max_output_tokens=self._max_output_tokens,
+                max_output_tokens=(
+                    max_output_tokens
+                    if max_output_tokens is not None
+                    else self._max_output_tokens
+                ),
                 extra_body=(
                     _DISABLE_THINKING_BODY
                     if _disable_reasoning(

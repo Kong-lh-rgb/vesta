@@ -6,7 +6,7 @@ from collections.abc import Sequence
 from dataclasses import replace
 
 from app.checkpoint import RunCheckpoint, SQLiteCheckpointStore
-from app.context import ContextManager, ConversationSummaryState
+from app.context import ContextDecision, ContextManager, ConversationSummaryState
 from app.memory import MemoryManager, MemoryRecallQueryInputs, recent_user_message_texts
 from app.models.registry import ModelAdapterRegistry
 from app.models.types import (
@@ -481,6 +481,9 @@ class AgentLoop:
                     AgentStopReason.CONTEXT_ERROR,
                     step=step,
                 )
+            # 本 Step 的前缀决策（观测用）：reuse=纯续用，defer=越软线仍续用，
+            # compact=发生压缩，rebuild=前缀断裂但未到压缩条件。
+            prefix_decision = "rebuild"
 
             continuation_messages = (
                 request_prefix_state.extend(
@@ -516,28 +519,51 @@ class AgentLoop:
                     history_count=context_history_count,
                     summary_state=context_summary_state,
                 )
-                if (
-                    continuation_messages is not None
-                    and current_summary_state is None
-                    and context_decision.requires_compaction
-                    and context_decision.needs_next_compaction_stage
-                ):
-                    # Prefix continuation 只携带已经发送过的模型上下文，无法可靠
-                    # 标出原始历史边界。它在越过压缩线后若仍未达到目标，必须回到
-                    # canonical request 重新准备，才能让首次滚动摘要读取真实历史。
-                    # 已存在摘要时，sent prefix 已经携带同一摘要，不应反复重建。
-                    continuation_messages = None
-                    cache_prefix_reused = False
-                    cache_prefix_message_count = 0
-                    context_decision = await self._context_manager.prepare(
-                        request_messages,
-                        tools=request_tools,
-                        model=resolved_model,
-                        provider=resolved_provider,
-                        max_output_tokens=effective_max_output_tokens,
-                        history_count=request_historical_message_count,
-                        summary_state=request_summary_state,
+                forced_compaction_reason = (
+                    self._forced_compaction_reason(
+                        context_decision,
+                        history=history,
+                        summary_state=current_summary_state,
                     )
+                    if continuation_messages is not None
+                    else None
+                )
+                if continuation_messages is not None:
+                    if forced_compaction_reason is None:
+                        # 前缀可复用：软线只标记需要压缩，本 Step 继续追加，
+                        # 保住 Provider 前缀缓存（defer）。
+                        prefix_decision = (
+                            "defer"
+                            if context_decision.requires_compaction
+                            else "reuse"
+                        )
+                    else:
+                        # 强制压缩：回到 canonical request 重新准备，才能让滚动
+                        # 摘要读取真实历史边界。token 驱动时按"压回软线"的
+                        # 强制目标折叠；块数超限（摘要陈旧度）沿用深压目标。
+                        continuation_messages = None
+                        cache_prefix_reused = False
+                        cache_prefix_message_count = 0
+                        context_decision = await self._context_manager.prepare(
+                            request_messages,
+                            tools=request_tools,
+                            model=resolved_model,
+                            provider=resolved_provider,
+                            max_output_tokens=effective_max_output_tokens,
+                            history_count=request_historical_message_count,
+                            summary_state=request_summary_state,
+                            compaction_target_tokens=(
+                                context_decision.forced_target_tokens
+                                if forced_compaction_reason != "blocks"
+                                else None
+                            ),
+                        )
+                        prefix_decision = "compact"
+                elif (
+                    context_decision.summary_updated
+                    or context_decision.compaction_stage.value != "none"
+                ):
+                    prefix_decision = "compact"
             except Exception as exc:
                 return await stop_with_error(
                     ContextPreparationError(f"{type(exc).__name__}: {exc}"),
@@ -723,6 +749,9 @@ class AgentLoop:
                 ),
                 recall_candidate_ids=context_injection.recall_candidate_ids,
                 recall_mode=context_injection.recall_mode,
+                prefix_decision=prefix_decision,
+                compact_ceiling_tokens=context_decision.compact_ceiling_tokens,
+                forced_target_tokens=context_decision.forced_target_tokens,
                 **run_budget_event_fields(budget_decision, budget_config),
             )
             if context_decision.exceeds_input_budget:
@@ -1044,6 +1073,33 @@ class AgentLoop:
             role=MessageRole.ASSISTANT,
             content=f"Agent stopped: {error}",
         )
+
+    def _forced_compaction_reason(
+        self,
+        decision: ContextDecision,
+        *,
+        history: Sequence[Message],
+        summary_state: ConversationSummaryState | None,
+    ) -> str | None:
+        """前缀可复用时仍必须立即压缩的原因；None 表示可以继续 defer。
+
+        三条硬边界（其余情况软线只标记，不破坏前缀缓存）：
+        - ``input_budget``：预估已超输入预算（压缩后仍超才报错）；
+        - ``ceiling``：越过强制压缩线（compact_ceiling_tokens）；
+        - ``blocks``：未摘要对话块数超限（摘要陈旧度保护，不允许 defer）。
+        """
+
+        if decision.exceeds_input_budget:
+            return "input_budget"
+        if (decision.estimated_input_tokens or 0) >= (
+            decision.compact_ceiling_tokens or 0
+        ):
+            return "ceiling"
+        if self._context_manager.exceeds_unsummarized_block_limit(
+            history, summary_state
+        ):
+            return "blocks"
+        return None
 
     @staticmethod
     def _result(

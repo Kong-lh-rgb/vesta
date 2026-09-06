@@ -52,6 +52,8 @@ class ContextDecision:
     trigger_tokens: int | None = None
     target_tokens: int | None = None
     tool_result_budget_tokens: int | None = None
+    compact_ceiling_tokens: int | None = None
+    forced_target_tokens: int | None = None
     tool_result_tokens_before: int = 0
     tool_result_tokens_after: int = 0
     tool_schema_tokens: int = 0
@@ -146,12 +148,16 @@ class ContextManager:
         history_count: int | None = None,
         keep_recent_tool_rounds: int | None = None,
         summary_state: ConversationSummaryState | None = None,
+        compaction_target_tokens: int | None = None,
     ) -> ContextDecision:
         """返回模型请求上下文、估算与预算状态。
 
         ``history_count`` 标记消息序列中已经持久化的历史前缀。只有这个前缀
         中符合条件的旧工具协议允许被压缩；当前 Run 新增的消息保持完整，
         确保工具调用与工具结果仍能按 Provider 协议继续发送。
+
+        ``compaction_target_tokens`` 覆写本次压缩的目标线（前缀复用期间
+        越过强制压缩线时，调用方传"压回软线"的强制目标；缺省用深压目标）。
 
         工具结果预算每轮独立核算，超限时先整理旧工具轮；工具整理后仍达到
         日常工作触发线，才推进滚动摘要。模型窗口比例只保留为最终硬保护。
@@ -169,6 +175,8 @@ class ContextManager:
         )
         if resolved_keep_recent_tool_rounds < 0:
             raise ValueError("keep_recent_tool_rounds cannot be negative")
+        if compaction_target_tokens is not None and compaction_target_tokens <= 0:
+            raise ValueError("compaction_target_tokens must be greater than zero")
 
         raw_messages = tuple(messages)
         raw_history = raw_messages[:history_count]
@@ -282,8 +290,13 @@ class ContextManager:
         summary_model: str | None = None
         summary_duration_ms: float | None = None
         compaction_stage = ContextCompactionStage.NONE
+        effective_target_tokens = (
+            compaction_target_tokens
+            if compaction_target_tokens is not None
+            else budget.target_tokens
+        )
         reached_target = not requires_compaction or (
-            prepared_input_tokens <= budget.target_tokens
+            prepared_input_tokens <= effective_target_tokens
             and tool_result_tokens_after <= budget.tool_result_budget_tokens
         )
         if compacted_tool_results and removed_tool_rounds:
@@ -300,7 +313,7 @@ class ContextManager:
                 current_messages=current_messages,
                 previous_state=valid_summary_state,
                 initial_estimated_input_tokens=prepared_input_tokens,
-                target_tokens=budget.target_tokens,
+                target_tokens=effective_target_tokens,
                 estimate=estimate,
             )
             request_messages = conversation_reduction.messages
@@ -342,7 +355,7 @@ class ContextManager:
             estimate_messages,
         )
         reached_target = not requires_compaction or (
-            prepared_input_tokens <= budget.target_tokens
+            prepared_input_tokens <= effective_target_tokens
             and tool_result_tokens_after <= budget.tool_result_budget_tokens
         )
         needs_next_compaction_stage = requires_compaction and not reached_target
@@ -352,6 +365,8 @@ class ContextManager:
             f"input_budget={budget.input_budget};"
             f"working_input_budget={budget.working_input_budget};"
             f"trigger={budget.trigger_tokens};target={budget.target_tokens};"
+            f"compact_ceiling={budget.compact_ceiling_tokens};"
+            f"forced_target={budget.forced_target_tokens};"
             f"tool_result_budget={budget.tool_result_budget_tokens};"
             f"tool_result_tokens_before={tool_result_tokens_before};"
             f"tool_result_tokens_after={tool_result_tokens_after};"
@@ -386,6 +401,8 @@ class ContextManager:
             hard_target_tokens=budget.hard_target_tokens,
             trigger_tokens=budget.trigger_tokens,
             target_tokens=budget.target_tokens,
+            compact_ceiling_tokens=budget.compact_ceiling_tokens,
+            forced_target_tokens=budget.forced_target_tokens,
             tool_result_budget_tokens=budget.tool_result_budget_tokens,
             tool_result_tokens_before=tool_result_tokens_before,
             tool_result_tokens_after=tool_result_tokens_after,
@@ -421,6 +438,29 @@ class ContextManager:
             summary_error=summary_error,
             reason=reason,
         )
+
+    def exceeds_unsummarized_block_limit(
+        self,
+        history: Sequence[Message],
+        summary_state: ConversationSummaryState | None,
+    ) -> bool:
+        """统计未摘要对话块数是否超限（defer 决策必须尊重的陈旧度保护）。
+
+        前缀复用（defer）期间 prepare 只看到续前缀输入，无法统计未摘要
+        块数；由调用方（Agent Loop）用持久历史调用本方法，保证摘要不会
+        在长时间 defer 中无限陈旧。
+        """
+
+        covered = (
+            summary_state.covered_message_count if summary_state is not None else 0
+        )
+        if covered >= len(history):
+            return False
+        unsummarized = sum(
+            isinstance(block, ConversationBlock)
+            for block in partition_messages(tuple(history[covered:]))
+        )
+        return unsummarized > self._max_unsummarized_conversation_blocks
 
     def _estimate_messages(
         self,

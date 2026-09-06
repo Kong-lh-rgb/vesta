@@ -1,0 +1,255 @@
+% !TeX program = xelatex
+% Overleaf 编译器请选择 XeLaTeX。
+\documentclass[a4paper,10pt]{article}
+
+\usepackage[margin=1.25cm]{geometry}
+\usepackage[UTF8,fontset=fandol]{ctex}
+\usepackage{enumitem}
+\usepackage{hyperref}
+\usepackage{xcolor}
+\usepackage{titlesec}
+\usepackage{tabularx}
+\usepackage{array}
+\usepackage{microtype}
+\usepackage{graphicx}
+
+\definecolor{main}{HTML}{008C8C}
+\definecolor{textgray}{HTML}{333333}
+\definecolor{muted}{HTML}{666666}
+
+\hypersetup{
+    colorlinks=true,
+    urlcolor=main,
+    linkcolor=main
+}
+
+\pagestyle{empty}
+\color{textgray}
+
+\setlength{\parindent}{0pt}
+\setlength{\parskip}{0pt}
+\setlength{\tabcolsep}{0pt}
+\renewcommand{\baselinestretch}{1.08}
+\emergencystretch=2em
+
+\setlist[itemize]{
+    leftmargin=1.25em,
+    itemsep=2.0pt,
+    topsep=2.5pt,
+    parsep=0pt,
+    partopsep=0pt,
+    label=\textcolor{main}{\small\textbullet}
+}
+
+\titleformat{\section}
+{\large\bfseries\color{main}}
+{}{0pt}{}
+[\vspace{-1pt}\titlerule]
+
+\titlespacing*{\section}{0pt}{5pt}{4pt}
+
+\newcommand{\resumeItem}[1]{\item #1}
+
+\newcommand{\skill}[2]{%
+    \textbf{#1：}#2\par\vspace{1.5pt}
+}
+
+% #1 项目名
+% #2 时间
+% #3 技术栈
+% #4 GitHub 完整链接
+\newcommand{\projectTitle}[4]{%
+    \textbf{\large #1}
+    \hfill
+    \textcolor{muted}{#2}\\[-1pt]
+    \textbf{技术栈：}#3\\[-1pt]
+    \textbf{项目链接：}\href{#4}{\nolinkurl{#4}}%
+}
+
+\begin{document}
+
+%==================== 个人信息：三栏布局 ====================
+
+\noindent
+\begin{minipage}[c]{0.47\textwidth}
+    {\LARGE\textbf{孔令航}}\\[5pt]
+    电话：15832895339\\[2pt]
+    邮箱：
+    \href{mailto:17736236765@163.com}
+    {17736236765@163.com}\\[2pt]
+    GitHub：
+    \href{https://github.com/Kong-lh-rgb}
+    {github.com/Kong-lh-rgb}
+\end{minipage}
+\hfill
+\begin{minipage}[c]{0.31\textwidth}
+
+    \small
+    \textbf{求职意向}\\[2pt]
+    Agent 开发 / 算法实习生\\[7pt]
+    \textbf{可实习时间}\\[2pt]
+    \textbf{6 个月及以上，两周内到岗}
+\end{minipage}
+\hfill
+\begin{minipage}[c]{0.14\textwidth}
+    \raggedleft
+    \includegraphics[
+        width=2.30cm,
+        height=3.22cm,
+        keepaspectratio
+    ]{resume-photo-blue.png}
+\end{minipage}
+
+\vspace{-10pt}
+
+%==================== 教育背景 ====================
+
+\section{教育背景}
+
+\begin{tabularx}{\textwidth}{@{}X X c r@{}}
+    \textbf{内蒙古大学（211）}
+    & 计算机技术
+    & 硕士
+    & 2025--2028\\
+    \textbf{河北金融学院}
+    & 计算机科学与技术
+    & 本科
+    & 2021--2025\\
+\end{tabularx}
+
+%==================== 项目经历 ====================
+
+\section{项目经历}
+
+\projectTitle
+{Vesta｜面向长程任务的本地 AI Agent Harness}
+{2026.07--至今}
+{Python、FastAPI、SQLite、MCP、Electron、React、TypeScript、Swift、OpenAI/Anthropic SDK}
+{https://github.com/Kong-lh-rgb/vesta}
+
+\vspace{2pt}
+
+独立从 0 到 1 设计并实现本地 AI Agent Harness，
+打通多模型适配、Agent Loop、Tool Calling、长程任务、上下文治理、
+长期记忆、安全沙箱、Checkpoint/Recovery 与 Desktop 完整链路。
+
+\begin{itemize}
+
+\resumeItem{
+    \textbf{Agent Runtime 与工具执行：}
+    抽象统一 Model Adapter、Agent Loop 与
+    \textbf{Registry--Executor--Hook} 工具执行层，
+    编排本地工具、MCP、Skill 与 Computer Use；
+    建立参数校验、超时、审批和沙箱边界，
+    通过 WebSocket + JSON-RPC 打通 Electron、Python Host 与 Swift Helper。
+}
+
+\resumeItem{
+    \textbf{长程任务、上下文与故障恢复：}
+    设计 \textbf{Conversation--Run--Task} 分层状态模型，
+    基于 Checkpoint 与 Recovery Run 支持模型异常、用户中断及 Host 重启后的任务恢复；
+    通过分层裁剪、滚动压缩与 Run 级 Token Budget，
+    将平均可计费 Token 从 \textbf{3,766 降至 2,767（-26.5\%）}，
+    Prompt Cache 命中率由 \textbf{68.0\% 提升至 75.5\%}。
+}
+
+\resumeItem{
+    \textbf{长期记忆与经验学习：}
+    构建 \textbf{Core/Ordinary Memory} 分层记忆，
+    结合 FTS5 与向量语义检索并通过 RRF 融合排序，
+    以 Post-Run Reflection 和 Revision 实现跨会话更新；
+    从 Completed Task 与真实 Trace 中提炼候选 Skill，
+    经 Human Gate 审核后沉淀为可复用经验。
+}
+
+\resumeItem{
+    \textbf{Agent Eval 与可靠性：}
+    构建端到端 \textbf{Eval Harness}，记录 Trace、中间状态、失败原因与版本化 Baseline，
+    建立“评测--定位--优化--回归”闭环；
+    针对 68 个能力单元各执行 3 次，共完成 \textbf{204 次真实模型回归}，
+    达到 \textbf{192/204 样本通过、57/68 能力单元连续三次通过}。
+}
+
+\end{itemize}
+
+\vspace{-5pt}
+\noindent\textcolor{muted}{\rule{\textwidth}{0.4pt}}
+\vspace{-5pt}
+
+\projectTitle
+{Research Copilot｜金融投研多智能体系统（全栈）}
+{2026.04--2026.06}
+{Python、LangGraph、FastAPI、PostgreSQL、MCP、SSE、Next.js、Docker}
+{https://github.com/Kong-lh-rgb/research-copilot}
+
+\vspace{2pt}
+
+构建面向 A 股研究的多智能体系统，
+将自然语言研究问题拆解为可追踪的任务 DAG，并生成结构化研报。
+
+\begin{itemize}
+
+\resumeItem{
+    \textbf{多智能体编排引擎：}
+    基于 LangGraph 搭建
+    \textbf{Controller--Planner--Worker--Reviewer} 状态图，
+    通过 Send API 与依赖状态驱动任务并发执行和下游节点解锁，
+    完成意图路由、规划、执行与结果审查链路。
+}
+
+\resumeItem{
+    \textbf{工具接入与全栈交付：}
+    基于 MCP 统一封装投研工具，持久化工作流状态并为敏感操作加入
+    Human-in-the-Loop 审批；
+    打通 FastAPI、SSE 与 Next.js 实时任务界面，
+    使用 Docker Compose 完成 API、前端与 PostgreSQL 一键部署。
+}
+
+\end{itemize}
+
+%==================== 开源贡献 ====================
+
+\section{开源贡献}
+
+\begin{tabularx}{\textwidth}{@{}X>{\raggedleft\arraybackslash}p{0.18\textwidth}@{}}
+    \textbf{\large
+        \href{https://github.com/multica-ai/multica}
+        {Multica｜开源 AI Agent 协作平台（48.8k+ Stars）}}
+    &
+    \textcolor{muted}{2026.09}
+\end{tabularx}
+
+\vspace{1pt}
+
+\textbf{核心代码贡献：}
+修复共享浅克隆缓存遗漏最新提交、导致 Agent 隔离工作目录检出失败的问题；
+调整 Repo Cache 引用同步与 Checkout 顺序并构造确定性回归测试，
+完整后端 CI 通过，\href{https://github.com/multica-ai/multica/pull/8024}{PR \#8024} 已由维护者合并。
+
+%==================== 专业技能 ====================
+
+\section{专业技能}
+
+\skill{编程与后端工程}{
+    Python、Go、SQL；FastAPI、SQLite、PostgreSQL、Docker、Linux；
+    熟悉异步编程、并发控制、SSE/WebSocket 与常见后端服务开发
+}
+
+\skill{LLM 与 Agent 系统}{
+    OpenAI/Anthropic SDK、Structured Output、Function/Tool Calling、ReAct、MCP、LangGraph；
+    Agent Runtime/Harness、上下文治理、长期记忆、Skill Learning、
+    Human-in-the-Loop、Checkpoint/Recovery
+}
+
+\skill{Agent 工程与可靠性}{
+    多模型接入、工具注册与执行、安全沙箱、超时/重试、故障恢复；
+    Trace/日志分析、Agent Eval、Offline/Live Regression、
+    LLM-as-a-Judge、规则与状态断言、Token/缓存分析、GitHub Actions
+}
+
+\skill{模型与知识检索}{
+    Transformer、PyTorch、Hugging Face Transformers、LoRA/SFT；
+    RAG、Embedding、BGE-M3、Milvus、Hybrid Search、Rerank、KG-RAG
+}
+
+\end{document}

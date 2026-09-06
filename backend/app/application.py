@@ -591,6 +591,13 @@ class Application:
                         keep_recent_tool_rounds=(
                             context_settings.context_keep_recent_tool_rounds
                         ),
+                        # 大折叠保护：强制压缩（128K 级跨度）时放宽摘要输出上限。
+                        large_fold_span_tokens=(
+                            context_settings.context_large_fold_span_tokens
+                        ),
+                        large_fold_max_output_tokens=(
+                            context_settings.context_summary_max_output_tokens_large_fold
+                        ),
                     )
                     if context_summarizer is not None
                     else None
