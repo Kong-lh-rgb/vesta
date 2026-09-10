@@ -29,12 +29,13 @@ backend/tests/eval_legacy/reports/*.md
 backend/tests/eval_legacy/reports/historical/runtime/*.md
 backend/tests/eval_legacy/reports/historical/skill_learning/*.md
 
-# Private local notes and evaluation records
-docs/eval-records/
-docs/eval.md
-docs/task.md
-docs/learning-notes.md
-docs/desktop-learning-notes.md
+# Public documentation allowlist
+# docs 默认只保留 README 使用的演示资源和公开 Sandbox 说明，
+# 评测记录、学习笔记、开发记录与面试资料均仅保存在本地。
+docs/*
+!docs/assets/
+!docs/assets/**
+!docs/sandbox.md
 
 # Desktop (Electron / Vite)
 desktop/node_modules/
