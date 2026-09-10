@@ -283,7 +283,7 @@ vesta/
 ├── desktop/                          Electron + React + TypeScript + Vite
 ├── native/macos-computer-helper/     macOS 原生 Helper
 ├── workspace/                        Agent 被允许操作的本地工作区
-└── docs/                             设计、学习记录与评测报告说明
+└── docs/                             公开演示资源与 Sandbox 说明
 ```
 
 ## Current Boundaries
