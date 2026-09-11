@@ -17,11 +17,14 @@ class EventEmitter:
         handler: AgentEventHandler,
         run_id: str,
         conversation_id: str | None,
+        sequence_offset: int = 0,
     ) -> None:
+        if sequence_offset < 0:
+            raise ValueError("sequence_offset cannot be negative")
         self._handler = handler
         self._run_id = run_id
         self._conversation_id = conversation_id
-        self._sequence = 0
+        self._sequence = sequence_offset
 
     async def emit(
         self,

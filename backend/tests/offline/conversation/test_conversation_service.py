@@ -52,6 +52,9 @@ class StubRunManager:
         self.cancelled = False
         # 暂停（中断）场景：result() 返回 None，wait() 返回 RunStatus.INTERRUPTED。
         self.interrupted = False
+        # 真实 Run 启动即 emit agent_started（sequence=0）；补发终态事件的
+        # 序号必须从已持久化事件之后继续，否则会被 UNIQUE 约束丢弃。
+        self.emit_started = True
 
     async def start(
         self,
@@ -82,6 +85,15 @@ class StubRunManager:
                 "mode": mode,
             }
         )
+        if self.emit_started and event_handler is not None:
+            await event_handler.emit(
+                AgentEvent(
+                    run_id="run-1",
+                    conversation_id=conversation_id,
+                    sequence=0,
+                    type=AgentEventType.AGENT_STARTED,
+                )
+            )
         return "run-1", None
 
     async def recover(
@@ -380,9 +392,18 @@ async def test_dispatch_cancelled_run_synthesizes_result(service_factory) -> Non
         "Run cancelled：已停止，未生成最终回复。（本轮未完成的内容不会显示）",
     ]
     assert dispatch.result.stop_reason is AgentStopReason.CANCELLED
-    # Trace 记录 agent_cancelled 终态事件。
+    # Trace 终态与 RunStore 一致：cancelled（而不是永远停在 running）。
     trace = await trace_store.get("run-1")
     assert trace is not None
+    assert trace.status is RunStatus.CANCELLED
+    assert trace.completed_at is not None
+    # agent_cancelled 终态事件确实落库：序号在 agent_started 之后，
+    # 不再被 UNIQUE(run_id, sequence) 丢弃。
+    events = await trace_store.load_events("run-1")
+    assert [event.sequence for event in events] == [0, 1]
+    assert events[0].type is AgentEventType.AGENT_STARTED
+    assert events[1].type is AgentEventType.AGENT_CANCELLED
+    assert events[1].stop_reason is AgentStopReason.CANCELLED
 
 
 async def test_dispatch_interrupted_run_synthesizes_result(service_factory) -> None:
@@ -413,9 +434,15 @@ async def test_dispatch_interrupted_run_synthesizes_result(service_factory) -> N
         "Run interrupted：已暂停，可从断点继续。（点击 Recover 从保存的中断点恢复）",
     ]
     assert dispatch.result.stop_reason is AgentStopReason.INTERRUPTED
-    # Trace 记录 agent_failed(interrupted) 终态事件。
+    # Trace 终态与 RunStore 一致：interrupted（由 agent_failed +
+    # stop_reason=interrupted 映射，而不是 failed / running）。
     trace = await trace_store.get("run-1")
     assert trace is not None
+    assert trace.status is RunStatus.INTERRUPTED
+    events = await trace_store.load_events("run-1")
+    assert [event.sequence for event in events] == [0, 1]
+    assert events[1].type is AgentEventType.AGENT_FAILED
+    assert events[1].stop_reason is AgentStopReason.INTERRUPTED
 
 
 # ---------------------------------------------------------------------------

@@ -3,20 +3,14 @@
 from __future__ import annotations
 
 from datetime import datetime
-from enum import StrEnum
 
 from pydantic import BaseModel, ConfigDict, Field
 
 from app.agent.result import AgentStopReason
 from app.models.types import ModelUsage
+from app.run.models import RunStatus
 
-
-class RunStatus(StrEnum):
-    """一次 Agent 运行的持久化状态。"""
-
-    RUNNING = "running"
-    COMPLETED = "completed"
-    FAILED = "failed"
+__all__ = ["AgentRunTrace", "RunStatus", "RunUsageSummary"]
 
 
 class AgentRunTrace(BaseModel):

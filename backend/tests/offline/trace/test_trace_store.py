@@ -259,3 +259,108 @@ async def test_failed_event_marks_trace_as_failed(tmp_path) -> None:
     assert run.status is RunStatus.FAILED
     assert run.stop_reason is AgentStopReason.MODEL_ERROR
     assert run.completed_at is not None
+
+
+@pytest.mark.asyncio
+async def test_cancelled_event_marks_trace_as_cancelled(tmp_path) -> None:
+    """AGENT_CANCELLED 终态：Trace 状态与 RunStore 的 cancelled 保持一致。"""
+
+    store = SQLiteTraceStore(tmp_path / "vesta.db")
+    await store.initialize()
+    cancelled_message = Message(role=MessageRole.ASSISTANT, content="已取消")
+    result = AgentResult(
+        run_id="run-cancelled",
+        final_message=cancelled_message,
+        messages=(cancelled_message,),
+        steps=0,
+        stop_reason=AgentStopReason.CANCELLED,
+    )
+    await store.record_event(
+        AgentEvent(
+            run_id=result.run_id,
+            type=AgentEventType.AGENT_CANCELLED,
+            message=cancelled_message,
+            stop_reason=result.stop_reason,
+            result=result,
+        )
+    )
+
+    run = await store.get(result.run_id)
+
+    assert run is not None
+    assert run.status is RunStatus.CANCELLED
+    assert run.stop_reason is AgentStopReason.CANCELLED
+    assert run.completed_at is not None
+
+
+@pytest.mark.asyncio
+async def test_failed_event_with_interrupted_reason_marks_interrupted(
+    tmp_path,
+) -> None:
+    """AGENT_FAILED + stop_reason=interrupted：Trace 记为 interrupted。"""
+
+    store = SQLiteTraceStore(tmp_path / "vesta.db")
+    await store.initialize()
+    interrupted_message = Message(role=MessageRole.ASSISTANT, content="已中断")
+    result = AgentResult(
+        run_id="run-interrupted",
+        final_message=interrupted_message,
+        messages=(interrupted_message,),
+        steps=0,
+        stop_reason=AgentStopReason.INTERRUPTED,
+    )
+    await store.record_event(
+        AgentEvent(
+            run_id=result.run_id,
+            type=AgentEventType.AGENT_FAILED,
+            message=interrupted_message,
+            stop_reason=result.stop_reason,
+            result=result,
+        )
+    )
+
+    run = await store.get(result.run_id)
+
+    assert run is not None
+    assert run.status is RunStatus.INTERRUPTED
+    assert run.stop_reason is AgentStopReason.INTERRUPTED
+
+
+@pytest.mark.asyncio
+async def test_next_sequence_allocates_after_persisted_events(tmp_path) -> None:
+    """next_sequence 从已持久化最大序号继续：补发终态不撞 UNIQUE 约束。"""
+
+    store = SQLiteTraceStore(tmp_path / "vesta.db")
+    await store.initialize()
+
+    # 无事件的新 Run：序号从 0 开始。
+    assert await store.next_sequence("run-next") == 0
+
+    started_at = datetime(2026, 8, 4, 10, 0, tzinfo=UTC)
+    for sequence in (0, 1, 2):
+        await store.record_event(
+            AgentEvent(
+                run_id="run-next",
+                sequence=sequence,
+                type=AgentEventType.AGENT_STARTED,
+                event_time=started_at + timedelta(milliseconds=sequence),
+            )
+        )
+
+    assert await store.next_sequence("run-next") == 3
+
+    # 用分配到的序号补发取消终态：事件必须落库（不被 IGNORE 丢弃）。
+    await store.record_event(
+        AgentEvent(
+            run_id="run-next",
+            sequence=await store.next_sequence("run-next"),
+            type=AgentEventType.AGENT_CANCELLED,
+            event_time=started_at + timedelta(milliseconds=10),
+        )
+    )
+    events = await store.load_events("run-next")
+    assert [event.sequence for event in events] == [0, 1, 2, 3]
+    assert events[-1].type is AgentEventType.AGENT_CANCELLED
+    run = await store.get("run-next")
+    assert run is not None
+    assert run.status is RunStatus.CANCELLED

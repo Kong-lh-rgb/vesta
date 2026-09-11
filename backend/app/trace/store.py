@@ -10,6 +10,7 @@ from pathlib import Path
 import aiosqlite
 
 from app.agent.events import AgentEvent, AgentEventHandler, AgentEventType
+from app.agent.result import AgentStopReason
 from app.conversation import DEFAULT_DATABASE_PATH
 
 from .models import AgentRunTrace, RunStatus
@@ -208,6 +209,22 @@ class SQLiteTraceStore:
             await database.commit()
         return cursor.rowcount > 0
 
+    async def next_sequence(self, run_id: str) -> int:
+        """返回该 Run 下一个可用事件序号（当前最大序号 + 1；无事件时为 0）。
+
+        供取消 / 中断等 Run 结束后补发终态事件的调用方分配序号使用，
+        避免与 ``UNIQUE(run_id, sequence)`` 冲突而被 INSERT OR IGNORE 丢弃。
+        """
+
+        async with self._connect() as database:
+            cursor = await database.execute(
+                "SELECT COALESCE(MAX(sequence), -1) + 1 FROM agent_events "
+                "WHERE run_id = ?",
+                (run_id,),
+            )
+            row = await cursor.fetchone()
+        return int(row[0])
+
     @staticmethod
     async def _update_run(
         database: aiosqlite.Connection,
@@ -218,8 +235,17 @@ class SQLiteTraceStore:
         if event.type is AgentEventType.AGENT_COMPLETED:
             status = RunStatus.COMPLETED
             completed_at = event.event_time.isoformat()
+        elif event.type is AgentEventType.AGENT_CANCELLED:
+            status = RunStatus.CANCELLED
+            completed_at = event.event_time.isoformat()
         elif event.type is AgentEventType.AGENT_FAILED:
-            status = RunStatus.FAILED
+            # 中断（暂停可恢复）与失败共用 AGENT_FAILED 事件类型，由
+            # stop_reason 区分终态，保证 Trace 与 RunStore 状态一致。
+            status = (
+                RunStatus.INTERRUPTED
+                if event.stop_reason is AgentStopReason.INTERRUPTED
+                else RunStatus.FAILED
+            )
             completed_at = event.event_time.isoformat()
 
         updates_main_model = event.type in {
