@@ -22,8 +22,8 @@ import logging
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
+from app.agent.event_stream import EventEmitter
 from app.agent.events import (
-    AgentEvent,
     AgentEventHandler,
     AgentEventType,
     CompositeEventHandler,
@@ -202,6 +202,16 @@ class ConversationService:
             # 内容一并丢失，前端还会一直卡在运行态。这里为取消的 Run 合成
             # 终态结果：落库 user 消息 + 中断说明，并 emit agent_cancelled
             # 让前端进入 cancelled 终态（本轮部分内容不再显示）。
+            #
+            # 终态事件同样经过 EventEmitter 分配序号：序号从 TraceStore 已
+            # 持久化的最大序号继续，避免与 agent_started(sequence=0) 冲突
+            # 被 UNIQUE(run_id, sequence) 的 INSERT OR IGNORE 静默丢弃。
+            emitter = EventEmitter(
+                handler=handler,
+                run_id=run_id,
+                conversation_id=conversation_id,
+                sequence_offset=await self._trace_store.next_sequence(run_id),
+            )
             if run.status is RunStatus.CANCELLED:
                 cancelled_message = Message(
                     role=MessageRole.ASSISTANT,
@@ -221,16 +231,11 @@ class ConversationService:
                     steps=0,
                     stop_reason=AgentStopReason.CANCELLED,
                 )
-                await handler.emit(
-                    AgentEvent(
-                        run_id=run_id,
-                        conversation_id=conversation_id,
-                        sequence=0,
-                        type=AgentEventType.AGENT_CANCELLED,
-                        message=cancelled_message,
-                        stop_reason=AgentStopReason.CANCELLED,
-                        result=result,
-                    )
+                await emitter.emit(
+                    AgentEventType.AGENT_CANCELLED,
+                    message=cancelled_message,
+                    stop_reason=AgentStopReason.CANCELLED,
+                    result=result,
                 )
             elif run.status is RunStatus.INTERRUPTED:
                 # 暂停（中断）：合成 INTERRUPTED 终态结果并 emit agent_failed
@@ -254,16 +259,11 @@ class ConversationService:
                     steps=0,
                     stop_reason=AgentStopReason.INTERRUPTED,
                 )
-                await handler.emit(
-                    AgentEvent(
-                        run_id=run_id,
-                        conversation_id=conversation_id,
-                        sequence=0,
-                        type=AgentEventType.AGENT_FAILED,
-                        message=interrupted_message,
-                        stop_reason=AgentStopReason.INTERRUPTED,
-                        result=result,
-                    )
+                await emitter.emit(
+                    AgentEventType.AGENT_FAILED,
+                    message=interrupted_message,
+                    stop_reason=AgentStopReason.INTERRUPTED,
+                    result=result,
                 )
             else:
                 raise RuntimeError("RunManager 未返回最终 AgentResult")
