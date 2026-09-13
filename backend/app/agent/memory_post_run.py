@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from collections.abc import Callable
-from typing import Any
 
 from app.memory import (
     MaintenanceAction,
@@ -38,7 +37,7 @@ class PostRunMemoryCoordinator:
         reflector: PostRunMemoryReflector | None,
         maintenance_reflector: MemoryMaintenanceReflector | None,
         task_context_provider: TaskContextProvider | None,
-        submit: Callable[[Callable[[], Any]], bool] | None,
+        submit: Callable[..., bool] | None,
     ) -> None:
         self._manager = manager
         self._reflector = reflector
@@ -151,7 +150,11 @@ class PostRunMemoryCoordinator:
             )
 
         if self._submit is not None:
-            self._submit(job)
+            self._submit(
+                job,
+                conversation_id=conversation_id,
+                run_id=result.run_id,
+            )
         else:
             # 直接构造 Runtime 的调用方没有后台 Processor，保持同步 fallback。
             await job()

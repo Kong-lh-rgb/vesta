@@ -425,6 +425,34 @@ async def test_post_run_processor_close_drains_and_cancels() -> None:
 
 
 @pytest.mark.asyncio
+async def test_post_run_processor_cancels_only_target_conversation() -> None:
+    processor = PostRunProcessor()
+    started_a = asyncio.Event()
+    started_b = asyncio.Event()
+    gate = asyncio.Event()
+
+    async def wait_a() -> None:
+        started_a.set()
+        await gate.wait()
+
+    async def wait_b() -> None:
+        started_b.set()
+        await gate.wait()
+
+    assert processor.submit(wait_a, conversation_id="conversation-a") is True
+    assert processor.submit(wait_b, conversation_id="conversation-b") is True
+    await started_a.wait()
+    await started_b.wait()
+
+    assert await processor.cancel_for_conversation("conversation-a") == 1
+    assert processor.active_count == 1
+
+    gate.set()
+    await processor.close()
+    assert processor.active_count == 0
+
+
+@pytest.mark.asyncio
 async def test_application_close_drains_post_run(tmp_path: Path) -> None:
     registry = _registry(
         main=FakeAdapter(_config("main", "main-model"), []),

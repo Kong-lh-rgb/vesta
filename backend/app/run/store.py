@@ -173,6 +173,40 @@ class SQLiteRunStore:
             rows = await cursor.fetchall()
         return tuple(_run_from_row(row) for row in rows)
 
+    async def list_for_conversation(
+        self,
+        conversation_id: str,
+        *,
+        active_only: bool = False,
+    ) -> tuple[Run, ...]:
+        """不截断地列出会话 Run，供生命周期清理使用。"""
+
+        normalized = _required_identifier(conversation_id, "conversation_id")
+        query = "SELECT * FROM runs WHERE conversation_id = ?"
+        parameters: list[object] = [normalized]
+        if active_only:
+            query += " AND status IN (?, ?)"
+            parameters.extend(
+                (RunStatus.PENDING.value, RunStatus.RUNNING.value)
+            )
+        query += " ORDER BY created_at DESC"
+        async with self._connect() as database:
+            cursor = await database.execute(query, tuple(parameters))
+            rows = await cursor.fetchall()
+        return tuple(_run_from_row(row) for row in rows)
+
+    async def delete_for_conversation(self, conversation_id: str) -> int:
+        """删除某会话的全部 Run 生命周期记录。"""
+
+        normalized = _required_identifier(conversation_id, "conversation_id")
+        async with self._connect() as database:
+            cursor = await database.execute(
+                "DELETE FROM runs WHERE conversation_id = ?",
+                (normalized,),
+            )
+            await database.commit()
+        return max(cursor.rowcount, 0)
+
     async def update_status(
         self,
         run_id: str,

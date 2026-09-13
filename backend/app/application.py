@@ -62,6 +62,8 @@ from app.conversation import (
     DEFAULT_DATABASE_PATH,
     SQLiteConversationStore,
 )
+from app.conversation.coordinator import ConversationOperationCoordinator
+from app.conversation.lifecycle import ConversationLifecycleService
 from app.conversation.service import ConversationService
 from app.conversation.tools import register_history_tools
 from app.evidence import (
@@ -363,6 +365,7 @@ class Application:
         self.run_store: SQLiteRunStore | None = None
         self.run_manager: RunManager | None = None
         self.conversation_service: ConversationService | None = None
+        self.conversation_lifecycle: ConversationLifecycleService | None = None
         self.automation_store: SQLiteAutomationStore | None = None
         self.automation_scheduler: AutomationScheduler | None = None
         self.reconciled_runs: tuple[Any, ...] = ()
@@ -648,12 +651,14 @@ class Application:
         }
         await approval_store.reconcile_orphans(active_run_ids)
 
+        conversation_operations = ConversationOperationCoordinator()
         conversation_service = ConversationService(
             conversation_store,
             run_manager,
             trace_store,
             summary_store=summary_store,
             shared_event_handler=self.shared_event_handler,
+            operation_coordinator=conversation_operations,
         )
 
         automation_store = SQLiteAutomationStore(database)
@@ -663,6 +668,27 @@ class Application:
         )
         register_automation_tools(tool_registry, automation_scheduler)
         await automation_scheduler.start()
+
+        conversation_lifecycle = ConversationLifecycleService(
+            conversation_store,
+            conversation_operations,
+            run_manager,
+            run_store,
+            checkpoint_store,
+            trace_store,
+            evidence_store,
+            approval_store,
+            artifact_service,
+            task_store,
+            rule_store,
+            automation_scheduler,
+            self.post_run_processor,
+            screenshot_dir=getattr(
+                self._computer_runtime,
+                "screenshot_dir",
+                None,
+            ),
+        )
 
         # 挂到 self，供 CLI / Server 读取。
         self.conversation_store = conversation_store
@@ -721,6 +747,7 @@ class Application:
         self.run_store = run_store
         self.run_manager = run_manager
         self.conversation_service = conversation_service
+        self.conversation_lifecycle = conversation_lifecycle
         self.automation_store = automation_store
         self.automation_scheduler = automation_scheduler
         self.reconciled_runs = reconciled_runs

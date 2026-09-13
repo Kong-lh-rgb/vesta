@@ -120,10 +120,13 @@ async def conversation_delete(
     ctx: RpcContext,
 ) -> dict[str, Any]:
     conversation_id = _require_str(params, "conversation_id")
-    deleted = await ctx.application.conversation_store.delete(conversation_id)
-    if not deleted:
+    lifecycle = ctx.application.conversation_lifecycle
+    if lifecycle is None:  # pragma: no cover - Application.start() 装配保证
+        raise RuntimeError("conversation lifecycle unavailable")
+    result = await lifecycle.delete(conversation_id)
+    if result is None:
         raise JsonRpcError(RESOURCE_NOT_FOUND, "conversation not found")
-    return {"deleted": True}
+    return result.model_dump(mode="json")
 
 
 def _require_str(params: dict[str, Any], key: str) -> str:

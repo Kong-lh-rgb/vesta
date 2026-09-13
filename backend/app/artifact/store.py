@@ -130,6 +130,52 @@ class SQLiteArtifactStore:
                 rows = await cursor.fetchall()
         return tuple(_row_to_artifact(row) for row in rows)
 
+    async def list_related_to_conversation(
+        self,
+        conversation_id: str,
+        *,
+        run_ids: tuple[str, ...] = (),
+        task_ids: tuple[str, ...] = (),
+    ) -> tuple[Artifact, ...]:
+        """列出会话直接或经 Run/Task 关联的全部 Artifact。"""
+
+        normalized = conversation_id.strip()
+        if not normalized:
+            raise ValueError("conversation_id cannot be empty")
+        clauses = ["conversation_id = ?"]
+        parameters: list[object] = [normalized]
+        if run_ids:
+            placeholders = ",".join("?" for _ in run_ids)
+            clauses.append(f"run_id IN ({placeholders})")
+            parameters.extend(run_ids)
+        if task_ids:
+            placeholders = ",".join("?" for _ in task_ids)
+            clauses.append(f"task_id IN ({placeholders})")
+            parameters.extend(task_ids)
+        query = (
+            "SELECT * FROM artifacts WHERE "
+            + " OR ".join(f"({clause})" for clause in clauses)
+            + " ORDER BY created_at ASC"
+        )
+        async with self._connect() as database:
+            cursor = await database.execute(query, tuple(parameters))
+            rows = await cursor.fetchall()
+        return tuple(_row_to_artifact(row) for row in rows)
+
+    async def delete_many(self, artifact_ids: tuple[str, ...]) -> int:
+        """原子删除指定 Artifact 元数据。"""
+
+        if not artifact_ids:
+            return 0
+        placeholders = ",".join("?" for _ in artifact_ids)
+        async with self._connect() as database:
+            cursor = await database.execute(
+                f"DELETE FROM artifacts WHERE id IN ({placeholders})",
+                artifact_ids,
+            )
+            await database.commit()
+        return max(cursor.rowcount, 0)
+
     @asynccontextmanager
     async def _connect(self) -> AsyncIterator[aiosqlite.Connection]:
         connection = await aiosqlite.connect(self.database_path)

@@ -139,6 +139,14 @@ class AutomationScheduler:
         self._remove_job(automation_id)
         return updated
 
+    async def delete_for_conversation(self, conversation_id: str) -> int:
+        """撤销调度并删除会话关联的自动化，防止删除后再次触发。"""
+
+        automations = await self._store.list_for_conversation(conversation_id)
+        for automation in automations:
+            self._remove_job(automation.id)
+        return await self._store.delete_for_conversation(conversation_id)
+
     async def pause(self, automation_id: str) -> Automation:
         automation = await self._store.require(automation_id)
         if automation.status is not AutomationStatus.ACTIVE:

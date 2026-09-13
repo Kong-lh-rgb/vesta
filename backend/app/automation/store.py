@@ -174,6 +174,37 @@ class SQLiteAutomationStore:
             rows = await cursor.fetchall()
         return tuple(_automation_from_row(row) for row in rows)
 
+    async def list_for_conversation(
+        self,
+        conversation_id: str,
+    ) -> tuple[Automation, ...]:
+        """不截断地列出会话关联的全部自动化。"""
+
+        normalized = _required_identifier(conversation_id, "conversation_id")
+        async with self._connect() as database:
+            cursor = await database.execute(
+                """
+                SELECT * FROM automations
+                WHERE conversation_id = ?
+                ORDER BY updated_at DESC
+                """,
+                (normalized,),
+            )
+            rows = await cursor.fetchall()
+        return tuple(_automation_from_row(row) for row in rows)
+
+    async def delete_for_conversation(self, conversation_id: str) -> int:
+        """删除会话关联的全部自动化记录。"""
+
+        normalized = _required_identifier(conversation_id, "conversation_id")
+        async with self._connect() as database:
+            cursor = await database.execute(
+                "DELETE FROM automations WHERE conversation_id = ?",
+                (normalized,),
+            )
+            await database.commit()
+        return max(cursor.rowcount, 0)
+
     async def update_status(
         self,
         automation_id: str,

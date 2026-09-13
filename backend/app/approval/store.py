@@ -222,6 +222,51 @@ class SQLiteApprovalStore:
             await database.commit()
         return cursor.rowcount
 
+    async def cancel_pending_for_conversation(self, conversation_id: str) -> int:
+        """把某会话下仍 PENDING 的审批全部置为 CANCELLED。
+
+        删除会话时调用（含 Run 已被取消后残留的孤儿审批）；返回取消数量。
+        """
+
+        normalized = _required(conversation_id, "conversation_id")
+        async with self._connect() as database:
+            await database.execute("BEGIN IMMEDIATE")
+            cursor = await database.execute(
+                """
+                UPDATE approvals
+                SET status = ?, resolved_at = ?
+                WHERE conversation_id = ? AND status = ?
+                """,
+                (
+                    ApprovalRequestStatus.CANCELLED.value,
+                    _now(),
+                    normalized,
+                    ApprovalRequestStatus.PENDING.value,
+                ),
+            )
+            await database.commit()
+        return cursor.rowcount
+
+    async def delete_for_conversation(
+        self,
+        conversation_id: str,
+        *,
+        run_ids: tuple[str, ...] = (),
+    ) -> int:
+        """删除会话直接或经 Run 关联的全部审批记录。"""
+
+        normalized = _required(conversation_id, "conversation_id")
+        query = "DELETE FROM approvals WHERE conversation_id = ?"
+        parameters: list[object] = [normalized]
+        if run_ids:
+            placeholders = ",".join("?" for _ in run_ids)
+            query += f" OR run_id IN ({placeholders})"
+            parameters.extend(run_ids)
+        async with self._connect() as database:
+            cursor = await database.execute(query, tuple(parameters))
+            await database.commit()
+        return max(cursor.rowcount, 0)
+
     async def reconcile_orphans(self, active_run_ids: set[str]) -> int:
         """Host 启动时把没有对应活跃 Run 的 PENDING 审批置为 CANCELLED。
 
