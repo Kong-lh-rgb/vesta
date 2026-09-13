@@ -190,6 +190,35 @@ class FileTaskStore:
             await asyncio.to_thread(path.unlink)
             return True
 
+    async def delete_for_conversation(
+        self,
+        conversation_id: str,
+    ) -> tuple[str, ...]:
+        """删除当前会话私有的全部 Task，返回删除的 Task ID。"""
+
+        tasks = await self.list_for_conversation(conversation_id)
+        deleted: list[str] = []
+        for task in tasks:
+            if await self.delete(task.id):
+                deleted.append(task.id)
+        return tuple(deleted)
+
+    async def list_for_conversation(
+        self,
+        conversation_id: str,
+    ) -> tuple[Task, ...]:
+        """不截断地列出当前会话私有的全部 Task，供生命周期清理使用。"""
+
+        owner = _normalize_required_entry(
+            conversation_id,
+            field_name="conversation_id",
+        )
+        return tuple(
+            task
+            for task in await self._all_tasks()
+            if task.owner_conversation_id == owner
+        )
+
     async def apply_patch(
         self,
         task_id: str,

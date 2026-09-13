@@ -15,10 +15,19 @@ from __future__ import annotations
 import asyncio
 import logging
 from collections.abc import Awaitable, Callable
+from dataclasses import dataclass
 
 logger = logging.getLogger("vesta.post_run")
 
 PostRunJob = Callable[[], Awaitable[None]]
+
+
+@dataclass(frozen=True, slots=True)
+class _PostRunOwner:
+    """后台任务的最小归属，用于会话删除时定向取消。"""
+
+    conversation_id: str | None
+    run_id: str | None
 
 
 class PostRunProcessor:
@@ -32,7 +41,7 @@ class PostRunProcessor:
     ) -> None:
         self._drain_timeout = drain_timeout
         self._max_concurrency = max_concurrency
-        self._active: set[asyncio.Task[None]] = set()
+        self._active: dict[asyncio.Task[None], _PostRunOwner] = {}
         self._closed = False
 
     @property
@@ -44,7 +53,13 @@ class PostRunProcessor:
     def closed(self) -> bool:
         return self._closed
 
-    def submit(self, job: PostRunJob) -> bool:
+    def submit(
+        self,
+        job: PostRunJob,
+        *,
+        conversation_id: str | None = None,
+        run_id: str | None = None,
+    ) -> bool:
         """提交一个后台协程。closed 或饱和时返回 False（丢弃该 job）。"""
         if self._closed:
             logger.warning("post-run processor closed; dropping background job")
@@ -53,9 +68,26 @@ class PostRunProcessor:
             logger.warning("post-run processor saturated; dropping background job")
             return False
         task = asyncio.get_running_loop().create_task(self._run_job(job))
-        self._active.add(task)
-        task.add_done_callback(self._active.discard)
+        self._active[task] = _PostRunOwner(
+            conversation_id=conversation_id,
+            run_id=run_id,
+        )
+        task.add_done_callback(self._active.pop)
         return True
+
+    async def cancel_for_conversation(self, conversation_id: str) -> int:
+        """取消会话仍在运行的 Post-Run 任务，防止删除后迟到写入。"""
+
+        targets = [
+            task
+            for task, owner in self._active.items()
+            if owner.conversation_id == conversation_id
+        ]
+        for task in targets:
+            task.cancel()
+        if targets:
+            await asyncio.gather(*targets, return_exceptions=True)
+        return len(targets)
 
     async def _run_job(self, job: PostRunJob) -> None:
         try:

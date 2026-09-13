@@ -5,7 +5,6 @@ from __future__ import annotations
 import asyncio
 from collections.abc import AsyncIterator, Callable, Sequence
 from contextlib import suppress
-from typing import Any
 from uuid import uuid4
 
 from app.checkpoint import (
@@ -94,7 +93,7 @@ class AgentRuntime:
         skill_store: SkillStore | None = None,
         skill_context_provider: SkillContextProvider | None = None,
         tool_output_recorder: ToolOutputRecorder | None = None,
-        post_run_submit: Callable[[Callable[[], Any]], bool] | None = None,
+        post_run_submit: Callable[..., bool] | None = None,
         run_budget_config: RunBudgetConfig | None = None,
     ) -> None:
         if max_steps < 1:

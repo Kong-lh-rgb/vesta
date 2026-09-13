@@ -17,7 +17,6 @@ load→start→wait→save 逻辑。本 Service 不包含任何 CLI print/input 
 
 from __future__ import annotations
 
-import asyncio
 import logging
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
@@ -33,6 +32,7 @@ from app.models.types import AgentMode, Message, MessageRole
 from app.run.models import RunStatus
 from app.trace import SQLiteTraceEventHandler, SQLiteTraceStore
 
+from .coordinator import ConversationOperationCoordinator
 from .inputs import ConversationSource, TriggerContext
 from .store import SQLiteConversationStore
 
@@ -53,19 +53,6 @@ class DispatchResult:
     conversation_id: str | None
 
 
-class _NullLock:
-    """无会话（conversation_id=None）时使用的空锁：不串行化。"""
-
-    async def __aenter__(self) -> _NullLock:
-        return self
-
-    async def __aexit__(self, *exc: object) -> bool:
-        return False
-
-
-_NULL_LOCK = _NullLock()
-
-
 class ConversationService:
     """统一执行一次 Conversation 输入（手动 / Automation 同路径）。
 
@@ -82,6 +69,7 @@ class ConversationService:
         *,
         summary_store: SQLiteConversationSummaryStore | None = None,
         shared_event_handler: AgentEventHandler | None = None,
+        operation_coordinator: ConversationOperationCoordinator | None = None,
     ) -> None:
         self._conversation_store = conversation_store
         self._run_manager = run_manager
@@ -90,16 +78,9 @@ class ConversationService:
         # 全局共享观察者（如 Desktop WebSocket 广播）：始终与 Trace 一起组合，
         # 手动 / Automation 触发的 Run 最终都进入同一条 broadcast path。
         self._shared_event_handler = shared_event_handler
-        self._locks: dict[str, asyncio.Lock] = {}
-
-    def _lock_for(self, conversation_id: str | None) -> Any:
-        if conversation_id is None:
-            return _NULL_LOCK
-        lock = self._locks.get(conversation_id)
-        if lock is None:
-            lock = asyncio.Lock()
-            self._locks[conversation_id] = lock
-        return lock
+        self.operation_coordinator = (
+            operation_coordinator or ConversationOperationCoordinator()
+        )
 
     async def dispatch(
         self,
@@ -126,7 +107,7 @@ class ConversationService:
         trigger = trigger or TriggerContext(
             source=ConversationSource.MANUAL
         )
-        async with self._lock_for(conversation_id):
+        async with self.operation_coordinator.execution(conversation_id):
             return await self._dispatch_locked(
                 conversation_id=conversation_id,
                 content=content,
@@ -321,7 +302,7 @@ class ConversationService:
             raise KeyError(f"Run 不存在：{run_id}")
         conversation_id = run.conversation_id
         trigger = trigger or TriggerContext(source=ConversationSource.MANUAL)
-        async with self._lock_for(conversation_id):
+        async with self.operation_coordinator.execution(conversation_id):
             return await self._recover_locked(
                 run_id=run_id,
                 conversation_id=conversation_id,

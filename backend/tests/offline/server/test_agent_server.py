@@ -555,6 +555,71 @@ def test_cancel_while_send_in_flight(make_app) -> None:
             # _rpc_call 作为 notification 消费或留在队列里，无需额外 drain。
 
 
+def test_delete_conversation_stops_in_flight_run(make_app) -> None:
+    """删除会话会先取消活动 Run，再清理其生命周期与 Trace。"""
+
+    app, application, adapter = make_app(blocking=True)
+    with TestClient(app) as client:
+        with client.websocket_connect("/rpc") as websocket:
+            conversation_id = _require_result(
+                _rpc_call(websocket, 1, "conversation.create")[0]
+            )["conversation"]["id"]
+            websocket.send_text(
+                _rpc_request(
+                    2,
+                    "conversation.send",
+                    {"conversation_id": conversation_id, "content": "阻塞"},
+                )
+            )
+            for _ in range(200):
+                if adapter.started.is_set():
+                    break
+                time.sleep(0.01)
+            assert adapter.started.is_set()
+
+            run_id = None
+            for _ in range(50):
+                message = json.loads(websocket.receive_text())
+                if (
+                    message.get("method") == "agent.event"
+                    and message["params"].get("type") == "agent_started"
+                ):
+                    run_id = message["params"]["run_id"]
+                    break
+            assert run_id is not None
+
+            websocket.send_text(
+                _rpc_request(
+                    3,
+                    "conversation.delete",
+                    {"conversation_id": conversation_id},
+                )
+            )
+            delete_response = None
+            for _ in range(100):
+                message = json.loads(websocket.receive_text())
+                if message.get("id") == 3:
+                    delete_response = message
+                    break
+            result = _require_result(delete_response)
+            assert result["deleted"] is True
+            assert result["cancelled_runs"] == 1
+            assert result["deleted_runs"] == 1
+            assert result["deleted_traces"] == 1
+            assert adapter.cancelled is True
+
+            assert client.portal.call(
+                lambda: application.conversation_store.get(conversation_id)
+            ) is None
+            assert client.portal.call(
+                lambda: application.run_store.get(run_id)
+            ) is None
+            assert client.portal.call(
+                lambda: application.trace_store.get(run_id)
+            ) is None
+            assert application.run_manager.result(run_id) is None
+
+
 # ---------------------------------------------------------------------------
 # run list / get / recover / trace
 # ---------------------------------------------------------------------------

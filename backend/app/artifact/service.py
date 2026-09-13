@@ -30,6 +30,7 @@ logger = logging.getLogger("vesta.artifact")
 MAX_ARTIFACT_BYTES = 100 * 1024 * 1024
 _CHUNK_SIZE = 1024 * 1024
 _UNSAFE_FILENAME_RE = re.compile(r"[\x00-\x1f\x7f/\\]")
+_ARTIFACT_ID_RE = re.compile(r"^[0-9a-f]{32}$")
 
 Broadcaster = Callable[[str, Any], Awaitable[None]]
 
@@ -187,6 +188,31 @@ class ArtifactService:
             return None
         return self.managed_dir / artifact.id / artifact.filename
 
+    async def delete_for_conversation(
+        self,
+        conversation_id: str,
+        *,
+        run_ids: tuple[str, ...] = (),
+        task_ids: tuple[str, ...] = (),
+    ) -> tuple[str, ...]:
+        """删除会话关联的 Artifact 元数据与托管文件。"""
+
+        artifacts = await self.store.list_related_to_conversation(
+            conversation_id,
+            run_ids=run_ids,
+            task_ids=task_ids,
+        )
+        for artifact in artifacts:
+            if artifact.kind is not ArtifactKind.FILE:
+                continue
+            if not _ARTIFACT_ID_RE.fullmatch(artifact.id):
+                raise ValueError(f"invalid managed artifact id: {artifact.id}")
+            artifact_dir = self.managed_dir / artifact.id
+            await asyncio.to_thread(_delete_managed_artifact_dir, artifact_dir)
+        artifact_ids = tuple(artifact.id for artifact in artifacts)
+        await self.store.delete_many(artifact_ids)
+        return artifact_ids
+
     # ------------------------------------------------------------------
     # 内部
     # ------------------------------------------------------------------
@@ -239,8 +265,27 @@ def _cleanup_temp_file(path: Path) -> None:
 def _cleanup_artifact_dir(path: Path) -> None:
     """清理尚未写入 metadata 的单个 Artifact 目录。"""
 
+    if path.is_symlink():
+        with suppress(OSError):
+            path.unlink()
+        return
     for child in path.iterdir() if path.exists() else ():
         with suppress(OSError):
             child.unlink()
     with suppress(OSError):
         path.rmdir()
+
+
+def _delete_managed_artifact_dir(path: Path) -> None:
+    """严格删除一个托管 Artifact 目录；异常时让上层保留会话以便重试。"""
+
+    if path.is_symlink():
+        path.unlink()
+        return
+    if not path.exists():
+        return
+    for child in path.iterdir():
+        if child.is_dir() and not child.is_symlink():
+            raise RuntimeError(f"unexpected nested artifact directory: {child}")
+        child.unlink()
+    path.rmdir()

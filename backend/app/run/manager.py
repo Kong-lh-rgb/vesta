@@ -205,6 +205,14 @@ class RunManager:
 
         return self._last_results.get(run_id)
 
+    def forget_results(self, run_ids: tuple[str, ...]) -> None:
+        """清理已删除 Run 的进程内结果缓存。"""
+
+        for run_id in run_ids:
+            if run_id in self._active_tasks:
+                raise RuntimeError(f"cannot forget active run: {run_id}")
+            self._last_results.pop(run_id, None)
+
     async def get_run(self, run_id: str) -> Run | None:
         return await self._run_store.get(run_id)
 
@@ -252,10 +260,20 @@ class RunManager:
             # 幂等：run 已进入终态，取消是 no-op。前端暂停/停止按钮可能因
             # run.status 广播延迟而仍可点击，此时应无副作用地返回当前状态。
             return run
-        if run.status is not RunStatus.RUNNING:
+        if run.status not in {RunStatus.PENDING, RunStatus.RUNNING}:
             raise ValueError(
                 f"cannot cancel run in state {run.status.value}"
             )
+        if run.status is RunStatus.PENDING:
+            # PENDING 尚未进入执行，沿用既有状态机的 PENDING → FAILED；
+            # 会话删除随后会移除该记录，不把“从未启动”伪装成执行中取消。
+            updated = await self._run_store.mark_failed(
+                run_id,
+                error="conversation deleted before execution started",
+            )
+            await self._cancel_pending_approvals(run_id)
+            await self._run_finalizers_for(run_id)
+            return updated
         task = self._active_tasks.get(run_id)
         if task is None or task.done():
             # 进程内没有活跃执行（例如记录恢复自持久化的 RUNNING 但 task 已消失），
@@ -275,6 +293,24 @@ class RunManager:
         updated = await self._run_store.require(run_id)
         await self._cancel_pending_approvals(run_id)
         return updated
+
+    async def cancel_for_conversation(
+        self,
+        conversation_id: str,
+    ) -> tuple[Run, ...]:
+        """取消会话下全部 PENDING/RUNNING Run，供会话删除统一收口。"""
+
+        active = await self._run_store.list_for_conversation(
+            conversation_id,
+            active_only=True,
+        )
+        cancelled: list[Run] = []
+        for run in active:
+            current = await self._run_store.get(run.id)
+            if current is None or current.status in TERMINAL_STATUSES:
+                continue
+            cancelled.append(await self.cancel(run.id))
+        return tuple(cancelled)
 
     async def interrupt(self, run_id: str) -> Run:
         """暂停（中断）正在执行的 Run，保留可恢复 Checkpoint。

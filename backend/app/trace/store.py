@@ -198,6 +198,60 @@ class SQLiteTraceStore:
             for row in rows
         )
 
+    async def load_event_payloads_for_conversation(
+        self,
+        conversation_id: str,
+        *,
+        run_ids: tuple[str, ...] = (),
+    ) -> tuple[str, ...]:
+        """读取会话的原始事件 JSON，供删除前提取外部文件引用。"""
+
+        normalized = conversation_id.strip()
+        if not normalized:
+            raise ValueError("conversation_id cannot be empty")
+        where = "r.conversation_id = ?"
+        parameters: list[object] = [normalized]
+        if run_ids:
+            placeholders = ",".join("?" for _ in run_ids)
+            where += f" OR r.run_id IN ({placeholders})"
+            parameters.extend(run_ids)
+        async with self._connect() as database:
+            cursor = await database.execute(
+                f"""
+                SELECT e.payload_json
+                FROM agent_events AS e
+                JOIN agent_runs AS r ON r.run_id = e.run_id
+                WHERE {where}
+                ORDER BY r.started_at ASC, e.sequence ASC
+                """,
+                tuple(parameters),
+            )
+            rows = await cursor.fetchall()
+        return tuple(row["payload_json"] for row in rows)
+
+    async def delete_for_conversation(
+        self,
+        conversation_id: str,
+        *,
+        run_ids: tuple[str, ...] = (),
+    ) -> int:
+        """删除会话直接或经 Run 关联的 Trace 摘要及级联事件。"""
+
+        normalized = conversation_id.strip()
+        if not normalized:
+            raise ValueError("conversation_id cannot be empty")
+        query = "DELETE FROM agent_runs WHERE conversation_id = ?"
+        parameters: list[object] = [normalized]
+        if run_ids:
+            placeholders = ",".join("?" for _ in run_ids)
+            query += f" OR run_id IN ({placeholders})"
+            parameters.extend(run_ids)
+        async with self._connect() as database:
+            await database.execute("PRAGMA foreign_keys = ON")
+            cursor = await database.execute(query, tuple(parameters))
+            await database.commit()
+        return max(cursor.rowcount, 0)
+
     async def delete(self, run_id: str) -> bool:
         """删除 Run 及其全部事件。"""
 

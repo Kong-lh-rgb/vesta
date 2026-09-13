@@ -326,6 +326,26 @@ class SQLiteCheckpointStore:
             rows = await cursor.fetchall()
         return tuple(_checkpoint_from_row(row) for row in rows)
 
+    async def delete_for_conversation(
+        self,
+        conversation_id: str,
+        *,
+        run_ids: tuple[str, ...] = (),
+    ) -> int:
+        """删除会话直接或经 Run 关联的全部恢复点。"""
+
+        normalized = _required_identifier(conversation_id, "conversation_id")
+        query = "DELETE FROM run_checkpoints WHERE conversation_id = ?"
+        parameters: list[object] = [normalized]
+        if run_ids:
+            placeholders = ",".join("?" for _ in run_ids)
+            query += f" OR run_id IN ({placeholders})"
+            parameters.extend(run_ids)
+        async with self._connect() as database:
+            cursor = await database.execute(query, tuple(parameters))
+            await database.commit()
+        return max(cursor.rowcount, 0)
+
     async def _update_running(
         self,
         run_id: str,

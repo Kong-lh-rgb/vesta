@@ -290,6 +290,18 @@ class SQLiteEvidenceStore:
             rows = await cursor.fetchall()
         return tuple(_record_from_row(row) for row in rows)
 
+    async def delete_for_conversation(self, conversation_id: str) -> int:
+        """删除某会话归档的全部工具原始证据。"""
+
+        normalized = _required(conversation_id, "conversation_id")
+        async with self._connect() as database:
+            cursor = await database.execute(
+                "DELETE FROM evidence WHERE conversation_id = ?",
+                (normalized,),
+            )
+            await database.commit()
+        return max(cursor.rowcount, 0)
+
     @asynccontextmanager
     async def _connect(self) -> AsyncIterator[aiosqlite.Connection]:
         database = await aiosqlite.connect(self.database_path)
