@@ -232,7 +232,7 @@ export default function ChatPage({
     }
   }
 
-  /** 删除会话（接入后端）；删除当前会话时切到下一个。 */
+  /** 删除会话（接入后端）；删除当前会话时切到下一个。失败保留会话并提示。 */
   const deleteConversationAction = async (id: string): Promise<void> => {
     try {
       await deleteConversation(id)
@@ -248,7 +248,10 @@ export default function ChatPage({
       void queryClient.invalidateQueries({ queryKey: ['conversations'] })
       void queryClient.invalidateQueries({ queryKey: ['conversation', id] })
     } catch (error) {
-      setSendError(error instanceof Error ? error.message : String(error))
+      // 失败保留当前会话（列表不失效），并给出明确错误来源。
+      setSendError(
+        `删除会话失败：${error instanceof Error ? error.message : String(error)}`,
+      )
     }
   }
 

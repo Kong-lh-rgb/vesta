@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import type { Conversation } from '../api/types'
+import { ConfirmDialog } from './ConfirmDialog'
 import { Icon } from './Icon'
 
 const PINNED_KEY = 'vesta.pinnedConversations'
@@ -117,10 +118,35 @@ export default function ConversationList({
     void onRename?.(id, trimmed)
   }
 
-  const runDelete = (id: string): void => {
-    // Electron 不实现 window.confirm，直接执行删除（可恢复为新建）。
-    void onDelete?.(id)
+  // 删除二次确认：硬删除会连带清理全部关联数据，绝不允许一次误点击触发。
+  const [deleteTarget, setDeleteTarget] = useState<{
+    id: string
+    title: string
+  } | null>(null)
+  const [deletingId, setDeletingId] = useState<string | null>(null)
+
+  const runDelete = (id: string, title: string): void => {
     setMenuFor(null)
+    setDeleteTarget({ id, title })
+  }
+
+  const confirmDelete = (): void => {
+    const target = deleteTarget
+    if (target === null || deletingId !== null) return
+    setDeletingId(target.id)
+    void Promise.resolve(onDelete?.(target.id))
+      .catch(() => {
+        // 删除失败由调用方展示错误并保留会话；这里只负责收起菜单状态。
+      })
+      .finally(() => {
+        setDeletingId(null)
+        setDeleteTarget(null)
+      })
+  }
+
+  const cancelDelete = (): void => {
+    if (deletingId !== null) return
+    setDeleteTarget(null)
   }
 
   return (
@@ -232,7 +258,8 @@ export default function ConversationList({
                     type="button"
                     role="menuitem"
                     className="conversation-menu__danger"
-                    onClick={() => runDelete(conversation.id)}
+                    disabled={deletingId === conversation.id}
+                    onClick={() => runDelete(conversation.id, conversation.title || '')}
                   >
                     <Icon name="trash" size={13} />
                     删除
@@ -244,6 +271,28 @@ export default function ConversationList({
           )
         })}
       </div>
+      <ConfirmDialog
+        open={deleteTarget !== null}
+        title="删除会话"
+        message={
+          <div className="conversation-delete-confirm">
+            <p>
+              将永久删除会话「{deleteTarget?.title || '未命名对话'}」，并连带清理：
+            </p>
+            <p className="conversation-delete-confirm__scope">
+              消息与摘要、Run 记录、Task、Trace、Checkpoint、Evidence、
+              审批记录、Artifact 文件与相关截图。
+            </p>
+            <p className="conversation-delete-confirm__warning">此操作不可恢复。</p>
+          </div>
+        }
+        confirmLabel={deletingId !== null ? '删除中…' : '删除'}
+        cancelLabel="取消"
+        tone="danger"
+        busy={deletingId !== null}
+        onConfirm={confirmDelete}
+        onCancel={cancelDelete}
+      />
     </div>
   )
 }
