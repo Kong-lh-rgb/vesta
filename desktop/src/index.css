@@ -2422,6 +2422,29 @@ body.approval-app #root {
   margin-top: 18px;
 }
 
+/* 删除会话二次确认：明确列出连带清理范围与不可恢复警告。 */
+.conversation-delete-confirm {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.conversation-delete-confirm p {
+  margin: 0;
+}
+
+.conversation-delete-confirm__scope {
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: var(--bg-subtle, rgba(127, 127, 127, 0.08));
+  color: var(--text-secondary);
+}
+
+.conversation-delete-confirm__warning {
+  color: var(--danger, #d0453e);
+  font-weight: 600;
+}
+
 /* ============ Approvals 页：分段 + 列表 ============ */
 
 .approvals-section {
