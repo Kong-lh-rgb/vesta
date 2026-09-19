@@ -60,7 +60,7 @@ MEMORY_POLICY_MESSAGE_NAME = "vesta_memory_policy"
 
 
 class MemoryManager:
-    """Sparse, Model-Directed Long-Term Memory 的 Runtime 门面。"""
+    """Sparse 长期记忆的 Runtime 门面（Hybrid 自动召回 + 模型显式读取）。"""
 
     def __init__(
         self,

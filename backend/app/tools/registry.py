@@ -32,7 +32,7 @@ class ToolRegistry:
             raise ValueError("Tool name cannot be empty.")
         if not _VALID_NAME.fullmatch(name):
             raise ValueError(
-                "Tool name must use dot-separated letters, digits, or underscores: "
+                "Tool name must contain only letters, digits, or underscores: "
                 f"{name!r}"
             )
         if name in self._tools:
