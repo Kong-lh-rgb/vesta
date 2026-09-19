@@ -378,10 +378,14 @@ class AgentLoop:
                 request_history_offset,
             )
             request_messages = source_messages
+            # Active Skill 的 allowed-tools 只能收窄当前 Run 的工具集合；
+            # 未声明的 Skill 不约束（兼容旧格式）。
+            skill_tool_scope = context_session.active_skill_tool_scope
             if closing_can_deliver:
                 request_tools = self._tool_registry.closing_definitions_for_mode(
                     mode,
                     activated_names=activated_tools,
+                    allowed_tools=skill_tool_scope,
                 )
                 if not request_tools:
                     closing_can_deliver = False
@@ -392,6 +396,7 @@ class AgentLoop:
                 request_tools = self._tool_registry.model_definitions_for_mode(
                     mode,
                     activated_names=activated_tools,
+                    allowed_tools=skill_tool_scope,
                 )
             # 先解析实际使用的模型和输出上限，确保预算与请求完全一致。
             try:
@@ -643,6 +648,7 @@ class AgentLoop:
                         self._tool_registry.closing_definitions_for_mode(
                             mode,
                             activated_names=activated_tools,
+                            allowed_tools=skill_tool_scope,
                         )
                     )
                     closing_can_deliver = bool(request_tools)
@@ -992,6 +998,7 @@ class AgentLoop:
                 computer_verification_pending=computer_verification_pending,
                 previous_signature=previous_signature,
                 repeated_count=repeated_count,
+                skill_tool_scope=skill_tool_scope,
                 emitter=emitter,
                 hook=tool_event_hook,
             )
