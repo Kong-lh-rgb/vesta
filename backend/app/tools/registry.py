@@ -102,27 +102,49 @@ class ToolRegistry:
             and (name not in self._deferred_names or name in activated)
         )
 
-    def allowed_names_for_mode(self, mode: AgentMode) -> frozenset[str]:
+    def allowed_names_for_mode(
+        self,
+        mode: AgentMode,
+        *,
+        allowed_tools: frozenset[str] | None = None,
+    ) -> frozenset[str]:
         """返回该模式下允许执行的工具名集合。
 
         - NORMAL：注册表中的全部工具；
-        - PLAN：只读 / 搜索 / 规划工具白名单。
+        - PLAN：只读 / 搜索 / 规划工具白名单；
+        - ``allowed_tools``：Active Skill 声明的 allowed-tools 收窄范围；
+          只做交集（不能扩大模式白名单），None 表示无约束。
         """
 
-        return self._availability_policy.allowed_names(
+        names = self._availability_policy.allowed_names(
             mode,
             registered_names=self._tools,
         )
+        if allowed_tools is None:
+            return names
+        return names & allowed_tools
 
-    def is_allowed_for_mode(self, name: str, mode: AgentMode) -> bool:
+    def is_allowed_for_mode(
+        self,
+        name: str,
+        mode: AgentMode,
+        *,
+        allowed_tools: frozenset[str] | None = None,
+    ) -> bool:
         """工具是否允许在该模式执行（执行层的硬性能力过滤）。"""
 
-        return name in self.allowed_names_for_mode(mode)
+        return name in self.allowed_names_for_mode(mode, allowed_tools=allowed_tools)
 
-    def is_allowed_during_closing(self, name: str, mode: AgentMode) -> bool:
+    def is_allowed_during_closing(
+        self,
+        name: str,
+        mode: AgentMode,
+        *,
+        allowed_tools: frozenset[str] | None = None,
+    ) -> bool:
         """工具是否可在预算 Closing 阶段执行。"""
 
-        if not self.is_allowed_for_mode(name, mode):
+        if not self.is_allowed_for_mode(name, mode, allowed_tools=allowed_tools):
             return False
         tool = self._tools.get(name)
         return tool is not None and tool.definition.closing_allowed
@@ -132,10 +154,11 @@ class ToolRegistry:
         mode: AgentMode,
         *,
         activated_names: Collection[str] = (),
+        allowed_tools: frozenset[str] | None = None,
     ) -> tuple[ToolDefinition, ...]:
         """返回该模式可见的工具定义（PLAN 模式隐藏副作用工具）。"""
 
-        allowed = self.allowed_names_for_mode(mode)
+        allowed = self.allowed_names_for_mode(mode, allowed_tools=allowed_tools)
         activated = set(activated_names)
         return tuple(
             self._tools[name].definition
@@ -154,6 +177,7 @@ class ToolRegistry:
         mode: AgentMode,
         *,
         activated_names: Collection[str] = (),
+        allowed_tools: frozenset[str] | None = None,
     ) -> tuple[ToolDefinition, ...]:
         """返回预算 Closing 阶段可见的交付工具定义。"""
 
@@ -162,6 +186,7 @@ class ToolRegistry:
             for definition in self.model_definitions_for_mode(
                 mode,
                 activated_names=activated_names,
+                allowed_tools=allowed_tools,
             )
             if definition.closing_allowed
         )

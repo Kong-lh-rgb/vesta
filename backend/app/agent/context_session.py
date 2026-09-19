@@ -67,6 +67,30 @@ class RuntimeContextSession:
     def active_skill_names(self) -> tuple[str, ...]:
         return tuple(self._active_skills)
 
+    @property
+    def active_skill_tool_scope(self) -> frozenset[str] | None:
+        """Active Skill 声明的 allowed-tools 收窄范围（交集）。
+
+        - 没有 Skill 声明 allowed-tools（含未激活 / 旧格式 Skill）时返回
+          None，表示不约束（兼容语义）；
+        - 多个 Skill 同时声明时取交集；交集为空表示当前 Run 无可用工具
+          （确定性拒绝，而不是回退到无约束）。
+        - 该范围只能收窄：与 Plan 白名单 / Permission Policy / Sandbox
+          取交集后生效，绝不扩大权限。
+        """
+
+        declared = [
+            frozenset(skill.metadata.allowed_tools)
+            for skill in self._active_skills.values()
+            if skill.metadata.allowed_tools
+        ]
+        if not declared:
+            return None
+        scope = declared[0]
+        for item in declared[1:]:
+            scope = scope & item
+        return scope
+
     async def build(
         self,
         *,

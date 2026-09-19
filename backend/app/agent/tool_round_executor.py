@@ -74,6 +74,7 @@ class ToolRoundExecutor:
         repeated_count: int,
         emitter: EventEmitter,
         hook: ToolHook,
+        skill_tool_scope: frozenset[str] | None = None,
     ) -> ToolRoundOutcome:
         """执行工具轮；重复调用错误也连同已完成的前序记录返回。"""
 
@@ -130,6 +131,7 @@ class ToolRoundExecutor:
                 closing_can_deliver=closing_can_deliver,
                 activated_tools=activated_tools,
                 computer_halted=computer_halted,
+                skill_tool_scope=skill_tool_scope,
             )
             guard_decision = computer_guard.record(tool_call, result)
             if guard_decision.feedback:
@@ -211,8 +213,9 @@ class ToolRoundExecutor:
         closing_can_deliver: bool,
         activated_tools: set[str],
         computer_halted: bool,
+        skill_tool_scope: frozenset[str] | None = None,
     ) -> ToolResult:
-        """执行一次工具调用，并在执行层落实模式与 Closing 边界。"""
+        """执行一次工具调用，并在执行层落实模式、Skill 与 Closing 边界。"""
 
         rejection = self._rejection_reason(
             tool_call,
@@ -220,6 +223,7 @@ class ToolRoundExecutor:
             closing_can_deliver=closing_can_deliver,
             activated_tools=activated_tools,
             computer_halted=computer_halted,
+            skill_tool_scope=skill_tool_scope,
         )
         if rejection is not None:
             await hook.before_execute(context)
@@ -257,6 +261,7 @@ class ToolRoundExecutor:
         closing_can_deliver: bool,
         activated_tools: set[str],
         computer_halted: bool,
+        skill_tool_scope: frozenset[str] | None = None,
     ) -> str | None:
         if computer_halted and tool_call.name.startswith("computer_"):
             return (
@@ -281,6 +286,12 @@ class ToolRoundExecutor:
             return (
                 "Tool is not allowed in plan mode "
                 "(read-only / planning tools only)."
+            )
+        if skill_tool_scope is not None and tool_call.name not in skill_tool_scope:
+            # Active Skill 的 allowed-tools 是执行层硬边界：Schema 已收窄，
+            # 伪造 / 遗漏的调用也必须被拒绝，且不能扩大任何模式权限。
+            return (
+                "Tool is outside the active skill's allowed-tools scope."
             )
         if not self._registry.is_available_for_mode(
             tool_call.name,
