@@ -406,7 +406,7 @@ async def test_post_run_processor_close_drains_and_cancels() -> None:
         await asyncio.sleep(0.01)
         done.set()
 
-    assert processor.submit(fast) is True
+    assert processor.submit(fast).accepted is True
     await processor.close()
     assert done.is_set()
     assert processor.active_count == 0
@@ -421,7 +421,7 @@ async def test_post_run_processor_close_drains_and_cancels() -> None:
     processor2.submit(stuck)
     await processor2.close()
     assert processor2.active_count == 0
-    assert processor2.submit(stuck) is False  # closed 后拒绝新任务
+    assert processor2.submit(stuck).accepted is False  # closed 后拒绝新任务
 
 
 @pytest.mark.asyncio
@@ -439,8 +439,8 @@ async def test_post_run_processor_cancels_only_target_conversation() -> None:
         started_b.set()
         await gate.wait()
 
-    assert processor.submit(wait_a, conversation_id="conversation-a") is True
-    assert processor.submit(wait_b, conversation_id="conversation-b") is True
+    assert processor.submit(wait_a, conversation_id="conversation-a").accepted is True
+    assert processor.submit(wait_b, conversation_id="conversation-b").accepted is True
     await started_a.wait()
     await started_b.wait()
 
@@ -485,7 +485,7 @@ async def test_application_close_drains_post_run(tmp_path: Path) -> None:
     async def slow() -> None:
         await gate.wait()
 
-    assert app.post_run_processor.submit(slow) is True
+    assert app.post_run_processor.submit(slow).accepted is True
     assert app.post_run_processor.active_count == 1
     gate.set()
     await app.close()
@@ -529,3 +529,113 @@ async def test_next_run_not_blocked_by_previous_slow_reflection(tmp_path: Path) 
     await _wait_active_zero(processor)
     await processor.close()
     assert await manager.active_count() == 2
+
+
+# ---------------------------------------------------------------------------
+# P0：提交被拒绝（closed / saturated）不允许静默丢失 Post-Run 任务
+# ---------------------------------------------------------------------------
+
+
+async def test_submit_rejection_carries_reason() -> None:
+    """closed / saturated 拒绝携带原因，供上层记录 skipped 事件。"""
+
+    processor = PostRunProcessor()
+    await processor.close()
+
+    rejected = processor.submit(asyncio.sleep(0))
+    assert rejected.accepted is False
+    assert rejected.reason == "closed"
+
+    saturated = PostRunProcessor(max_concurrency=1)
+    release = asyncio.Event()
+
+    async def stuck() -> None:
+        await release.wait()
+
+    assert saturated.submit(stuck).accepted is True
+    second = saturated.submit(asyncio.sleep(0))
+    assert second.accepted is False
+    assert second.reason == "saturated"
+
+    release.set()
+    await saturated.close()
+
+
+async def test_dropped_post_run_emits_skipped_event(tmp_path: Path) -> None:
+    """处理器拒绝提交时发出 memory_reflection_skipped（含原因），不静默消失。"""
+
+    manager = await _manager(tmp_path / "memory")
+    processor = PostRunProcessor()
+    await processor.close()  # 预置 closed，提交必被拒绝
+    runtime, events, _ = _runtime(
+        manager,
+        main_responses=[_response("最终答案", provider="main", model="main-model")],
+        reflect_responses=[_response(_create_json())],
+        processor=processor,
+    )
+
+    result = await runtime.run("完成当前任务", event_handler=events)
+
+    assert result.ok is True
+    skipped = [
+        event
+        for event in events.events
+        if event.type is AgentEventType.MEMORY_REFLECTION_SKIPPED
+    ]
+    assert skipped, "提交被拒绝必须留下 skipped 事件"
+    assert skipped[-1].reflection_skip_reason == "post_run_dropped:closed"
+    # 被拒绝后不得再出现 started（后台任务从未运行）。
+    assert AgentEventType.MEMORY_REFLECTION_STARTED not in {
+        event.type for event in events.events
+    }
+    assert await manager.active_count() == 0
+
+
+async def test_saturated_post_run_emits_skipped_event(tmp_path: Path) -> None:
+    """并发饱和拒绝提交时同样留下 skipped 事件（原因 saturated）。"""
+
+    manager = await _manager(tmp_path / "memory")
+    processor = PostRunProcessor(max_concurrency=1)
+    gate = asyncio.Event()
+
+    async def stuck() -> None:
+        await gate.wait()
+
+    assert processor.submit(stuck).accepted is True
+    runtime, events, _ = _runtime(
+        manager,
+        main_responses=[_response("最终答案", provider="main", model="main-model")],
+        reflect_responses=[_response(_create_json())],
+        processor=processor,
+    )
+
+    result = await runtime.run("完成当前任务", event_handler=events)
+
+    assert result.ok is True
+    skipped = [
+        event
+        for event in events.events
+        if event.type is AgentEventType.MEMORY_REFLECTION_SKIPPED
+    ]
+    assert skipped[-1].reflection_skip_reason == "post_run_dropped:saturated"
+
+    gate.set()
+    await processor.close()
+
+
+async def test_done_callback_pop_is_safe_after_clear() -> None:
+    """任务完成回调对缺失映射安全（close 清空后完成不抛 KeyError）。"""
+
+    processor = PostRunProcessor()
+    done = asyncio.Event()
+
+    async def job() -> None:
+        done.set()
+        await asyncio.sleep(0)
+
+    assert processor.submit(job).accepted is True
+    await done.wait()
+    # 模拟 close()/clear() 先清空映射，再让任务完成触发 done callback。
+    processor._active.clear()
+    await asyncio.sleep(0)
+    assert processor.active_count == 0

@@ -60,6 +60,7 @@ from .events import (
 )
 from .loop import AgentLoop
 from .memory_post_run import PostRunMemoryCoordinator
+from .post_run_processor import PostRunSubmitResult
 from .result import (
     AgentResult,
 )
@@ -93,7 +94,7 @@ class AgentRuntime:
         skill_store: SkillStore | None = None,
         skill_context_provider: SkillContextProvider | None = None,
         tool_output_recorder: ToolOutputRecorder | None = None,
-        post_run_submit: Callable[..., bool] | None = None,
+        post_run_submit: Callable[..., PostRunSubmitResult] | None = None,
         run_budget_config: RunBudgetConfig | None = None,
     ) -> None:
         if max_steps < 1:

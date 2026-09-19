@@ -20,6 +20,7 @@ from app.task.context import TaskContextProvider
 
 from .event_stream import EventEmitter
 from .events import AgentEventType
+from .post_run_processor import PostRunSubmitResult
 from .result import AgentResult, AgentStopReason
 from .runtime_helpers import (
     recalled_memory_revisions,
@@ -37,7 +38,7 @@ class PostRunMemoryCoordinator:
         reflector: PostRunMemoryReflector | None,
         maintenance_reflector: MemoryMaintenanceReflector | None,
         task_context_provider: TaskContextProvider | None,
-        submit: Callable[..., bool] | None,
+        submit: Callable[..., PostRunSubmitResult] | None,
     ) -> None:
         self._manager = manager
         self._reflector = reflector
@@ -150,11 +151,21 @@ class PostRunMemoryCoordinator:
             )
 
         if self._submit is not None:
-            self._submit(
+            submitted = self._submit(
                 job,
                 conversation_id=conversation_id,
                 run_id=result.run_id,
             )
+            if not submitted:
+                # 后台处理器拒绝（closed / saturated）：Post-Run 任务被丢弃。
+                # 必须留下可观察的 skipped 事件，绝不允许静默消失。
+                reason = getattr(submitted, "reason", None) or "unavailable"
+                await emitter.emit(
+                    AgentEventType.MEMORY_REFLECTION_SKIPPED,
+                    reflection_triggered=False,
+                    reflection_skip_reason=f"post_run_dropped:{reason}",
+                )
+                return
         else:
             # 直接构造 Runtime 的调用方没有后台 Processor，保持同步 fallback。
             await job()

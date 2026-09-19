@@ -54,6 +54,12 @@ export function describeActivity(event: AgentEvent): string {
       return '保存有用上下文'
     case 'memory_reflection_completed':
       return '上下文已保存'
+    case 'memory_reflection_failed':
+      return '上下文保存失败'
+    case 'memory_reflection_skipped':
+      return event.reflection_skip_reason?.startsWith('post_run_dropped:')
+        ? `上下文整理未执行（后台任务被丢弃：${event.reflection_skip_reason.slice('post_run_dropped:'.length)}）`
+        : `上下文整理已跳过${event.reflection_skip_reason ? `（${event.reflection_skip_reason}）` : ''}`
     case 'agent_completed':
       return '执行完成'
     case 'agent_failed':
@@ -179,6 +185,36 @@ export function buildActivityEntries(events: AgentEvent[]): ActivityEntry[] {
         state: 'active',
         time: formatEventTime(event.event_time),
       })
+      continue
+    }
+
+    if (
+      event.type === 'memory_reflection_completed' ||
+      event.type === 'memory_reflection_failed' ||
+      event.type === 'memory_reflection_skipped'
+    ) {
+      // 收口 Reflection 时间线：started 留下的 active 项置为终态。
+      const startIndex = entries.findIndex(
+        (entry) => entry.label === '保存有用上下文' && entry.state === 'active',
+      )
+      if (startIndex >= 0) {
+        entries[startIndex] = {
+          ...entries[startIndex],
+          state:
+            event.type === 'memory_reflection_completed'
+              ? 'done'
+              : event.type === 'memory_reflection_failed'
+                ? 'failed'
+                : 'done',
+        }
+      } else {
+        entries.push({
+          id: event.event_id,
+          label: describeActivity(event),
+          state: event.type === 'memory_reflection_failed' ? 'failed' : 'done',
+          time: formatEventTime(event.event_time),
+        })
+      }
       continue
     }
 

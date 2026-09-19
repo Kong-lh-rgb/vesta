@@ -23,6 +23,22 @@ PostRunJob = Callable[[], Awaitable[None]]
 
 
 @dataclass(frozen=True, slots=True)
+class PostRunSubmitResult:
+    """一次后台任务提交的结果。
+
+    被拒绝时 ``accepted=False`` 且 ``reason`` 说明原因（``closed`` /
+    ``saturated``）。调用方必须检查该结果：静默丢弃 Post-Run 任务会造
+    成 Memory Reflection 等收口工作无声丢失。
+    """
+
+    accepted: bool
+    reason: str | None = None
+
+    def __bool__(self) -> bool:
+        return self.accepted
+
+
+@dataclass(frozen=True, slots=True)
 class _PostRunOwner:
     """后台任务的最小归属，用于会话删除时定向取消。"""
 
@@ -59,21 +75,22 @@ class PostRunProcessor:
         *,
         conversation_id: str | None = None,
         run_id: str | None = None,
-    ) -> bool:
-        """提交一个后台协程。closed 或饱和时返回 False（丢弃该 job）。"""
+    ) -> PostRunSubmitResult:
+        """提交一个后台协程。closed 或饱和时拒绝并返回原因（不静默丢弃）。"""
         if self._closed:
             logger.warning("post-run processor closed; dropping background job")
-            return False
+            return PostRunSubmitResult(accepted=False, reason="closed")
         if len(self._active) >= self._max_concurrency:
             logger.warning("post-run processor saturated; dropping background job")
-            return False
+            return PostRunSubmitResult(accepted=False, reason="saturated")
         task = asyncio.get_running_loop().create_task(self._run_job(job))
         self._active[task] = _PostRunOwner(
             conversation_id=conversation_id,
             run_id=run_id,
         )
-        task.add_done_callback(self._active.pop)
-        return True
+        # 安全 pop：close()/clear() 可能已移除映射，缺失时不能抛 KeyError。
+        task.add_done_callback(lambda done: self._active.pop(done, None))
+        return PostRunSubmitResult(accepted=True)
 
     async def cancel_for_conversation(self, conversation_id: str) -> int:
         """取消会话仍在运行的 Post-Run 任务，防止删除后迟到写入。"""
@@ -122,4 +139,4 @@ class PostRunProcessor:
         self._active.clear()
 
 
-__all__ = ["PostRunProcessor"]
+__all__ = ["PostRunProcessor", "PostRunSubmitResult"]
