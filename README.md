@@ -79,7 +79,7 @@ Vesta 是一个面向长期工作的本地 AI Agent Harness。它不只完成当
   </a>
 </p>
 
-Core Memory 随 Run 进入上下文，Ordinary Memory 只提供索引，由模型在需要时主动读取。
+Core Memory 随 Run 进入上下文；Ordinary Memory 由 Harness 每个 Run 做一次 Hybrid 自动召回（FTS5 + 向量 + RRF，仅注入 Top-5 候选摘要），模型需要完整内容时仍主动 memory_read。
 
 </details>
 
@@ -88,7 +88,7 @@ Core Memory 随 Run 进入上下文，Ordinary Memory 只提供索引，由模�
 - **Multi-Provider Models** — 统一适配 OpenAI、Qwen、DeepSeek 和 Anthropic API。
 - **Tool System** — 本地文件、Shell、网页搜索、时间等工具共享注册、超时、权限和审计边界；Shell 默认在 workspace 沙箱中执行。
 - **MCP Extensions** — 通过 Desktop 导入和管理外部 stdio MCP Server；第三方进程使用白名单环境并在 macOS Seatbelt 中隔离。
-- **Memory** — Core Memory 常驻，Ordinary Memory 按索引由模型主动读取，并在 Run 后反思更新。
+- **Memory** — Core Memory 常驻，Ordinary Memory 每 Run 自动混合召回（FTS5 + 向量 + RRF）候选，模型按需读取正文，并在 Run 后反思更新；Markdown 是唯一权威存储，搜索索引可重建。
 - **Task / Plan Mode** — 一个整体目标对应一个 Task，使用 Steps 跟踪复杂工作的真实进度。
 - **Skill & Skill Learning** — 按需激活 Skill，并从多个 Completed Task 的 Trace 中提炼候选经验。
 - **Context Management** — 每轮整理工具结果，超过预算后滚动摘要，同时保留当前目标和关键状态。

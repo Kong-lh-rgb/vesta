@@ -1,9 +1,14 @@
-"""长期记忆语义化工具：在线 Recall、显式 Core 操作与内部普通写入。
+"""长期记忆语义化工具：Hybrid 检索、显式 Core 操作与内部普通写入。
 
-这些工具不是数据库 CRUD，而是语义化 Memory API。读取是显式的
-（Model-directed Recall）：模型看到 Recall Cue 后决定何时 ``memory_read``。
-Runtime 不做 query-driven 自动检索或 Top-K 注入。普通 Memory 写工具保留为
-内部能力，但不注册到 Main Agent 的默认 Tool Registry。
+这些工具不是数据库 CRUD，而是语义化 Memory API。召回分两层：
+
+- Harness 自动 Hybrid Recall（FTS5 + 向量 + RRF）：每个 Run 用确定性
+  Recall Query 检索一次，注入 Top-5 候选（仅 cue 级，不含完整正文）；
+- 模型显式检索与读取：``memory_search`` 补充候选，``memory_read`` 才是
+  正式读取（计入 access_count 并授权 Reflection Update）。
+
+普通 Memory 写工具保留为内部能力，但不注册到 Main Agent 的默认 Tool
+Registry（普通记忆写入由 Post-Run Reflection 经 Manager 完成）。
 """
 
 from __future__ import annotations
