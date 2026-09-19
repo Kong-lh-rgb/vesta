@@ -208,6 +208,10 @@ export interface AgentEvent {
   usage: ModelUsage | null
   stop_reason: string | null
   approval_decision: string | null
+  /** memory_reflection_* 事件携带的观察字段（未触发/跳过/失败原因）。 */
+  reflection_triggered?: boolean | null
+  reflection_skip_reason?: string | null
+  reflection_error?: string | null
   /** agent_completed / agent_failed 携带的最终结果（含 usage / steps）。 */
   result?: AgentResult | null
   original_estimated_input_tokens?: number | null

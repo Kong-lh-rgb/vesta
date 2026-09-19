@@ -237,3 +237,57 @@ describe('ActivityItems', () => {
     expect(html).toContain('暂无压缩')
   })
 })
+
+describe('Post-Run Memory 可观察性（未触发 / 跳过 / 失败 / 完成）', () => {
+  it('reflection skipped 区分后台丢弃原因与普通跳过', () => {
+    expect(
+      describeActivity(
+        event({
+          type: 'memory_reflection_skipped',
+          reflection_skip_reason: 'post_run_dropped:closed',
+        }),
+      ),
+    ).toBe('上下文整理未执行（后台任务被丢弃：closed）')
+    expect(
+      describeActivity(
+        event({
+          type: 'memory_reflection_skipped',
+          reflection_skip_reason: 'gate:smalltalk',
+        }),
+      ),
+    ).toBe('上下文整理已跳过（gate:smalltalk）')
+  })
+
+  it('reflection failed 有独立标签', () => {
+    expect(
+      describeActivity(event({ type: 'memory_reflection_failed' })),
+    ).toBe('上下文保存失败')
+  })
+
+  it('buildActivityEntries 把 started 的 active 项按终态收口', () => {
+    const started = event({
+      type: 'memory_reflection_started',
+      event_id: 'evt-start',
+    })
+    const skipped = event({
+      type: 'memory_reflection_skipped',
+      event_id: 'evt-skip',
+      reflection_skip_reason: 'post_run_dropped:saturated',
+    })
+    const entries = buildActivityEntries([started, skipped])
+    const reflection = entries.find((entry) => entry.label === '保存有用上下文')
+    expect(reflection?.state).toBe('done')
+  })
+
+  it('只有 skipped 没有 started 时也会生成一条记录', () => {
+    const entries = buildActivityEntries([
+      event({
+        type: 'memory_reflection_skipped',
+        reflection_skip_reason: 'post_run_dropped:closed',
+      }),
+    ])
+    expect(
+      entries.some((entry) => entry.label.includes('后台任务被丢弃')),
+    ).toBe(true)
+  })
+})
