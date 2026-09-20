@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
@@ -29,6 +30,8 @@ from app.memory import (
     FakeEmbeddingAdapter,
     MemoryManager,
     MemoryRecallQueryInputs,
+    MemoryRecord,
+    MemorySearchSettings,
     SearchMode,
 )
 from app.memory.search_index import MemorySearchIndex, _ChunkHit
@@ -919,3 +922,146 @@ async def test_min_vector_similarity_threshold_is_wired(
     assert [candidate.memory_id for candidate in result.candidates] == ["M001"]
     assert result.candidates[0].matched_by_vector is False
     assert result.candidates[0].matched_by_fts is True
+
+
+# ----------------------------------------------------------------------
+# P1-7：后台向量补全的退避重试 / 可观察状态 / 维度变化重建
+# ----------------------------------------------------------------------
+
+
+class FlakyEmbedding(FakeEmbeddingAdapter):
+    """前 N 次 embed 失败，之后恢复（模拟瞬时网络故障）。"""
+
+    def __init__(self, failures: int) -> None:
+        super().__init__()
+        self.failures = failures
+        self.calls = 0
+
+    async def embed_documents(self, texts):
+        self.calls += 1
+        if self.calls <= self.failures:
+            raise RuntimeError("embedding service temporarily down")
+        return await super().embed_documents(texts)
+
+
+class AlwaysFailingEmbedding(FakeEmbeddingAdapter):
+    async def embed_documents(self, texts):
+        raise RuntimeError("embedding service offline")
+
+    async def embed_query(self, text: str) -> tuple[float, ...]:
+        raise RuntimeError("embedding service offline")
+
+
+def _fast_settings(**overrides) -> MemorySearchSettings:
+    values: dict = {
+        "backfill_attempts": 3,
+        "backfill_retry_base_delay": 0.0,
+    }
+    values.update(overrides)
+    return MemorySearchSettings(**values)
+
+
+def _record(
+    content: str = "部署流程说明：先跑测试，再构建镜像，最后滚动发布。",
+) -> MemoryRecord:
+    now = datetime.now(UTC)
+    return MemoryRecord(
+        id="M001",
+        title="部署流程",
+        summary="标准发布流程",
+        content=content,
+        created_at=now,
+        updated_at=now,
+        last_accessed_at=now,
+    )
+
+
+@pytest.mark.asyncio
+async def test_backfill_retries_transient_failure_then_completes(
+    tmp_path,
+) -> None:
+    """瞬时故障：有限退避重试后补全成功，向量路径恢复可用。"""
+
+    embedding = FlakyEmbedding(failures=2)
+    index = MemorySearchIndex(
+        tmp_path / "search.sqlite",
+        embedding=embedding,
+        settings=_fast_settings(),
+    )
+    await index.initialize()
+    await index.upsert(_record())  # 首次 embed 失败 → chunk 落库但无向量
+
+    await index.backfill_embeddings()
+
+    assert index.backfill_status == "complete"
+    assert index.backfill_last_error is None
+    assert index.backfill_attempts_used >= 2  # 第一次失败后重试成功
+    result = await index.search("部署流程")
+    assert result.mode is SearchMode.HYBRID
+    assert result.candidates[0].memory_id == "M001"
+
+
+@pytest.mark.asyncio
+async def test_backfill_exhausts_retries_and_degrades_to_fts(tmp_path) -> None:
+    """持续故障：重试耗尽后状态 failed，本轮降级 FTS，检索仍可用。"""
+
+    index = MemorySearchIndex(
+        tmp_path / "search.sqlite",
+        embedding=AlwaysFailingEmbedding(),
+        settings=_fast_settings(),
+    )
+    await index.initialize()
+    await index.upsert(_record())
+
+    await index.backfill_embeddings()
+
+    assert index.backfill_status == "failed"
+    assert index.backfill_attempts_used == 3
+    assert index.backfill_last_error is not None
+    # 降级不阻断检索：FTS 单路命中。
+    result = await index.search("部署流程")
+    assert result.mode is SearchMode.FTS
+    assert result.candidates[0].memory_id == "M001"
+
+
+@pytest.mark.asyncio
+async def test_dimension_change_triggers_reembed(tmp_path) -> None:
+    """同名模型更换维度：补全查询按维度对账，旧维度向量全部重算。"""
+
+    index_a = MemorySearchIndex(
+        tmp_path / "search.sqlite",
+        embedding=FakeEmbeddingAdapter(dimensions=256),
+        settings=_fast_settings(),
+    )
+    await index_a.initialize()
+    await index_a.upsert(_record())
+    await index_a.backfill_embeddings()
+    assert index_a.backfill_status == "complete"
+
+    # 模型名不变、维度 256 → 1024：必须识别为需要重算。
+    index_b = MemorySearchIndex(
+        tmp_path / "search.sqlite",
+        embedding=FakeEmbeddingAdapter(dimensions=1024),
+        settings=_fast_settings(),
+    )
+    await index_b.initialize()
+    await index_b.backfill_embeddings()
+
+    assert index_b.backfill_status == "complete"
+    result = await index_b.search("部署流程")
+    assert result.mode is SearchMode.HYBRID
+    assert result.candidates[0].memory_id == "M001"
+
+
+@pytest.mark.asyncio
+async def test_manager_exposes_backfill_status(tmp_path) -> None:
+    """Manager 暴露后台补全状态（诊断 / RPC 用）。"""
+
+    manager = MemoryManager(tmp_path / "memory", embedding=FakeEmbeddingAdapter())
+    await manager.initialize()
+
+    assert manager.embedding_backfill_status in {"idle", "running", "complete"}
+    task = manager._search_backfill_task
+    if task is not None:
+        await task
+    assert manager.embedding_backfill_status == "complete"

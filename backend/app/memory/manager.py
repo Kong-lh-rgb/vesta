@@ -107,6 +107,12 @@ class MemoryManager:
 
         return self._hybrid_search_enabled and self._search_ok
 
+    @property
+    def embedding_backfill_status(self) -> str:
+        """后台向量补全状态：idle / running / complete / failed（诊断用）。"""
+
+        return self._search_index.backfill_status
+
     async def initialize(self) -> None:
         """创建 memory 目录结构；搜索投影失败只降级，不阻止启动。"""
 
