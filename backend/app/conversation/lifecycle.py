@@ -104,6 +104,11 @@ class ConversationLifecycleService:
 
         顺序刻意把 Conversation 本体放在最后。任何前置清理失败时，会话仍
         存在，调用方可以安全重试；已完成的子清理均为幂等操作。
+
+        SQLite 空间语义：删除行后数据库文件不会立即缩小，被释放的页由
+        后续写入复用（空闲页池）。这是 WAL 模式下的正常行为；如需物理
+        回收空间可由运维离线执行 VACUUM，删除路径不默认触发（会全库
+        重写并阻塞写入）。
         """
 
         normalized = conversation_id.strip()
