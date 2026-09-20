@@ -336,3 +336,260 @@ async def test_deletion_blocks_new_conversation_execution() -> None:
             pass
     allow_stop.set()
     await deletion
+
+
+# ---------------------------------------------------------------------------
+# P1：删除中途失败加固（故障注入 / 重试幂等 / 取消 / 不误删）
+# ---------------------------------------------------------------------------
+
+
+class _CountingRunManagerStub:
+    def __init__(self) -> None:
+        self.cancelled: list[str] = []
+
+    async def cancel_for_conversation(self, conversation_id: str) -> tuple[str, ...]:
+        self.cancelled.append(conversation_id)
+        return ("run-active-1",)
+
+    def forget_results(self, run_ids: tuple[str, ...]) -> None:
+        pass
+
+
+class _CountingPostRunStub:
+    def __init__(self) -> None:
+        self.cancelled: list[str] = []
+
+    async def cancel_for_conversation(self, conversation_id: str) -> int:
+        self.cancelled.append(conversation_id)
+        return 2
+
+
+class _CountingAutomationStub(_AutomationSchedulerStub):
+    def __init__(self, store: SQLiteAutomationStore) -> None:
+        super().__init__(store)
+        self.deleted: list[str] = []
+
+    async def delete_for_conversation(self, conversation_id: str) -> int:
+        self.deleted.append(conversation_id)
+        return await super().delete_for_conversation(conversation_id)
+
+
+async def _build_deletion_fixture(tmp_path):
+    """构建带完整关联数据的会话删除环境（P1 加固测试共用）。"""
+
+    database = tmp_path / "vesta.db"
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    memory_dir = tmp_path / "memory"
+    skills_dir = tmp_path / "project-skills" / "keep-skill"
+    skills_dir.mkdir(parents=True)
+    (skills_dir / "SKILL.md").write_text(
+        "---\nname: keep-skill\ndescription: 不能被会话删除波及\n---\n\n正文",
+        encoding="utf-8",
+    )
+    (workspace / "user-file.txt").write_text("用户文件", encoding="utf-8")
+    (memory_dir).mkdir()
+
+    conversations = SQLiteConversationStore(database)
+    summaries = SQLiteConversationSummaryStore(database)
+    runs = SQLiteRunStore(database)
+    checkpoints = SQLiteCheckpointStore(database)
+    traces = SQLiteTraceStore(database)
+    evidence = SQLiteEvidenceStore(database)
+    approvals = SQLiteApprovalStore(database)
+    artifacts_store = SQLiteArtifactStore(database)
+    artifacts = ArtifactService(
+        artifacts_store, workspace, managed_dir=tmp_path / "artifacts"
+    )
+    tasks = FileTaskStore(tmp_path / "tasks")
+    rules = SQLitePermissionRuleStore(database)
+    automations = SQLiteAutomationStore(database)
+    for store in (
+        conversations, summaries, runs, checkpoints, traces, evidence,
+        approvals, artifacts_store, tasks, rules, automations,
+    ):
+        await store.initialize()
+
+    conversation = await conversations.create(
+        messages=(Message(role=MessageRole.USER, content="主会话"),)
+    )
+    run = await runs.create(
+        conversation_id=conversation.id, user_message="执行"
+    )
+    await runs.mark_started(run.id)
+    await traces.record_event(
+        AgentEvent(
+            run_id=run.id,
+            conversation_id=conversation.id,
+            sequence=0,
+            type=AgentEventType.AGENT_STARTED,
+        )
+    )
+    await checkpoints.start(
+        run.id,
+        conversation_id=conversation.id,
+        user_message=Message(role=MessageRole.USER, content="执行"),
+    )
+    content = "证据"
+    await evidence.create(
+        conversation_id=conversation.id,
+        run_id=run.id,
+        tool_call_id="tool-x",
+        tool_name="read_file",
+        content=content,
+        sha256=hashlib.sha256(content.encode()).hexdigest(),
+    )
+    await approvals.create(
+        run_id=run.id,
+        conversation_id=conversation.id,
+        tool_name="run_shell_command",
+        tool_call_id="approval-x",
+    )
+    task = await tasks.create(
+        title="任务", owner_conversation_id=conversation.id
+    )
+    (workspace / "art.txt").write_text("artifact", encoding="utf-8")
+    artifact = await artifacts.publish_file(
+        path="art.txt", run_id=run.id, conversation_id=conversation.id
+    )
+
+    run_manager = _CountingRunManagerStub()
+    post_run = _CountingPostRunStub()
+    automation_scheduler = _CountingAutomationStub(automations)
+    lifecycle = ConversationLifecycleService(
+        conversations,
+        ConversationOperationCoordinator(),
+        run_manager,  # type: ignore[arg-type]
+        runs,
+        checkpoints,
+        traces,
+        evidence,
+        approvals,
+        artifacts,
+        tasks,
+        rules,
+        automation_scheduler,  # type: ignore[arg-type]
+        post_run,  # type: ignore[arg-type]
+        screenshot_dir=tmp_path / "screenshots",
+    )
+    return {
+        "lifecycle": lifecycle,
+        "conversations": conversations,
+        "runs": runs,
+        "traces": traces,
+        "evidence": evidence,
+        "tasks": tasks,
+        "approvals": approvals,
+        "artifacts_store": artifacts_store,
+        "checkpoints": checkpoints,
+        "run_manager": run_manager,
+        "post_run": post_run,
+        "conversation_id": conversation.id,
+        "run_id": run.id,
+        "task_id": task.id,
+        "artifact_id": artifact.id,
+        "workspace": workspace,
+        "memory_dir": memory_dir,
+        "skills_dir": skills_dir,
+    }
+
+
+_STAGE_METHODS = {
+    "artifacts": ("_artifact_service", "delete_for_conversation"),
+    "tasks": ("_task_store", "delete_for_conversation"),
+    "approvals": ("_approval_store", "delete_for_conversation"),
+    "evidence": ("_evidence_store", "delete_for_conversation"),
+    "checkpoints": ("_checkpoint_store", "delete_for_conversation"),
+    "traces": ("_trace_store", "delete_for_conversation"),
+    "runs": ("_run_store", "delete_for_conversation"),
+}
+
+
+@pytest.mark.parametrize("stage", sorted(_STAGE_METHODS))
+@pytest.mark.asyncio
+async def test_failure_at_any_stage_preserves_conversation_and_retry_completes(
+    tmp_path, stage, monkeypatch
+) -> None:
+    """任意子清理阶段失败：会话保留、报错可见；重试继续完成全部清理。"""
+
+    fixture = await _build_deletion_fixture(tmp_path)
+    lifecycle = fixture["lifecycle"]
+    conversations = fixture["conversations"]
+    attribute, method = _STAGE_METHODS[stage]
+    target = getattr(lifecycle, attribute)
+    original = getattr(target, method)
+
+    async def explode(*args, **kwargs):
+        raise RuntimeError(f"injected failure at {stage}")
+
+    monkeypatch.setattr(target, method, explode)
+
+    with pytest.raises(RuntimeError, match="injected failure"):
+        await lifecycle.delete(fixture["conversation_id"])
+
+    # 失败后会话本体仍在（Conversation 最后删除），可以安全重试。
+    assert await conversations.get(fixture["conversation_id"]) is not None
+
+    monkeypatch.setattr(target, method, original)
+    result = await lifecycle.delete(fixture["conversation_id"])
+
+    assert result is not None and result.deleted is True
+    assert await conversations.get(fixture["conversation_id"]) is None
+    assert await fixture["runs"].get(fixture["run_id"]) is None
+    assert await fixture["traces"].get(fixture["run_id"]) is None
+    assert await fixture["checkpoints"].get(fixture["run_id"]) is None
+    await _assert_store_empty(fixture, stage)
+
+
+async def _assert_store_empty(fixture, failed_stage: str) -> None:
+    conversation_id = fixture["conversation_id"]
+    assert await fixture["evidence"].list_recent(
+        conversation_id=conversation_id
+    ) == ()
+    assert await fixture["approvals"].list(conversation_id=conversation_id) == ()
+    assert await fixture["artifacts_store"].get(fixture["artifact_id"]) is None
+    if failed_stage != "tasks":
+        assert await fixture["tasks"].get(fixture["task_id"]) is None
+
+
+@pytest.mark.asyncio
+async def test_deletion_cancels_active_work_and_post_run_jobs(tmp_path) -> None:
+    """活动 Run、Automation、Post-Run Job 在删除期间全部被取消。"""
+
+    fixture = await _build_deletion_fixture(tmp_path)
+
+    result = await fixture["lifecycle"].delete(fixture["conversation_id"])
+
+    assert result is not None
+    assert result.cancelled_runs == 1
+    assert result.cancelled_post_run_jobs == 2
+    assert fixture["run_manager"].cancelled == [fixture["conversation_id"]]
+    assert fixture["post_run"].cancelled == [fixture["conversation_id"]]
+
+
+@pytest.mark.asyncio
+async def test_deletion_does_not_touch_memory_skills_or_user_files(
+    tmp_path,
+) -> None:
+    """Memory、正式 Skill、workspace 用户文件不属于会话私有数据，不删除。"""
+
+    fixture = await _build_deletion_fixture(tmp_path)
+    timestamp = "2026-01-01T00:00:00+00:00"
+    (fixture["memory_dir"] / "M001.md").write_text(
+        "---\n"
+        "id: M001\n"
+        "title: 记忆\n"
+        "summary: s\n"
+        f"created_at: {timestamp}\n"
+        f"updated_at: {timestamp}\n"
+        f"last_accessed_at: {timestamp}\n"
+        "---\n# 记忆\n\n## Memory\n\n正文",
+        encoding="utf-8",
+    )
+
+    result = await fixture["lifecycle"].delete(fixture["conversation_id"])
+
+    assert result is not None and result.deleted is True
+    assert (fixture["memory_dir"] / "M001.md").exists()
+    assert (fixture["skills_dir"] / "SKILL.md").exists()
+    assert (fixture["workspace"] / "user-file.txt").exists()
