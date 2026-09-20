@@ -861,3 +861,52 @@ async def test_runtime_max_steps_skips_reflection(tmp_path: Path) -> None:
     assert reflect.requests == []
     assert events.events[-2].type is AgentEventType.AGENT_FAILED
     assert events.events[-1].type is AgentEventType.MEMORY_REFLECTION_SKIPPED
+
+
+@pytest.mark.asyncio
+async def test_classification_regression_samples(tmp_path: Path) -> None:
+    """Core / Ordinary 分类回归样本：提示词对两类典型样本给出正确边界。"""
+
+    core_samples = (
+        "用户明确说：以后所有回复都用简体中文。",
+        "我住在北京，长期偏好夜间工作。",
+    )
+    reflector = PostRunMemoryReflector(
+        _registry(
+            reflect=FakeAdapter(
+                _config("reflect", "reflection-model"),
+                [
+                    _response(
+                        '{"action":"none","reason":"core-worthy sample"}'
+                    ),
+                    _response(
+                        '{"action":"none","reason":"core-worthy sample"}'
+                    ),
+                ],
+            )
+        ),
+        config=_reflection_config(),
+    )
+
+    for sample in core_samples:
+        proposal = await reflector.decide(
+            MemoryReflectionInput(
+                run_id="run-1",
+                conversation_id="conversation-1",
+                user_input=sample,
+                final_answer="已记录。",
+                recalled_memory_ids=(),
+            )
+        )
+        assert proposal.error is None
+        assert proposal.decision is not None
+
+    # 提示词包含两类样本的分类边界（Core 归 Core 工具，普通记忆拒绝兜底）。
+    from app.memory.reflection import _REFLECTION_PROMPT
+
+    assert "Core-worthy and must return NONE" in _REFLECTION_PROMPT
+    assert "Never CREATE or UPDATE ordinary memory as a fallback" in _REFLECTION_PROMPT
+    assert "Ordinary memory is for important" in _REFLECTION_PROMPT
+    # Ordinary 样本属于 Post-Run Reflection 的职责范围（非 Task / Skill）。
+    assert "current task progress" in _REFLECTION_PROMPT
+    assert "reusable procedures" in _REFLECTION_PROMPT

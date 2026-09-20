@@ -82,6 +82,8 @@ class MemorySearchSettings:
         snippet_chars: int = 360,
         recall_message_max_chars: int = 2_400,
         query_max_chars: int = 1_600,
+        backfill_attempts: int = 3,
+        backfill_retry_base_delay: float = 2.0,
     ) -> None:
         if top_k <= 0 or chunk_chars <= 0:
             raise ValueError("search settings limits must be positive")
@@ -89,6 +91,10 @@ class MemorySearchSettings:
             raise ValueError("chunk overlap must be within [0, chunk_chars)")
         if not 0.0 <= min_vector_similarity < 1.0:
             raise ValueError("min_vector_similarity must be within [0, 1)")
+        if backfill_attempts < 1:
+            raise ValueError("backfill_attempts must be at least 1")
+        if backfill_retry_base_delay < 0:
+            raise ValueError("backfill_retry_base_delay cannot be negative")
         self.top_k = top_k
         self.chunk_chars = chunk_chars
         self.chunk_overlap_chars = chunk_overlap_chars
@@ -100,6 +106,10 @@ class MemorySearchSettings:
         self.snippet_chars = snippet_chars
         self.recall_message_max_chars = recall_message_max_chars
         self.query_max_chars = query_max_chars
+        # 后台向量补全的有限退避重试：避免一次网络故障让整个 Host 生命
+        # 周期只剩 FTS。尝试间延迟按 base * 4^n 指数退避。
+        self.backfill_attempts = backfill_attempts
+        self.backfill_retry_base_delay = backfill_retry_base_delay
 
 
 _SCHEMA_CHUNKS = """
@@ -210,7 +220,12 @@ def _normalize_vector(vector: tuple[float, ...]) -> tuple[tuple[float, ...], byt
 
 
 class MemorySearchIndex:
-    """SQLite FTS5 + 向量的混合检索投影。"""
+    """SQLite FTS5 + 向量的混合检索投影。
+
+    注意：向量检索是**确定性的全量余弦扫描**（纯 Python 点积），不是
+    sqlite-vec 等 ANN 近似查询。当前普通记忆数量很小（active ≤ 25），
+    全量扫描成本可忽略；未来记忆规模显著增长时再考虑 ANN 投影。
+    """
 
     def __init__(
         self,
@@ -227,6 +242,10 @@ class MemorySearchIndex:
         # 启动对账与后台补全完成前禁止使用部分向量，避免新旧投影混排。
         self._embeddings_ready = False
         self._initialized = False
+        # 后台向量补全的可观察状态（诊断 / RPC 用）。
+        self.backfill_status: str = "idle"
+        self.backfill_attempts_used: int = 0
+        self.backfill_last_error: str | None = None
 
     # ------------------------------------------------------------------
     # 初始化与重建
@@ -420,37 +439,80 @@ class MemorySearchIndex:
             )
 
     async def backfill_embeddings(self) -> None:
-        """在后台为当前投影补齐缺失或模型不匹配的向量。
+        """在后台为当前投影补齐缺失或模型/维度不匹配的向量。
 
         远程请求期间不持有写锁；写回时用正文摘要做条件更新，避免并发
         Memory Update 后把旧文本向量覆盖到新 Chunk 上。
+
+        失败采用有限次数指数退避重试（``backfill_attempts`` /
+        ``backfill_retry_base_delay``），重试期间状态可通过
+        ``backfill_status`` 观察；全部失败后本轮 Host 生命周期降级 FTS，
+        下次重启会再次尝试。状态取值：
+        ``idle → running → complete | failed``。
         """
 
         if not self._initialized or self.embedding is None:
             return
+        self.backfill_status = "running"
+        for attempt in range(1, self.settings.backfill_attempts + 1):
+            self.backfill_attempts_used = attempt
+            succeeded, error = await self._backfill_attempt_once()
+            if succeeded:
+                self.backfill_status = "complete"
+                self.backfill_last_error = None
+                return
+            self.backfill_last_error = error
+            logger.warning(
+                "memory embedding backfill attempt %s/%s failed: %s",
+                attempt,
+                self.settings.backfill_attempts,
+                error,
+            )
+            if attempt < self.settings.backfill_attempts:
+                delay = self.settings.backfill_retry_base_delay * (4 ** (attempt - 1))
+                await asyncio.sleep(delay)
+        self.backfill_status = "failed"
+        # 补全失败只影响本轮检索质量，FTS 投影仍然可用。
+        logger.warning(
+            "memory embedding backfill gave up after %s attempts; "
+            "vector search stays degraded to FTS until restart",
+            self.settings.backfill_attempts,
+        )
+
+    async def _backfill_attempt_once(self) -> tuple[bool, str | None]:
+        """单次补全尝试；返回 (是否成功, 失败原因)。"""
+
         model_name = self._embedding_model_name
+        dimensions = self.embedding.dimensions if self.embedding else None
         try:
+            conditions = [
+                "embedding IS NULL",
+                "embedding_model IS NULL",
+                "embedding_model != ?",
+            ]
+            parameters: list[object] = [model_name]
+            if dimensions is not None:
+                # 同名模型更换维度（如配置 dimensions 降维）也需要重算。
+                conditions.append("(embedding IS NOT NULL AND embedding_dim != ?)")
+                parameters.append(dimensions)
             async with self._connect() as database:
                 rows = await database.execute_fetchall(
                     "SELECT memory_id, chunk_index, text, text_sha256 "
-                    "FROM memory_chunks WHERE embedding IS NULL "
-                    "OR embedding_model IS NULL OR embedding_model != ?",
-                    (model_name,),
+                    f"FROM memory_chunks WHERE {' OR '.join(conditions)}",
+                    tuple(parameters),
                 )
             if not rows:
                 self._embeddings_ready = True
-                return
+                return True, None
             texts = tuple(str(row[2]) for row in rows)
             vectors = await self._embed_texts(texts)
             if vectors is None:
-                return
+                return False, "embedding request failed"
             if len(vectors) != len(rows):
-                logger.warning(
-                    "memory embedding response count mismatch: expected=%s actual=%s",
-                    len(rows),
-                    len(vectors),
+                return False, (
+                    f"embedding response count mismatch: expected={len(rows)} "
+                    f"actual={len(vectors)}"
                 )
-                return
             prepared: list[tuple[bytes, int, str, int, str]] = []
             for row, vector in zip(rows, vectors, strict=True):
                 normalized, blob = _normalize_vector(vector)
@@ -459,14 +521,14 @@ class MemorySearchIndex:
                 )
             async with self._write_lock:
                 async with self._connect() as database:
-                    for blob, dimensions, memory_id, chunk_index, digest in prepared:
+                    for blob, dims, memory_id, chunk_index, digest in prepared:
                         await database.execute(
                             "UPDATE memory_chunks SET embedding_model = ?, "
                             "embedding_dim = ?, embedding = ? WHERE memory_id = ? "
                             "AND chunk_index = ? AND text_sha256 = ?",
                             (
                                 model_name,
-                                dimensions,
+                                dims,
                                 blob,
                                 memory_id,
                                 chunk_index,
@@ -475,9 +537,9 @@ class MemorySearchIndex:
                         )
                     await database.commit()
             self._embeddings_ready = True
+            return True, None
         except Exception as exc:
-            # 后台向量补全失败只影响本轮检索质量，FTS 投影仍然可用。
-            logger.warning("memory embedding backfill failed: %s", exc)
+            return False, f"{type(exc).__name__}: {exc}"
 
     async def _remove_rows(self, memory_id: str) -> None:
         try:
