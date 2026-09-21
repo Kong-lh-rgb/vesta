@@ -65,6 +65,7 @@ from app.task import (
     TASK_CONTEXT_MESSAGE_NAME,
     FileTaskStore,
     TaskContextProvider,
+    TaskPatch,
     TaskStep,
     register_task_tools,
 )
@@ -2653,3 +2654,211 @@ async def test_runtime_block_limit_compacts_despite_reusable_prefix() -> None:
     assert started[1].conversation_block_triggered is True
     assert started[1].prefix_decision == "compact"
     assert started[1].cache_prefix_reused is False
+
+
+# ----------------------------------------------------------------------
+# P1-8：Task 与 Run 一致性（终答前写回提醒 / 不误标 / Recovery 关联）
+# ---------------------------------------------------------------------------
+
+
+def _task_update_call(task_id: str, revision: int, step_status: str) -> ToolCall:
+    return ToolCall(
+        id=f"update-{step_status}",
+        name="task_update",
+        arguments={
+            "task_id": task_id,
+            "expected_revision": revision,
+            "step_id": "step-1",
+            "step_status": step_status,
+            "step_note": f"步骤状态 {step_status}",
+        },
+    )
+
+
+async def _active_task_with_step(tmp_path, *, conversation_id="conversation-task"):
+    task_store = FileTaskStore(tmp_path / "tasks")
+    await task_store.initialize()
+    task = await task_store.create(
+        title="数据迁移任务",
+        steps=(TaskStep(id="step-1", title="迁移生产库"),),
+        owner_conversation_id=conversation_id,
+    )
+    task = await task_store.plan_accept(task.id)
+    return task_store, task
+
+
+@pytest.mark.asyncio
+async def test_final_answer_reminds_unwritten_task_progress(tmp_path) -> None:
+    """进行中步骤在终答前触发一次写回提醒；模型写 done 后正常收口。"""
+
+    task_store, task = await _active_task_with_step(tmp_path)
+    registry, adapter = fake_registry(
+        [
+            model_response(
+                tool_calls=(_task_update_call(task.id, task.revision, "in_progress"),)
+            ),
+            model_response(content="迁移已完成"),  # 触发提醒（步骤仍 in_progress）
+            model_response(
+                tool_calls=(_task_update_call(task.id, task.revision + 1, "done"),)
+            ),
+            model_response(content="迁移已完成并写回状态"),
+        ]
+    )
+    tools = ToolRegistry()
+    register_task_tools(tools, task_store)
+    events = InMemoryEventHandler()
+
+    result = await AgentRuntime(
+        registry,
+        tools,
+        provider="fake",
+        task_context_provider=TaskContextProvider(task_store),
+    ).run("执行迁移", conversation_id="conversation-task", event_handler=events)
+
+    assert result.ok is True
+    assert result.steps == 4
+    # 提醒恰好注入一次。
+    reminders = [
+        message
+        for message in result.messages
+        if message.role is MessageRole.SYSTEM
+        and "task_update 写回" in (message.content or "")
+    ]
+    assert len(reminders) == 1
+    # 最终步骤状态真实写回为 done（模型写回，Harness 不代写）。
+    final_task = await task_store.get(task.id)
+    assert final_task is not None
+    assert final_task.steps[0].status.value == "done"
+
+
+@pytest.mark.asyncio
+async def test_task_reminder_fires_once_and_never_fabricates_done(tmp_path) -> None:
+    """模型无视提醒也只提醒一次；Harness 绝不擅自把步骤标成完成。"""
+
+    task_store, task = await _active_task_with_step(tmp_path)
+    registry, _adapter = fake_registry(
+        [
+            model_response(
+                tool_calls=(_task_update_call(task.id, task.revision, "in_progress"),)
+            ),
+            model_response(content="先这样"),  # 触发提醒
+            model_response(content="先这样，稍后继续"),  # 无视提醒 → 直接收口
+        ]
+    )
+    tools = ToolRegistry()
+    register_task_tools(tools, task_store)
+
+    result = await AgentRuntime(
+        registry,
+        tools,
+        provider="fake",
+        task_context_provider=TaskContextProvider(task_store),
+    ).run("执行迁移", conversation_id="conversation-task")
+
+    assert result.ok is True
+    assert result.steps == 3
+    # 步骤保持 in_progress：Harness 只提醒，不代写状态。
+    final_task = await task_store.get(task.id)
+    assert final_task is not None
+    assert final_task.steps[0].status.value == "in_progress"
+
+
+@pytest.mark.asyncio
+async def test_no_reminder_without_in_progress_steps(tmp_path) -> None:
+    """全部步骤 todo（本轮未开始）或已 done 时不提醒、不加请求轮。"""
+
+    task_store, task = await _active_task_with_step(tmp_path)
+    registry, adapter = fake_registry([model_response(content="回答完成")])
+    tools = ToolRegistry()
+    register_task_tools(tools, task_store)
+
+    result = await AgentRuntime(
+        registry,
+        tools,
+        provider="fake",
+        task_context_provider=TaskContextProvider(task_store),
+    ).run(" unrelated question", conversation_id="conversation-task")
+
+    assert result.ok is True
+    assert len(adapter.requests) == 1
+    final_task = await task_store.get(task.id)
+    assert final_task is not None
+    assert final_task.steps[0].status.value == "todo"
+
+
+@pytest.mark.asyncio
+async def test_cancelled_run_leaves_task_untouched(tmp_path) -> None:
+    """取消 Run 不会把 Task 步骤伪造成完成：状态与 revision 完全不变。"""
+
+    task_store, task = await _active_task_with_step(tmp_path)
+    # 先把步骤真实置为 in_progress（与取消时的运行态一致）。
+    updated = await task_store.apply_patch(
+        task.id,
+        TaskPatch(step_id="step-1", step_status="in_progress"),
+    )
+    before = updated.model_dump()
+
+    registry, _ = fake_registry([])
+    adapter = BlockingModelAdapter(
+        ProviderConfig(
+            provider="fake",
+            model="fake-model",
+            api_key=SecretStr("offline-test-key"),
+            api_style=ApiStyle.CHAT_COMPLETIONS,
+        )
+    )
+    blocking_registry = ModelAdapterRegistry(ModelSettings(_env_file=None))
+    blocking_registry.register("fake", lambda _: adapter, config=adapter.config)
+    tools = ToolRegistry()
+    register_task_tools(tools, task_store)
+
+    runtime = AgentRuntime(
+        blocking_registry,
+        tools,
+        provider="fake",
+        task_context_provider=TaskContextProvider(task_store),
+    )
+    run_task = asyncio.create_task(
+        runtime.run("长任务", conversation_id="conversation-task")
+    )
+    await adapter.started.wait()
+    run_task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await run_task
+
+    after = await task_store.get(task.id)
+    assert after is not None
+    assert after.model_dump() == before  # 取消不改写任何 Task 事实
+
+
+@pytest.mark.asyncio
+async def test_recovery_run_keeps_task_association(tmp_path) -> None:
+    """恢复 Run 与原 Run 同会话，Task 通过会话继续关联并可注入上下文。"""
+
+    from app.run import SQLiteRunStore
+    from app.run.models import RunStatus
+
+    task_store, task = await _active_task_with_step(
+        tmp_path, conversation_id="conversation-recovery"
+    )
+    run_store = SQLiteRunStore(tmp_path / "vesta.db")
+    await run_store.initialize()
+    old_run = await run_store.create(
+        conversation_id="conversation-recovery", user_message="原始执行"
+    )
+    await run_store.mark_started(old_run.id)
+    await run_store.update_status(old_run.id, RunStatus.INTERRUPTED)
+    new_run = await run_store.create(
+        conversation_id="conversation-recovery",
+        user_message="恢复执行",
+        recovered_from_run_id=old_run.id,
+    )
+
+    assert new_run.recovered_from_run_id == old_run.id
+    assert new_run.conversation_id == old_run.conversation_id
+    # 同一会话的活动 Task 在恢复 Run 中继续注入（Task 关联会话而非 Run）。
+    message = await TaskContextProvider(task_store).message_for(
+        "conversation-recovery"
+    )
+    assert message is not None
+    assert "数据迁移任务" in (message.content or "")

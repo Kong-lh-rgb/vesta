@@ -103,6 +103,12 @@ _TEXTUAL_TOOL_CALL_RETRY_MESSAGE = (
     "如需调用工具，必须使用 Provider 的结构化 tool_calls；否则请直接给出一条"
     "完整、可展示给用户的最终回答，不要输出 DSML、XML 或其他工具协议标记。"
 )
+_TASK_WRITEBACK_REMINDER_MESSAGE = (
+    "当前会话的 Task 仍有进行中的步骤，但本次 Run 还没有任何成功的 "
+    "task_update 写回。若本轮工作确实有进展、完成或阻塞，请先用 task_update "
+    "把真实状态写回（禁止把未完成的步骤伪造成 done）；若本轮与该 Task 无关"
+    "或确无状态变化，直接给出最终回答即可。"
+)
 
 
 
@@ -232,6 +238,8 @@ class AgentLoop:
         budget_closing_reporting_attempted = False
         empty_final_retry_used = False
         textual_tool_call_retry_used = False
+        # Task 写回提醒只触发一次；Harness 不判断步骤完成，只提醒模型写回。
+        task_writeback_reminded = False
         response_repair_message: Message | None = None
         request_prefix_state: RequestPrefixState | None = None
 
@@ -941,6 +949,22 @@ class AgentLoop:
                         )
                     )
                     continue
+                if (
+                    not task_writeback_reminded
+                    and not force_final_answer
+                    and mode is not AgentMode.PLAN
+                    and await self._has_unwritten_task_progress(conversation_id)
+                ):
+                    # Task/Run 一致性：最终回答前提醒模型写回本轮进展。
+                    # Harness 只提醒一次、不判断步骤是否完成，也不代写状态。
+                    task_writeback_reminded = True
+                    messages.append(
+                        Message(
+                            role=MessageRole.SYSTEM,
+                            content=_TASK_WRITEBACK_REMINDER_MESSAGE,
+                        )
+                    )
+                    continue
                 final_message = assistant_message
                 if mode is AgentMode.PLAN:
                     # Plan Mode 完成条件：不仅要 task_create/task_update 成功，
@@ -1080,6 +1104,26 @@ class AgentLoop:
             role=MessageRole.ASSISTANT,
             content=f"Agent stopped: {error}",
         )
+
+    async def _has_unwritten_task_progress(
+        self,
+        conversation_id: str | None,
+    ) -> bool:
+        """最终回答前检查会话 Task 是否仍有进行中的步骤。
+
+        判定是确定性的元数据检查：活动 Task 存在 in_progress 步骤即视为
+        状态未收口（本轮完工的 done、阻塞标记都还没写回）。Harness 只据此
+        提醒模型写回，不判断步骤是否实际完成，也不代写状态。
+        """
+
+        provider = self._task_context_provider
+        if provider is None or conversation_id is None:
+            return False
+        recall_fields = getattr(provider, "recall_fields_for", None)
+        if not callable(recall_fields):
+            return False
+        _title, active_steps = await recall_fields(conversation_id)
+        return bool(active_steps)
 
     def _forced_compaction_reason(
         self,
