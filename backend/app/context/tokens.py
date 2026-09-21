@@ -26,10 +26,16 @@ DEFAULT_ENCODING = "cl100k_base"
 
 # 非 OpenAI 模型的保守系数：这些模型的 BPE 与 cl100k_base 有差异，
 # 用 >1 的系数向上取整，避免低估。
+#
+# 校准依据（scripts/calibrate_tokens.py，本地 Trace 464 个 deepseek 样本，
+# 2026-09）：估算/实际比值 P50=1.13、P95=1.31、最差 0.79。旧系数 1.2 的
+# 中位数偏高但尾部存在 21% 低估；上调到 1.35 后最差样本约 0.89，剩余
+# 缺口由 input_budget 的安全余量与"预算按实际 Usage 累计"兜底。
+# 重新校准：.venv/bin/python scripts/calibrate_tokens.py
 DEFAULT_FAMILY_FACTORS: dict[str, float] = {
     "openai": 1.0,
     "qwen": 1.2,
-    "deepseek": 1.2,
+    "deepseek": 1.35,
     "anthropic": 1.15,
     "other": 1.25,
 }

@@ -359,7 +359,10 @@ export function RunInspectorOverview({
           <span>{usageSummary?.run_budget_status ?? '—'}</span>
         </div>
         <dl className="inspector-signal-grid">
-          <div><dt>Main</dt><dd>{usageSummary ? formatTokens(usageSummary.main_agent.total_tokens) : '—'}</dd></div>
+          <div>
+            <dt>Main（Provider 实际）</dt>
+            <dd>{usageSummary ? formatTokens(usageSummary.main_agent.total_tokens) : '—'}</dd>
+          </div>
           <div><dt>预算计入</dt><dd>{usageSummary ? formatTokens(usageSummary.main_agent_chargeable_tokens) : '—'}</dd></div>
           <div><dt>调用</dt><dd>{usageSummary?.main_agent.model_calls ?? '—'}</dd></div>
           <div>
@@ -377,7 +380,10 @@ export function RunInspectorOverview({
             <span>Step {context.step}</span>
           </div>
           <dl className="inspector-signal-grid">
-            <div><dt>Input</dt><dd>{formatTokens(context.preparedInputTokens)}</dd></div>
+            <div>
+              <dt>Input（估算）</dt>
+              <dd>{formatTokens(context.preparedInputTokens)}</dd>
+            </div>
             <div><dt>Working budget</dt><dd>{formatTokens(context.workingInputBudget)}</dd></div>
             <div>
               <dt>Tool results</dt>
