@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import contextlib
 import json
 import sys
 from pathlib import Path
@@ -499,3 +500,117 @@ async def test_stdio_client_runs_fake_server_inside_native_sandbox() -> None:
         assert output["structured_content"] == {"result": "sandbox"}
     finally:
         await client.close()
+
+
+# ---------------------------------------------------------------------------
+# P2-14：MCP 生命周期（超时终止 / 注销 / 重启一致性）
+# ---------------------------------------------------------------------------
+
+
+def _lifecycle_config(name: str) -> MCPServerConfig:
+    return MCPServerConfig(
+        name=name,
+        command="python",
+        args=("-c", "pass"),
+    )
+
+
+def _lifecycle_client_factory(config: MCPServerConfig) -> FakeMCPClient:
+    return FakeMCPClient(config)
+
+
+async def test_stdio_client_startup_timeout_terminates_process() -> None:
+    """启动握手超时的 server：子进程被终止，错误隔离为 MCPConnectionError。"""
+
+    import asyncio
+    import contextlib
+    import sys as _sys
+
+    from app.mcp.client import StdioMCPClient
+    from app.mcp.errors import MCPConnectionError
+
+    config = MCPServerConfig(
+        name="timeout_server",
+        command=_sys.executable,
+        args=("-c", "import time; time.sleep(60)"),
+        startup_timeout_seconds=0.5,
+    )
+
+    import anyio
+
+    children: list = []
+    original_open = anyio.open_process
+
+    async def _recording_open(*args, **kwargs):
+        process = await original_open(*args, **kwargs)
+        children.append(process)
+        return process
+
+    with _patch_asyncattr(anyio, "open_process", _recording_open):
+        client = StdioMCPClient(config)
+        with pytest.raises(MCPConnectionError, match="启动失败"):
+            await client.start()
+
+    assert children, "应已创建子进程"
+    # asyncio.timeout 取消 stdio_client 上下文时会终止子进程。
+    with contextlib.suppress(asyncio.TimeoutError):
+        await asyncio.wait_for(children[0].wait(), timeout=5)
+    assert children[0].returncode is not None, "超时后子进程必须被终止"
+
+
+@contextlib.contextmanager
+def _patch_asyncattr(target, name, value):
+    original = getattr(target, name)
+    setattr(target, name, value)
+    try:
+        yield
+    finally:
+        setattr(target, name, original)
+
+
+async def test_close_unregisters_mcp_tools() -> None:
+    """close(registry) 注销全部 MCP 工具；Registry 回到无 MCP 状态。"""
+
+    registry = ToolRegistry()
+    manager = MCPClientManager(
+        (_lifecycle_config("alpha"), _lifecycle_config("beta")),
+        client_factory=_lifecycle_client_factory,
+    )
+    await manager.start(registry)
+
+    alpha_tools = [n for n in registry.names() if n.startswith("mcp__alpha__")]
+    beta_tools = [n for n in registry.names() if n.startswith("mcp__beta__")]
+    assert alpha_tools and beta_tools
+
+    await manager.close(registry)
+
+    assert not [n for n in registry.names() if n.startswith("mcp__")]
+    statuses = {status.name: status.state for status in manager.statuses()}
+    assert statuses == {
+        "alpha": MCPServerState.STOPPED,
+        "beta": MCPServerState.STOPPED,
+    }
+
+
+async def test_restart_reapplies_tools_and_statuses_consistently() -> None:
+    """close → start 重启：工具重新注册，状态回到 RUNNING，配置语义不变。"""
+
+    registry = ToolRegistry()
+    manager = MCPClientManager(
+        (_lifecycle_config("alpha"),),
+        client_factory=_lifecycle_client_factory,
+    )
+
+    await manager.start(registry)
+    first_names = tuple(registry.names())
+    first_statuses = tuple(
+        (s.name, s.state, s.tool_names) for s in manager.statuses()
+    )
+
+    await manager.close(registry)
+    await manager.start(registry)
+
+    assert tuple(registry.names()) == first_names
+    assert tuple(
+        (s.name, s.state, s.tool_names) for s in manager.statuses()
+    ) == first_statuses
