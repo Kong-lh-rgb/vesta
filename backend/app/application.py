@@ -431,20 +431,7 @@ class Application:
             attribution_resolver=TaskToolOutputAttributionResolver(task_store),
         )
 
-        memory_embedding_settings = MemoryEmbeddingSettings()
-        memory_embedding_adapter = build_embedding_adapter(
-            memory_embedding_settings
-        )
-        self.memory_embedding_adapter = memory_embedding_adapter
-        memory_manager = MemoryManager(
-            memory_dir=self.memory_dir or DEFAULT_MEMORY_DIR,
-            # Embedding 独立分层：可与主模型 Provider 不同；未配置时检索
-            # 自动降级 FTS5，投影失败回退 Legacy INDEX 注入。相似度阈值
-            # 随 Embedding 模型分布校准（bge-m3 实测无关约 0.33-0.38）。
-            embedding=memory_embedding_adapter,
-            min_vector_similarity=memory_embedding_settings.min_similarity,
-        )
-        await memory_manager.initialize()
+        memory_manager = await self._build_memory()
         register_memory_tools(tool_registry, memory_manager)
 
         skill_store = SkillStore(
@@ -753,6 +740,28 @@ class Application:
         self.reconciled_runs = reconciled_runs
 
         self._started = True
+
+    async def _build_memory(self) -> MemoryManager:
+        """Memory 装配 builder：Embedding 独立分层，失败只降级不阻断启动。
+
+        start/close 顺序契约：本方法在工具注册前调用；对应的
+        ``memory_embedding_adapter`` 在 ``close()`` 中于模型 registry 之前
+        关闭（先 drain 可能仍在用它的 Post-Run 后台任务）。
+        """
+
+        settings = MemoryEmbeddingSettings()
+        adapter = build_embedding_adapter(settings)
+        self.memory_embedding_adapter = adapter
+        manager = MemoryManager(
+            memory_dir=self.memory_dir or DEFAULT_MEMORY_DIR,
+            # Embedding 独立分层：可与主模型 Provider 不同；未配置时检索
+            # 自动降级 FTS5，投影失败回退 Legacy INDEX 注入。相似度阈值
+            # 随 Embedding 模型分布校准（bge-m3 实测无关约 0.33-0.38）。
+            embedding=adapter,
+            min_vector_similarity=settings.min_similarity,
+        )
+        await manager.initialize()
+        return manager
 
     async def close(self) -> None:
         """优雅关闭 Post-Run / Scheduler / MCP / Computer / 模型适配器（幂等）。"""

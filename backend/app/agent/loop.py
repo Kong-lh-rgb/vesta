@@ -26,6 +26,7 @@ from app.tools.executor import ToolExecutor
 from app.tools.registry import ToolRegistry
 
 from .budget import RunBudget, RunBudgetStatus, chargeable_tokens
+from .closing_state import BudgetClosingState
 from .computer_guard import ComputerStagnationGuard
 from .context_session import RuntimeContextSession
 from .errors import (
@@ -233,9 +234,7 @@ class AgentLoop:
         computer_guard = ComputerStagnationGuard()
         computer_halted = False
         budget_warning_emitted = False
-        budget_closing_started = False
-        budget_closing_delivery_used = False
-        budget_closing_reporting_attempted = False
+        budget_closing = BudgetClosingState()
         empty_final_retry_used = False
         textual_tool_call_retry_used = False
         # Task 写回提醒只触发一次；Harness 不判断步骤完成，只提醒模型写回。
@@ -324,27 +323,26 @@ class AgentLoop:
                 )
             budget_forces_final = budget_decision.should_finalize
             if budget_forces_final:
-                if budget_closing_delivery_used:
-                    if budget_closing_reporting_attempted:
-                        await emitter.emit(
-                            AgentEventType.RUN_BUDGET_EXCEEDED,
-                            step=step,
-                            **run_budget_event_fields(
-                                budget_decision,
-                                budget_config,
-                                status=RunBudgetStatus.EXCEEDED,
-                            ),
-                        )
-                        return await stop_with_error(
-                            RunBudgetExceededError(
-                                "dedicated closing report call was already used"
-                            ),
-                            AgentStopReason.RUN_BUDGET,
-                            step=max(0, step - 1),
-                        )
-                    budget_closing_reporting_attempted = True
-                elif not budget_closing_started:
-                    budget_closing_started = True
+                if budget_closing.reporting_exhausted:
+                    await emitter.emit(
+                        AgentEventType.RUN_BUDGET_EXCEEDED,
+                        step=step,
+                        **run_budget_event_fields(
+                            budget_decision,
+                            budget_config,
+                            status=RunBudgetStatus.EXCEEDED,
+                        ),
+                    )
+                    return await stop_with_error(
+                        RunBudgetExceededError(
+                            "dedicated closing report call was already used"
+                        ),
+                        AgentStopReason.RUN_BUDGET,
+                        step=max(0, step - 1),
+                    )
+                if budget_closing.delivery_used:
+                    budget_closing.begin_reporting()
+                elif budget_closing.enter():
                     await emitter.emit(
                         AgentEventType.RUN_BUDGET_FINALIZING,
                         step=step,
@@ -359,10 +357,9 @@ class AgentLoop:
             forced_without_budget = (
                 finalization_step or computer_halted or tool_round_limit_reached
             )
-            closing_can_deliver = (
-                budget_forces_final
-                and not budget_closing_delivery_used
-                and not forced_without_budget
+            closing_can_deliver = budget_closing.can_deliver(
+                forces_final=budget_forces_final,
+                forced_without_budget=forced_without_budget,
             )
             force_final_answer = forced_without_budget or (
                 budget_forces_final and not closing_can_deliver
@@ -649,7 +646,7 @@ class AgentLoop:
                 warning_appended_after_prepare = False
             if budget_decision.should_finalize and not budget_forces_final:
                 budget_forces_final = True
-                budget_closing_started = True
+                budget_closing.enter()
                 closing_can_deliver = not forced_without_budget
                 if closing_can_deliver:
                     request_tools = (
@@ -1065,7 +1062,7 @@ class AgentLoop:
             )
             if closing_can_deliver:
                 # Closing 最多保留一次交付工具轮；下一请求只负责汇报结果。
-                budget_closing_delivery_used = True
+                budget_closing.mark_delivery_used()
             # 本轮模型没有见过新定义，必须等下一步请求后才能调用。
             activated_tools.update(pending_activations)
             finalization_pending = (
