@@ -11,7 +11,7 @@
 ![Desktop](https://img.shields.io/badge/Desktop-Electron-47848F?logo=electron&logoColor=white)
 ![Platform](https://img.shields.io/badge/Computer_Runtime-macOS-111111?logo=apple&logoColor=white)
 
-[演示](#demo) · [核心能力](#what-vesta-can-do) · [架构](#how-it-fits-together) · [快速开始](#quick-start) · [评测](#evaluation)
+[演示](#demo) · [核心能力](#what-vesta-can-do) · [架构](#how-it-fits-together) · [快速开始](#quick-start) · [开发检查](#development-checks)
 
 </div>
 
@@ -22,7 +22,8 @@ Vesta 是一个面向长期工作的本地 AI Agent Harness。它不只完成当
 当前项目由 Python Host、Electron Desktop 和 macOS 原生 Computer Helper 组成，模型层
 通过统一 Adapter 接入 OpenAI、Qwen、DeepSeek 与 Anthropic。
 
-> 当前阶段为本地开发版本，接口、数据格式和交互仍可能调整。
+> 当前阶段为本地开发版本，接口、数据格式和交互仍可能调整。见
+> [开发状态](#development-status)和 [Preview Release 草稿](RELEASE_NOTES_DRAFT.md)。
 
 ## Demo
 
@@ -160,7 +161,8 @@ ConversationService / RunManager / AgentRuntime
 
 - Python 3.12+
 - Node.js 22+
-- macOS：只有使用 Computer Runtime 时需要，并需授予辅助功能权限
+- macOS + Swift：Computer Runtime 需要 macOS 和辅助功能权限；当前受限 Shell 与 MCP
+  进程也只有 macOS Seatbelt 后端。其他平台缺少安全后端时会拒绝启动这些进程。
 
 ### 1. Clone and install Backend
 
@@ -168,7 +170,7 @@ ConversationService / RunManager / AgentRuntime
 git clone https://github.com/Kong-lh-rgb/vesta.git
 cd vesta
 
-python -m venv backend/.venv
+python3 -m venv backend/.venv
 backend/.venv/bin/python -m pip install -r backend/requirements.txt
 cp backend/.env.example backend/.env
 ```
@@ -202,7 +204,7 @@ cd backend
 
 ```bash
 cd desktop
-npm install
+npm ci
 npm run electron:dev
 ```
 
@@ -257,7 +259,20 @@ swift build
 swift Tests/protocol_check.swift
 ```
 
-GitHub Actions 会运行以上 Backend、Desktop 和 Native macOS 基线。
+GitHub Actions 在 Linux 运行 Backend、Desktop 基线，在 macOS 运行真实 Sandbox
+测试及 Native Helper 检查。真实模型 Eval 不属于默认 CI。
+
+## Development Status
+
+Vesta 目前是源码运行的本地单用户项目，尚无正式稳定版本或打包安装器。
+Backend 与 Desktop 的内部版本号为 `0.1.0`，发布版本和日期仍待确定。
+当前优先事项是验证跨平台隔离边界、完善干净环境的安装验证、明确数据迁移行为，
+以及收集真实 issue 反馈。发布范围与限制见
+[Preview Release 草稿](RELEASE_NOTES_DRAFT.md)和 [CHANGELOG](CHANGELOG.md)。
+
+欢迎按 [贡献指南](CONTRIBUTING.md)提交问题或 PR；安全问题请按
+[安全报告说明](SECURITY.md)私下报告。Vesta 自有代码采用 [MIT License](LICENSE)，
+仓库内引入的 Spec Kit 文件见 [第三方声明](THIRD_PARTY_NOTICES.md)。
 
 ## Repository Layout
 
