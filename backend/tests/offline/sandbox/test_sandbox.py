@@ -192,7 +192,7 @@ async def test_shell_tool_uses_workspace_sandbox(
         {
             "command": (
                 "/usr/bin/python3 -c 'import socket; socket.socket(socket.AF_INET, "
-                "socket.SOCK_STREAM)'"
+                "socket.SOCK_STREAM).connect((\"127.0.0.1\", 1))'"
             )
         }
     )
