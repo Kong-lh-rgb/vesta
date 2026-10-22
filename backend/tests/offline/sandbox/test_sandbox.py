@@ -293,7 +293,7 @@ async def test_symlink_write_escape_is_blocked(tmp_path: Path) -> None:
 
 
 def test_mcp_subprocess_launch_goes_through_sandbox(tmp_path: Path) -> None:
-    """MCP stdio 子进程经 Supervisor 启动：launch_spec 声明沙箱化。"""
+    """跨平台验证 MCP 将启动请求交给 Supervisor 的受限后端。"""
 
     from app.mcp.client import StdioMCPClient
     from app.mcp.config import MCPServerConfig
@@ -307,13 +307,62 @@ def test_mcp_subprocess_launch_goes_through_sandbox(tmp_path: Path) -> None:
         cwd=".",
         sandbox=SandboxConfig(network=SandboxNetworkMode.DENIED),
     )
-    client = StdioMCPClient(config, sandbox_supervisor=SandboxSupervisor(workspace))
+    backend = RecordingBackend()
+    client = StdioMCPClient(
+        config,
+        sandbox_supervisor=SandboxSupervisor(workspace, native_backend=backend),
+    )
 
     environment = {"PATH": os.environ.get("PATH", "")}
     launch = client._prepare_launch(environment)
 
     assert launch.sandboxed is True
-    if sys.platform == "darwin":
-        assert launch.backend == "macos_seatbelt"
-        # 沙箱包裹命令本身：子进程树（MCP server 及其派生）都在同一策略内。
-        assert launch.command == "/usr/bin/sandbox-exec"
+    assert launch.backend == "recording"
+    assert backend.policy is not None
+    assert backend.policy.filesystem is SandboxFilesystemMode.WORKSPACE_WRITE
+    assert backend.policy.network is SandboxNetworkMode.DENIED
+    assert workspace in backend.policy.writable_roots
+
+
+@pytest.mark.skipif(sys.platform != "darwin", reason="仅验证 macOS Seatbelt")
+def test_mcp_subprocess_uses_native_seatbelt(tmp_path: Path) -> None:
+    """macOS 上验证 MCP 启动规格确实由 Seatbelt 包裹。"""
+
+    from app.mcp.client import StdioMCPClient
+    from app.mcp.config import MCPServerConfig
+
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    config = MCPServerConfig(
+        name="sandboxed_server",
+        command=sys.executable,
+        args=("-c", "pass"),
+        cwd=".",
+        sandbox=SandboxConfig(network=SandboxNetworkMode.DENIED),
+    )
+    client = StdioMCPClient(config, sandbox_supervisor=SandboxSupervisor(workspace))
+
+    launch = client._prepare_launch({"PATH": os.environ.get("PATH", "")})
+
+    assert launch.sandboxed is True
+    assert launch.backend == "macos_seatbelt"
+    # 沙箱包裹命令本身：子进程树（MCP server 及其派生）都在同一策略内。
+    assert launch.command == "/usr/bin/sandbox-exec"
+
+
+@pytest.mark.skipif(sys.platform == "darwin", reason="macOS 有原生 Seatbelt 后端")
+def test_mcp_default_backend_fails_closed_on_unsupported_platform(
+    tmp_path: Path,
+) -> None:
+    """不支持的平台不能把 MCP 子进程降级到宿主机执行。"""
+
+    from app.mcp.client import StdioMCPClient
+    from app.mcp.config import MCPServerConfig
+
+    client = StdioMCPClient(
+        MCPServerConfig(name="server", command=sys.executable),
+        sandbox_supervisor=SandboxSupervisor(tmp_path),
+    )
+
+    with pytest.raises(SandboxUnavailableError, match="拒绝降级执行"):
+        client._prepare_launch({"PATH": os.environ.get("PATH", "")})
