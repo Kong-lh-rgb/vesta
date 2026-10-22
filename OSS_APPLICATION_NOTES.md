@@ -18,8 +18,17 @@ submitting because they can change.
   architecture and current limitations.
 - **Automation:** [CI](.github/workflows/ci.yml) defines Backend pytest,
   Ruff and compile checks; Desktop Vitest, typecheck and build; macOS native
-  Helper build/protocol check; plus a proposed macOS Sandbox test job. This
-  local change is **not** a passing remote CI run until it is pushed and run.
+  Helper build/protocol check; plus a macOS Sandbox test job. The remote run
+  [39744190256](https://github.com/Kong-lh-rgb/vesta/actions/runs/39744190256)
+  passed Backend, Desktop, and Native Helper; the Backend macOS Sandbox job
+  failed in `test_shell_tool_uses_workspace_sandbox`. Root cause was in the
+  test, not the product: creating a socket is not filtered by macOS Seatbelt,
+  so the old probe exited 0 inside the sandbox. The test now performs a real
+  TCP connect to a locally listened port with an unsandboxed positive control
+  (EPERM vs. connection-refused are distinguished), verified locally including
+  a mutation check that an unrestricted sandbox policy turns the test red.
+  Production sandbox policy needed no change. A passing remote re-run on the
+  fixed commit is still required before claiming a green CI.
 - **Demonstration:** [`docs/assets/vesta-demo.gif`](docs/assets/vesta-demo.gif)
   and the README screenshots show a recorded local workflow. They do not
   establish production usage or an external user base.

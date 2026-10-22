@@ -165,6 +165,15 @@ async def test_native_sandbox_blocks_read_outside_workspace(tmp_path: Path) -> N
     assert b"Operation not permitted" in stderr
 
 
+async def _accept_network_probe(
+    reader: asyncio.StreamReader,  # noqa: ARG001
+    writer: asyncio.StreamWriter,
+) -> None:
+    """探针只需验证 TCP 连接能否建立，接受后立即关闭。"""
+
+    writer.close()
+
+
 @pytest.mark.skipif(sys.platform != "darwin", reason="仅验证 macOS Seatbelt")
 @pytest.mark.asyncio
 async def test_shell_tool_uses_workspace_sandbox(
@@ -188,14 +197,28 @@ async def test_shell_tool_uses_workspace_sandbox(
     env_result = await tool.execute(
         {"command": "printf %s ${OPENAI_API_KEY:-not-present}"}
     )
-    network_result = await tool.execute(
-        {
-            "command": (
-                "/usr/bin/python3 -c 'import socket; socket.socket(socket.AF_INET, "
-                "socket.SOCK_STREAM).connect((\"127.0.0.1\", 1))'"
-            )
-        }
+
+    # 网络隔离验证：Seatbelt 不拦截 socket() 创建，必须发起真实 TCP connect。
+    # 测试进程先监听本地端口；正向对照证明无沙箱时同一命令可以连通（排除
+    # 端口未监听、CI 环境网络受限等假阳性），再断言沙箱内对同一端口的连接
+    # 被 EPERM 拒绝——Connection refused 属于普通网络错误，不构成隔离证据。
+    server = await asyncio.start_server(
+        _accept_network_probe, host="127.0.0.1", port=0
     )
+    port = server.sockets[0].getsockname()[1]
+    probe_command = (
+        f"/bin/bash -c 'exec 3<>/dev/tcp/127.0.0.1/{port}' && echo connected"
+    )
+    async with server:
+        control_process = await asyncio.create_subprocess_shell(
+            probe_command,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        control_stdout, _ = await asyncio.wait_for(
+            control_process.communicate(), timeout=15.0
+        )
+        network_result = await tool.execute({"command": probe_command})
 
     assert write_result["exit_code"] == 0
     assert (workspace / "result.txt").read_text(encoding="utf-8") == "safe"
@@ -206,8 +229,16 @@ async def test_shell_tool_uses_workspace_sandbox(
     assert "workspace-secret" not in protected_result["stdout"]
     assert "Operation not permitted" in protected_result["stderr"]
     assert env_result["stdout"] == "not-present"
+    # 正向对照：无沙箱时同一探针命令必须连通，负向断言才有意义。
+    assert control_process.returncode == 0, (
+        "正向对照失败：无沙箱进程无法连接本地测试端口，"
+        "沙箱内的连接失败不能归因于网络隔离"
+    )
+    assert b"connected" in control_stdout
     assert network_result["exit_code"] != 0
+    assert "connected" not in network_result["stdout"]
     assert "Operation not permitted" in network_result["stderr"]
+    assert "Connection refused" not in network_result["stderr"]
 
 
 # ---------------------------------------------------------------------------

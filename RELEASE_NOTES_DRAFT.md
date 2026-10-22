@@ -42,16 +42,26 @@ CI runs the Backend offline suite, Ruff, and compile checks on Linux; Desktop
 tests, typecheck, and build on Linux; native Sandbox tests and Helper checks on
 macOS. Record the actual result and commit SHA here before publication:
 
-- Backend Linux: **pending**
-- Backend macOS Sandbox: **pending**
-- Desktop: **pending**
-- Native Helper: **pending**
+- Backend Linux: **passed** in run
+  [39744190256](https://github.com/Kong-lh-rgb/vesta/actions/runs/39744190256)
+- Backend macOS Sandbox: **failed** in the same run
+  (`test_shell_tool_uses_workspace_sandbox`); root cause was a test-only
+  defect — creating a socket is not filtered by macOS Seatbelt, so the old
+  probe exited 0 inside the sandbox. Fixed by switching the probe to a real
+  TCP connect against a locally listened port, with an unsandboxed positive
+  control and an EPERM-vs-connection-refused distinction. Production sandbox
+  policy is unchanged. **Pending a passing remote re-run.**
+- Desktop: **passed** in the same run
+- Native Helper: **passed** in the same run
 - Live model and end-to-end Desktop run: **not yet validated for this draft**
 
 Local development check on 2026-10-22 (macOS, Python 3.14; not the Linux CI
 runner): Backend 1149 passed / 1 skipped, Desktop 249 passed, Desktop typecheck
-and build passed, Swift build and protocol check passed. These local results do
-not replace a passing remote CI run or a clean-machine release check.
+and build passed, Swift build and protocol check passed. After the sandbox
+network-probe fix on the same day, the full offline Backend suite is 1085
+passed / 1 skipped and a mutation check confirmed the new network assertion
+fails when the sandbox policy is weakened to unrestricted. These local results
+do not replace a passing remote CI run or a clean-machine release check.
 
 ## Next work
 
