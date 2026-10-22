@@ -9,14 +9,14 @@
 
 from __future__ import annotations
 
+import asyncio
+import os
 from pathlib import Path
 
 import pytest
 
 from app.agent.result import AgentError, AgentStopReason
 from app.computer import errors as computer_errors
-
-pytestmark = pytest.mark.asyncio
 
 
 def test_agent_error_type_is_stable_identifier() -> None:
@@ -55,18 +55,64 @@ def test_provider_error_message_hides_api_key() -> None:
     assert secret not in str(wrapped)
 
 
-async def test_tool_result_error_never_includes_env_secrets(monkeypatch) -> None:
-    """工具执行错误不继承宿主敏感环境变量。"""
+async def test_tool_result_error_never_includes_env_secrets(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Shell 的启动环境和错误结果均不包含宿主 Provider 密钥。"""
 
     monkeypatch.setenv("OPENAI_API_KEY", "sk-leak-check")
     monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-leak")
-    from app.sandbox import SandboxSupervisor
+    from app.sandbox import (
+        SandboxBackend,
+        SandboxLaunchSpec,
+        SandboxPolicy,
+        SandboxSupervisor,
+    )
     from app.tools.builtin.shell import ShellCommandTool
 
-    workspace = Path("/tmp/vesta-error-surface-ws")
-    workspace.mkdir(exist_ok=True)
+    class RecordingBackend(SandboxBackend):
+        def prepare(
+            self,
+            *,
+            command: Path,
+            args: tuple[str, ...],
+            env: dict[str, str],
+            policy: SandboxPolicy,
+        ) -> SandboxLaunchSpec:
+            assert policy.working_directory == tmp_path
+            return SandboxLaunchSpec(
+                command=str(command),
+                args=args,
+                cwd=str(policy.working_directory),
+                env=env,
+                backend="recording",
+                sandboxed=True,
+            )
+
+    captured_env: dict[str, str] = {}
+
+    class FakeProcess:
+        returncode = 1
+
+        async def communicate(self) -> tuple[bytes, bytes]:
+            # 模拟底层命令将收到的密钥变量写入错误输出。
+            exposed = " ".join(
+                captured_env.get(key, "")
+                for key in ("OPENAI_API_KEY", "ANTHROPIC_API_KEY")
+            )
+            return b"", exposed.encode()
+
+    async def fake_spawn(*args: str, **kwargs: object) -> FakeProcess:
+        del args
+        captured_env.update(kwargs["env"])
+        return FakeProcess()
+
+    monkeypatch.setattr(asyncio, "create_subprocess_exec", fake_spawn)
     tool = ShellCommandTool(
-        workspace, sandbox_supervisor=SandboxSupervisor(workspace)
+        tmp_path,
+        sandbox_supervisor=SandboxSupervisor(
+            tmp_path, native_backend=RecordingBackend()
+        ),
     )
 
     result = await tool.execute(
@@ -74,6 +120,9 @@ async def test_tool_result_error_never_includes_env_secrets(monkeypatch) -> None
     )
 
     payload = str(result)
+    assert "OPENAI_API_KEY" not in captured_env
+    assert "ANTHROPIC_API_KEY" not in captured_env
+    assert captured_env.get("PATH") == os.environ.get("PATH")
     assert "sk-leak-check" not in payload
     assert "sk-ant-leak" not in payload
 

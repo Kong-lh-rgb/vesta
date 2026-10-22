@@ -32,6 +32,28 @@ jobs:
       - name: Compile
         run: python -m compileall -q app tests
 
+  backend-macos-sandbox:
+    name: Backend macOS Sandbox
+    runs-on: macos-latest
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: |
+            backend/requirements.txt
+            backend/requirements-dev.txt
+      - name: Install dependencies
+        run: python -m pip install -r requirements.txt -r requirements-dev.txt
+      - name: Test native Sandbox isolation and MCP launch
+        run: |
+          python -m pytest tests/offline/sandbox/test_sandbox.py \
+            tests/offline/extensions/test_mcp.py::test_stdio_client_runs_fake_server_inside_native_sandbox
+
   desktop:
     name: Desktop
     runs-on: ubuntu-latest

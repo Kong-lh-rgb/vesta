@@ -165,6 +165,15 @@ async def test_native_sandbox_blocks_read_outside_workspace(tmp_path: Path) -> N
     assert b"Operation not permitted" in stderr
 
 
+async def _accept_network_probe(
+    reader: asyncio.StreamReader,  # noqa: ARG001
+    writer: asyncio.StreamWriter,
+) -> None:
+    """探针只需验证 TCP 连接能否建立，接受后立即关闭。"""
+
+    writer.close()
+
+
 @pytest.mark.skipif(sys.platform != "darwin", reason="仅验证 macOS Seatbelt")
 @pytest.mark.asyncio
 async def test_shell_tool_uses_workspace_sandbox(
@@ -188,14 +197,28 @@ async def test_shell_tool_uses_workspace_sandbox(
     env_result = await tool.execute(
         {"command": "printf %s ${OPENAI_API_KEY:-not-present}"}
     )
-    network_result = await tool.execute(
-        {
-            "command": (
-                "/usr/bin/python3 -c 'import socket; socket.socket(socket.AF_INET, "
-                "socket.SOCK_STREAM)'"
-            )
-        }
+
+    # 网络隔离验证：Seatbelt 不拦截 socket() 创建，必须发起真实 TCP connect。
+    # 测试进程先监听本地端口；正向对照证明无沙箱时同一命令可以连通（排除
+    # 端口未监听、CI 环境网络受限等假阳性），再断言沙箱内对同一端口的连接
+    # 被 EPERM 拒绝——Connection refused 属于普通网络错误，不构成隔离证据。
+    server = await asyncio.start_server(
+        _accept_network_probe, host="127.0.0.1", port=0
     )
+    port = server.sockets[0].getsockname()[1]
+    probe_command = (
+        f"/bin/bash -c 'exec 3<>/dev/tcp/127.0.0.1/{port}' && echo connected"
+    )
+    async with server:
+        control_process = await asyncio.create_subprocess_shell(
+            probe_command,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        control_stdout, _ = await asyncio.wait_for(
+            control_process.communicate(), timeout=15.0
+        )
+        network_result = await tool.execute({"command": probe_command})
 
     assert write_result["exit_code"] == 0
     assert (workspace / "result.txt").read_text(encoding="utf-8") == "safe"
@@ -206,8 +229,16 @@ async def test_shell_tool_uses_workspace_sandbox(
     assert "workspace-secret" not in protected_result["stdout"]
     assert "Operation not permitted" in protected_result["stderr"]
     assert env_result["stdout"] == "not-present"
+    # 正向对照：无沙箱时同一探针命令必须连通，负向断言才有意义。
+    assert control_process.returncode == 0, (
+        "正向对照失败：无沙箱进程无法连接本地测试端口，"
+        "沙箱内的连接失败不能归因于网络隔离"
+    )
+    assert b"connected" in control_stdout
     assert network_result["exit_code"] != 0
+    assert "connected" not in network_result["stdout"]
     assert "Operation not permitted" in network_result["stderr"]
+    assert "Connection refused" not in network_result["stderr"]
 
 
 # ---------------------------------------------------------------------------
@@ -293,7 +324,7 @@ async def test_symlink_write_escape_is_blocked(tmp_path: Path) -> None:
 
 
 def test_mcp_subprocess_launch_goes_through_sandbox(tmp_path: Path) -> None:
-    """MCP stdio 子进程经 Supervisor 启动：launch_spec 声明沙箱化。"""
+    """跨平台验证 MCP 将启动请求交给 Supervisor 的受限后端。"""
 
     from app.mcp.client import StdioMCPClient
     from app.mcp.config import MCPServerConfig
@@ -307,13 +338,62 @@ def test_mcp_subprocess_launch_goes_through_sandbox(tmp_path: Path) -> None:
         cwd=".",
         sandbox=SandboxConfig(network=SandboxNetworkMode.DENIED),
     )
-    client = StdioMCPClient(config, sandbox_supervisor=SandboxSupervisor(workspace))
+    backend = RecordingBackend()
+    client = StdioMCPClient(
+        config,
+        sandbox_supervisor=SandboxSupervisor(workspace, native_backend=backend),
+    )
 
     environment = {"PATH": os.environ.get("PATH", "")}
     launch = client._prepare_launch(environment)
 
     assert launch.sandboxed is True
-    if sys.platform == "darwin":
-        assert launch.backend == "macos_seatbelt"
-        # 沙箱包裹命令本身：子进程树（MCP server 及其派生）都在同一策略内。
-        assert launch.command == "/usr/bin/sandbox-exec"
+    assert launch.backend == "recording"
+    assert backend.policy is not None
+    assert backend.policy.filesystem is SandboxFilesystemMode.WORKSPACE_WRITE
+    assert backend.policy.network is SandboxNetworkMode.DENIED
+    assert workspace in backend.policy.writable_roots
+
+
+@pytest.mark.skipif(sys.platform != "darwin", reason="仅验证 macOS Seatbelt")
+def test_mcp_subprocess_uses_native_seatbelt(tmp_path: Path) -> None:
+    """macOS 上验证 MCP 启动规格确实由 Seatbelt 包裹。"""
+
+    from app.mcp.client import StdioMCPClient
+    from app.mcp.config import MCPServerConfig
+
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    config = MCPServerConfig(
+        name="sandboxed_server",
+        command=sys.executable,
+        args=("-c", "pass"),
+        cwd=".",
+        sandbox=SandboxConfig(network=SandboxNetworkMode.DENIED),
+    )
+    client = StdioMCPClient(config, sandbox_supervisor=SandboxSupervisor(workspace))
+
+    launch = client._prepare_launch({"PATH": os.environ.get("PATH", "")})
+
+    assert launch.sandboxed is True
+    assert launch.backend == "macos_seatbelt"
+    # 沙箱包裹命令本身：子进程树（MCP server 及其派生）都在同一策略内。
+    assert launch.command == "/usr/bin/sandbox-exec"
+
+
+@pytest.mark.skipif(sys.platform == "darwin", reason="macOS 有原生 Seatbelt 后端")
+def test_mcp_default_backend_fails_closed_on_unsupported_platform(
+    tmp_path: Path,
+) -> None:
+    """不支持的平台不能把 MCP 子进程降级到宿主机执行。"""
+
+    from app.mcp.client import StdioMCPClient
+    from app.mcp.config import MCPServerConfig
+
+    client = StdioMCPClient(
+        MCPServerConfig(name="server", command=sys.executable),
+        sandbox_supervisor=SandboxSupervisor(tmp_path),
+    )
+
+    with pytest.raises(SandboxUnavailableError, match="拒绝降级执行"):
+        client._prepare_launch({"PATH": os.environ.get("PATH", "")})
