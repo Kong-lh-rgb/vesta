@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass
 
 from app.checkpoint import SQLiteCheckpointStore
@@ -91,7 +92,7 @@ class ToolRoundExecutor:
                 tool_calls=tool_calls,
             )
 
-        for tool_call in tool_calls:
+        for tool_index, tool_call in enumerate(tool_calls):
             signature = tool_call_signature(tool_call)
             if signature == previous_signature:
                 repeated_count += 1
@@ -99,6 +100,18 @@ class ToolRoundExecutor:
                 previous_signature = signature
                 repeated_count = 1
             if repeated_count >= 3:
+                # 中止时同一轮里尚未执行的调用必须补齐合成结果消息：
+                # assistant(tool_calls) 之后缺少对应的 tool 消息会被
+                # Provider 协议校验拒绝，悬空历史落库后会毒化整个会话。
+                result_messages.extend(
+                    self.synthetic_result_messages(
+                        tool_calls[tool_index:],
+                        reason=(
+                            "not executed: run aborted after repeated "
+                            "identical tool calls"
+                        ),
+                    )
+                )
                 return ToolRoundOutcome(
                     records=tuple(records),
                     result_messages=tuple(result_messages),
@@ -308,6 +321,37 @@ class ToolRoundExecutor:
             name=result.tool_name,
             tool_call_id=result.tool_call_id,
             content=result.model_dump_json(exclude_none=True),
+        )
+
+    @staticmethod
+    def synthetic_result_messages(
+        tool_calls: Sequence[ToolCall],
+        *,
+        reason: str,
+    ) -> tuple[Message, ...]:
+        """为不会被执行的 tool_call 合成协议结果消息。
+
+        OpenAI 兼容接口要求 assistant(tool_calls) 之后必须跟随逐个对应的
+        tool 消息；任何中止 / 收口路径都不能把悬空 tool_calls 留进历史，
+        否则落库后该会话的后续请求会被 Provider 直接拒绝。
+        """
+
+        return tuple(
+            Message(
+                role=MessageRole.TOOL,
+                name=tool_call.name,
+                tool_call_id=tool_call.id,
+                content=(
+                    ToolResult(
+                        tool_call_id=tool_call.id,
+                        tool_name=tool_call.name,
+                        success=False,
+                        error=reason,
+                        duration_ms=0,
+                    ).model_dump_json(exclude_none=True)
+                ),
+            )
+            for tool_call in tool_calls
         )
 
 

@@ -120,7 +120,7 @@ class StubRunManager:
         elif self.interrupted:
             status = RunStatus.INTERRUPTED
         else:
-            status = SimpleNamespace(value=self.run_status)
+            status = RunStatus(self.run_status)
         return SimpleNamespace(
             id=run_id,
             stop_reason="final_answer",
@@ -139,7 +139,7 @@ class StubRunManager:
         return SimpleNamespace(
             id=run_id,
             conversation_id=self.conversation_id,
-            status=SimpleNamespace(value=self.run_status),
+            status=RunStatus(self.run_status),
         )
 
 
@@ -443,6 +443,78 @@ async def test_dispatch_interrupted_run_synthesizes_result(service_factory) -> N
     assert [event.sequence for event in events] == [0, 1]
     assert events[1].type is AgentEventType.AGENT_FAILED
     assert events[1].stop_reason is AgentStopReason.INTERRUPTED
+
+
+# ---------------------------------------------------------------------------
+# 7b. recover 的取消 / 中断：与 dispatch 同一条收口链路（不再抛裸 RuntimeError）
+# ---------------------------------------------------------------------------
+
+
+async def test_recover_cancelled_run_synthesizes_result(service_factory) -> None:
+    service, conversation_store, _, trace_store, manager = await service_factory(
+        _result_with(
+            (
+                _message(MessageRole.USER, "A"),
+                _message(MessageRole.ASSISTANT, "B"),
+            )
+        )
+    )
+    manager.cancelled = True
+    conversation = await conversation_store.create(
+        messages=(
+            _message(MessageRole.USER, "A"),
+            _message(MessageRole.ASSISTANT, "B"),
+        )
+    )
+    manager.conversation_id = conversation.id
+
+    dispatch = await service.recover("run-1")
+
+    # 落库：历史 A B + 中断说明；user 消息在旧 Run 时已落库，不重复插入。
+    persisted = await conversation_store.load_messages(conversation.id)
+    assert [m.content for m in persisted] == [
+        "A",
+        "B",
+        "Run cancelled：已停止，未生成最终回复。（本轮未完成的内容不会显示）",
+    ]
+    assert dispatch.result.stop_reason is AgentStopReason.CANCELLED
+    assert dispatch.run.id == "run-2"
+    # 终态事件在恢复 Run 上发出（stub.recover 返回 run-2）。
+    events = await trace_store.load_events("run-2")
+    assert [event.type for event in events] == [AgentEventType.AGENT_CANCELLED]
+    assert events[0].stop_reason is AgentStopReason.CANCELLED
+
+
+async def test_recover_interrupted_run_synthesizes_result(service_factory) -> None:
+    service, conversation_store, _, trace_store, manager = await service_factory(
+        _result_with(
+            (
+                _message(MessageRole.USER, "A"),
+                _message(MessageRole.ASSISTANT, "B"),
+            )
+        )
+    )
+    manager.interrupted = True
+    conversation = await conversation_store.create(
+        messages=(
+            _message(MessageRole.USER, "A"),
+            _message(MessageRole.ASSISTANT, "B"),
+        )
+    )
+    manager.conversation_id = conversation.id
+
+    dispatch = await service.recover("run-1")
+
+    persisted = await conversation_store.load_messages(conversation.id)
+    assert [m.content for m in persisted] == [
+        "A",
+        "B",
+        "Run interrupted：已暂停，可从断点继续。（点击 Recover 从保存的中断点恢复）",
+    ]
+    assert dispatch.result.stop_reason is AgentStopReason.INTERRUPTED
+    events = await trace_store.load_events("run-2")
+    assert [event.type for event in events] == [AgentEventType.AGENT_FAILED]
+    assert events[0].stop_reason is AgentStopReason.INTERRUPTED
 
 
 # ---------------------------------------------------------------------------
