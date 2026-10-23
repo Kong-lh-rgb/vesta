@@ -128,7 +128,10 @@ async def test_http_request_get_returns_body() -> None:
         )
     )
     client = httpx.AsyncClient(transport=transport)
-    executor = executor_with(HttpRequestTool(client=client))
+    # 注入 client 时 SSRF 校验同样执行：allowed_hosts 保持离线（不做真实 DNS）。
+    executor = executor_with(
+        HttpRequestTool(client=client, allowed_hosts=("example.com",))
+    )
 
     result = await executor.execute(
         ToolCall(
@@ -154,7 +157,9 @@ async def test_http_request_post_sends_body() -> None:
         return httpx.Response(201, text="created")
 
     client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
-    executor = executor_with(HttpRequestTool(client=client))
+    executor = executor_with(
+        HttpRequestTool(client=client, allowed_hosts=("example.com",))
+    )
 
     result = await executor.execute(
         ToolCall(
@@ -192,7 +197,9 @@ async def test_http_request_blocks_private_addresses() -> None:
 
 
 @pytest.mark.asyncio
-async def test_http_request_with_injected_client_bypasses_ssrf() -> None:
+async def test_http_request_with_injected_client_still_enforces_ssrf() -> None:
+    """注入共享 client 不再绕过 SSRF 校验：安全边界独立于传输实现。"""
+
     client = httpx.AsyncClient(
         transport=httpx.MockTransport(lambda r: httpx.Response(200, text="ok"))
     )
@@ -206,5 +213,106 @@ async def test_http_request_with_injected_client_bypasses_ssrf() -> None:
         )
     )
 
+    assert result.success is False
+    assert "SSRF" in (result.error or "")
+
+
+@pytest.mark.asyncio
+async def test_http_request_redirect_to_private_address_is_blocked() -> None:
+    """公网 URL 302 到内网地址是典型 SSRF 绕过：每一跳都要重新校验。"""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.url.host == "public.example"
+        return httpx.Response(
+            302, headers={"location": "http://192.168.0.10/admin"}
+        )
+
+    client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    executor = executor_with(
+        HttpRequestTool(client=client, allowed_hosts=("public.example",))
+    )
+
+    result = await executor.execute(
+        ToolCall(
+            id="http-5",
+            name="http_request",
+            arguments={"url": "http://public.example/start"},
+        )
+    )
+
+    assert result.success is False
+    assert "SSRF" in (result.error or "")
+
+
+@pytest.mark.asyncio
+async def test_http_request_follows_redirect_to_public_host() -> None:
+    """公网之间的重定向正常跟随；302 后按浏览器语义转为 GET。"""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.host == "public.example":
+            return httpx.Response(
+                302, headers={"location": "https://other.example/final"}
+            )
+        assert request.method == "GET"
+        return httpx.Response(200, text="landed")
+
+    client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    executor = executor_with(
+        HttpRequestTool(
+            client=client,
+            allowed_hosts=("public.example", "other.example"),
+        )
+    )
+
+    result = await executor.execute(
+        ToolCall(
+            id="http-6",
+            name="http_request",
+            arguments={"url": "https://public.example/start", "method": "POST"},
+        )
+    )
+
     assert result.success is True
-    assert json.loads(result.output or "{}")["text"] == "ok"
+    output = json.loads(result.output or "{}")
+    assert output["status_code"] == 200
+    assert output["url"] == "https://other.example/final"
+    assert output["text"] == "landed"
+
+
+@pytest.mark.asyncio
+async def test_http_request_cross_origin_redirect_drops_credentials() -> None:
+    """跨源跳转不携带 Authorization：初始站点的凭据不能被送到跳转目标。"""
+
+    seen_headers: list[httpx.Headers] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen_headers.append(request.headers)
+        if request.url.host == "public.example":
+            return httpx.Response(
+                302, headers={"location": "https://other.example/final"}
+            )
+        return httpx.Response(200, text="done")
+
+    client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    executor = executor_with(
+        HttpRequestTool(
+            client=client,
+            allowed_hosts=("public.example", "other.example"),
+        )
+    )
+
+    result = await executor.execute(
+        ToolCall(
+            id="http-7",
+            name="http_request",
+            arguments={
+                "url": "https://public.example/start",
+                "headers": {"Authorization": "Bearer secret-token"},
+            },
+        )
+    )
+
+    assert result.success is True
+    assert len(seen_headers) == 2
+    assert seen_headers[0]["authorization"] == "Bearer secret-token"
+    assert "authorization" not in seen_headers[1]

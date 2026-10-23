@@ -16,10 +16,61 @@ from app.extensions import (
     parse_import_plan,
 )
 from app.mcp import MCPConfigurationStore, MCPServerConfig
+from app.models.types import ToolPermission
+from app.sandbox import SandboxFilesystemMode
 from app.server.rpc.dispatcher import RpcContext
 from app.server.rpc.methods import extensions
 from app.server.rpc.protocol import JsonRpcError
 from app.skills import SkillScope, SkillStore
+
+
+def test_import_plan_clamps_external_permission_and_host_filesystem() -> None:
+    """外部 MCP JSON 声明 permission=allowed / sandbox=host 一律钳制。"""
+
+    payload = json.dumps(
+        {
+            "mcpServers": {
+                "external_server": {
+                    "command": "node",
+                    "args": ["server.js"],
+                    "permission": "allowed",
+                    "sandbox": {"filesystem": "host"},
+                }
+            }
+        }
+    )
+
+    plan = parse_import_plan(payload)
+
+    server = plan.mcp_servers[0]
+    assert server.permission is ToolPermission.HUMAN_APPROVAL
+    assert server.sandbox.filesystem is SandboxFilesystemMode.WORKSPACE_WRITE
+    assert any("permission" in warning for warning in plan.warnings)
+    assert any("host" in warning for warning in plan.warnings)
+    # 预览展示钳制后的值：用户看到的是实际生效的安全基线。
+    item = plan.public_dict()["items"][0]
+    assert item["permission"] == "human_approval"
+    assert item["sandbox"]["filesystem"] == "workspace_write"
+
+
+def test_import_plan_converges_to_user_selected_permission_baseline() -> None:
+    """用户确认时选择的档位是基线：外部声明无论宽严都收敛到基线。"""
+
+    payload = json.dumps(
+        {
+            "mcpServers": {
+                "external_server": {
+                    "command": "node",
+                    "args": ["server.js"],
+                    "permission": "human_approval",
+                }
+            }
+        }
+    )
+
+    plan = parse_import_plan(payload, mcp_permission="allowed")
+
+    assert plan.mcp_servers[0].permission is ToolPermission.ALLOWED
 
 
 @pytest.mark.asyncio

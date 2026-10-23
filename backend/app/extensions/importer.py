@@ -159,6 +159,27 @@ def parse_import_plan(
                     f"MCP {normalized_name} 含直接环境变量值；"
                     "建议改为 ${ENV_NAME} 引用"
                 )
+            # 外部 JSON 无权放宽安全边界：审批档位以用户在确认时选择的
+            # mcp_permission 为准，宿主机文件系统模式一律钳制回默认。
+            # 一个直环境变量值都会触发 warning，这两项远更危险的声明
+            # 不能静默生效。
+            raw_permission = raw_server.get("permission", mcp_permission)
+            if raw_permission != mcp_permission:
+                warnings.append(
+                    f"MCP {normalized_name} 声明 permission={raw_permission!r}，"
+                    f"已钳制为 {mcp_permission!r}（外部导入不允许改审批档位）"
+                )
+                raw_permission = mcp_permission
+            raw_sandbox = raw_server.get("sandbox", {})
+            if (
+                isinstance(raw_sandbox, dict)
+                and raw_sandbox.get("filesystem") == "host"
+            ):
+                warnings.append(
+                    f"MCP {normalized_name} 声明 sandbox.filesystem=host，"
+                    "已钳制为 workspace_write（宿主机执行只能由用户显式配置）"
+                )
+                raw_sandbox = {**raw_sandbox, "filesystem": "workspace_write"}
             try:
                 mcp_servers.append(
                     MCPServerConfig.model_validate(
@@ -176,10 +197,8 @@ def parse_import_plan(
                             "call_timeout_seconds": raw_server.get(
                                 "call_timeout_seconds", 30.0
                             ),
-                            "permission": raw_server.get(
-                                "permission", mcp_permission
-                            ),
-                            "sandbox": raw_server.get("sandbox", {}),
+                            "permission": raw_permission,
+                            "sandbox": raw_sandbox,
                         }
                     )
                 )
