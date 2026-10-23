@@ -37,10 +37,20 @@ from .version import __version__
 
 logger = logging.getLogger("vesta.server")
 
-# 只允许 loopback client 读取截图（防止 --host 0.0.0.0 后把桌面截图暴露出去）。
-_ALLOWED_LOOPBACK_HOSTS = frozenset({"127.0.0.1", "::1", "localhost"})
+# 只允许 loopback client 建立业务连接与读取媒体（防止 --host 0.0.0.0 后把
+# 桌面截图或全部 RPC 能力暴露出去）。"testclient" 是 Starlette TestClient
+# 的模拟对端地址（真实 TCP 对端只会是 IP），仅用于离线测试。
+_ALLOWED_LOOPBACK_HOSTS = frozenset(
+    {"127.0.0.1", "::1", "::ffff:127.0.0.1", "localhost", "testclient"}
+)
 _OBSERVATION_ID_RE = re.compile(r"^[0-9a-f]{32}$")
 _ARTIFACT_ID_RE = re.compile(r"^[0-9a-f]{32}$")
+
+
+def _is_loopback_client(host: str | None) -> bool:
+    """业务连接的来源限制：socket 层对端地址，不受请求头伪造影响。"""
+
+    return (host or "") in _ALLOWED_LOOPBACK_HOSTS
 
 
 def computer_screenshot(observation_id: str, request: Request) -> Response:
@@ -50,8 +60,8 @@ def computer_screenshot(observation_id: str, request: Request) -> Response:
     runtime.screenshot_dir 内。拒绝任意文件 / 目录遍历 / 非 loopback client。
     """
 
-    client_host = request.client.host if request.client is not None else ""
-    if client_host not in _ALLOWED_LOOPBACK_HOSTS:
+    client_host = request.client.host if request.client is not None else None
+    if not _is_loopback_client(client_host):
         raise HTTPException(status_code=403, detail="forbidden")
 
     if not _OBSERVATION_ID_RE.fullmatch(observation_id):
@@ -88,8 +98,8 @@ async def artifact_content(artifact_id: str, request: Request) -> FileResponse:
     managed_dir 内 → 返回。URL artifact / 不存在 → 404；非 loopback → 403。
     """
 
-    client_host = request.client.host if request.client is not None else ""
-    if client_host not in _ALLOWED_LOOPBACK_HOSTS:
+    client_host = request.client.host if request.client is not None else None
+    if not _is_loopback_client(client_host):
         raise HTTPException(status_code=403, detail="forbidden")
 
     if not _ARTIFACT_ID_RE.fullmatch(artifact_id):
@@ -211,6 +221,16 @@ def create_app(
 
     @app.websocket("/rpc")
     async def rpc_endpoint(websocket: WebSocket) -> None:
+        # WS /rpc 承载全部业务能力（消耗 API key 执行 Agent、computer、
+        # artifact、模型设置……），与 GET 媒体路由执行同一套 loopback 限制：
+        # 非本机客户端直接拒绝握手，防御不能只做 GET 一半。
+        client_host = websocket.client.host if websocket.client is not None else None
+        if not _is_loopback_client(client_host):
+            logger.warning(
+                "拒绝非 loopback 的 WS /rpc 连接：client=%s", client_host
+            )
+            await websocket.close(code=1008)
+            return
         await websocket.accept()
         connection = RpcConnection(websocket, dispatcher, application, hub)
         await hub.register(connection)

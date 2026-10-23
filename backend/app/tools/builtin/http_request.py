@@ -3,6 +3,11 @@
 网络访问存在 SSRF 风险，权限档位为 HUMAN_APPROVAL。
 默认阻止解析到内网/回环地址的主机；可通过 ``allow_private`` 或
 ``allowed_hosts`` 显式放开（仅限本地/测试场景）。
+
+重定向由本工具手动逐跳跟随，每一跳都重新执行 SSRF 校验：初始 URL 是
+公网地址、302 跳到内网 / 云 metadata 是典型绕过路径，不能依赖 transport
+自动跟随。校验与连接仍是两次独立解析，存在理论上的 DNS rebinding 窗口
+（本地单用户威胁模型下可接受），如需闭合应在连接层按 IP 校验。
 """
 
 from __future__ import annotations
@@ -21,7 +26,10 @@ from app.models.types import ToolDefinition, ToolPermission
 from ..base import BaseTool
 
 MAX_HTTP_TIMEOUT_SECONDS = 60.0
+_MAX_REDIRECTS = 5
 _ALLOWED_METHODS = {"GET", "POST", "HEAD"}
+# 跨源重定向不携带凭据类 header，避免初始站点的凭据被送到跳转目标。
+_CREDENTIAL_HEADERS = frozenset({"authorization", "cookie"})
 
 
 class HttpRequestTool(BaseTool):
@@ -111,13 +119,17 @@ class HttpRequestTool(BaseTool):
         if parsed.scheme not in {"http", "https"} or not parsed.hostname:
             raise ValueError("'url' must be an http(s) URL")
 
+        # SSRF 校验无条件执行，先于任何传输分支：安全边界不能依赖传输实现，
+        # 注入共享 client（代理 / 连接池）也必须先通过校验，防止未来的装配
+        # 改动无声关闭防护。
+        await self._assert_safe_url(parsed.hostname)
+
         if self._client is not None:
             return await self._do_request(
                 self._client, method, url, headers, body, timeout
             )
 
-        await self._assert_safe_url(parsed.hostname)
-        async with httpx.AsyncClient(follow_redirects=True) as client:
+        async with httpx.AsyncClient(follow_redirects=False) as client:
             return await self._do_request(
                 client, method, url, headers, body, timeout
             )
@@ -137,13 +149,63 @@ class HttpRequestTool(BaseTool):
         status_code: int | None = None
         encoding = "utf-8"
 
-        async with client.stream(
-            method,
-            url,
-            headers=headers,
-            content=body,
-            timeout=timeout,
-        ) as response:
+        current_url = httpx.URL(url)
+        current_method = method
+        current_headers = headers
+        current_body = body
+        origin = _url_origin(current_url)
+        response = await client.send(
+            client.build_request(
+                current_method,
+                current_url,
+                headers=current_headers,
+                content=current_body,
+                timeout=timeout,
+            ),
+            follow_redirects=False,
+            stream=True,
+        )
+        redirects = 0
+        while response.has_redirect_location and redirects < _MAX_REDIRECTS:
+            location = response.headers.get("location", "")
+            await response.aclose()
+            if not location:
+                break
+            try:
+                next_url = current_url.join(location)
+            except httpx.InvalidURL:
+                break
+            if next_url.scheme not in {"http", "https"} or not next_url.host:
+                break
+            # 每一跳都重新校验：不能继承初始 URL 的信任。
+            await self._assert_safe_url(next_url.host)
+            next_origin = _url_origin(next_url)
+            if next_origin != origin:
+                current_headers = {
+                    key: value
+                    for key, value in (current_headers or {}).items()
+                    if key.lower() not in _CREDENTIAL_HEADERS
+                }
+                origin = next_origin
+            current_url = next_url
+            if response.status_code not in (307, 308):
+                # 301/302/303 按浏览器语义转为 GET（307/308 才保留方法与体）。
+                current_method = "GET"
+                current_body = None
+            redirects += 1
+            response = await client.send(
+                client.build_request(
+                    current_method,
+                    current_url,
+                    headers=current_headers,
+                    content=current_body,
+                    timeout=timeout,
+                ),
+                follow_redirects=False,
+                stream=True,
+            )
+
+        try:
             status_code = response.status_code
             response_headers = dict(response.headers.items())
             encoding = response.charset_encoding or "utf-8"
@@ -151,10 +213,12 @@ class HttpRequestTool(BaseTool):
                 content.extend(chunk)
                 if len(content) >= self._max_response_bytes:
                     break
+        finally:
+            await response.aclose()
 
         return {
             "method": method,
-            "url": url,
+            "url": str(current_url),
             "status_code": status_code,
             "headers": response_headers,
             "text": bytes(content).decode(encoding, errors="replace"),
@@ -192,3 +256,7 @@ def _is_blocked_address(ip: ipaddress._BaseAddress) -> bool:
         or ip.is_multicast
         or ip.is_unspecified
     )
+
+
+def _url_origin(url: httpx.URL) -> tuple[str, str, int | None]:
+    return (url.scheme, url.host, url.port)

@@ -22,6 +22,7 @@ from typing import Any
 import pytest
 from fastapi.testclient import TestClient
 from pydantic import SecretStr
+from starlette.websockets import WebSocketDisconnect
 
 from app.application import DEFAULT_SYSTEM_PROMPT, Application
 from app.memory import (
@@ -42,6 +43,7 @@ from app.models.types import (
     ToolDefinition,
     ToolPermission,
 )
+from app.server import app as server_app_module
 from app.server.app import create_app
 from app.skill_learning import SkillLearningSettings
 from app.tools.base import BaseTool
@@ -264,6 +266,17 @@ def _require_result(response: dict[str, Any]) -> dict[str, Any]:
 # ---------------------------------------------------------------------------
 # 协议：parse / invalid / correlation / notification
 # ---------------------------------------------------------------------------
+
+
+def test_rpc_rejects_non_loopback_client(make_app, monkeypatch) -> None:
+    """WS /rpc 与 GET 媒体路由执行同一套 loopback 限制：非本机拒绝握手。"""
+
+    monkeypatch.setattr(server_app_module, "_is_loopback_client", lambda host: False)
+    app, _application, _adapter = make_app()
+    with TestClient(app) as client:
+        with pytest.raises(WebSocketDisconnect):
+            with client.websocket_connect("/rpc"):
+                pass
 
 
 def test_parse_error(make_app) -> None:
