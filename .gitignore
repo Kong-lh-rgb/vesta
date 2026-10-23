@@ -3,6 +3,9 @@
 .env.*
 !.env.example
 
+# macOS
+.DS_Store
+
 # Python
 __pycache__/
 *.py[cod]
