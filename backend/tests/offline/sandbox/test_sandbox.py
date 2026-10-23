@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import os
 import sys
 from pathlib import Path
@@ -94,6 +95,57 @@ def test_supervisor_rejects_relative_path_traversal(tmp_path: Path) -> None:
             cwd=None,
             config=SandboxConfig(readable_roots=("../outside",)),
         )
+
+
+def test_protected_paths_are_denied_even_when_absent(tmp_path: Path) -> None:
+    """保护路径未创建时也必须生成 deny 规则（堵住 check-then-create 缺口）。"""
+
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()  # 空 workspace：.git / .vesta / .env 都不存在
+    backend = RecordingBackend()
+    supervisor = SandboxSupervisor(workspace, native_backend=backend)
+
+    supervisor.prepare_launch(
+        command=sys.executable,
+        args=("-V",),
+        env={"PATH": os.environ.get("PATH", "")},
+        cwd=None,
+        config=SandboxConfig(network=SandboxNetworkMode.DENIED),
+    )
+
+    assert backend.policy is not None
+    for relative in (".git", ".vesta", ".env", "backend/.env"):
+        assert (workspace / relative) in backend.policy.denied_write_paths
+        assert (workspace / relative) in backend.policy.denied_read_paths
+
+
+def test_seatbelt_profile_keeps_deny_rules_for_absent_paths(
+    tmp_path: Path,
+) -> None:
+    """Seatbelt deny 规则按声明的路径生成，不按磁盘存在性过滤。"""
+
+    from app.sandbox.backends import _seatbelt_profile
+    from app.sandbox.models import SandboxPolicy
+
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    absent_env = workspace / ".env"
+    assert not absent_env.exists()
+    policy = SandboxPolicy(
+        filesystem=SandboxFilesystemMode.WORKSPACE_WRITE,
+        network=SandboxNetworkMode.DENIED,
+        working_directory=workspace,
+        readable_roots=(workspace,),
+        writable_roots=(workspace,),
+        denied_read_paths=(absent_env,),
+        denied_write_paths=(absent_env,),
+    )
+
+    profile = _seatbelt_profile(Path(sys.executable), policy)
+
+    assert "deny file-read*" in profile
+    assert "deny file-write*" in profile
+    assert json.dumps(str(absent_env)) in profile
 
 
 def test_unsupported_platform_fails_closed(tmp_path: Path) -> None:

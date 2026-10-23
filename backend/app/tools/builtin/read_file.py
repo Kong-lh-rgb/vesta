@@ -9,7 +9,11 @@ from typing import Any
 from app.models.types import ToolDefinition
 
 from ..base import BaseTool
-from ._workspace import resolve_workspace_path, workspace_root_path
+from ._workspace import (
+    is_protected_workspace_path,
+    resolve_workspace_path,
+    workspace_root_path,
+)
 
 
 class ReadFileTool(BaseTool):
@@ -40,6 +44,13 @@ class ReadFileTool(BaseTool):
         if not isinstance(relative_path, str) or not relative_path:
             raise ValueError("'path' must be a non-empty string")
         target = resolve_workspace_path(self._workspace_root, relative_path)
+        if is_protected_workspace_path(self._workspace_root, target):
+            # 与沙箱对子进程的 deny 列表保持一致：模型不能经由免审批的
+            # read_file 读取 shell 沙箱都读不到的 .git / .vesta / .env。
+            raise ValueError(
+                "'path' targets a protected workspace entry "
+                "(.git / .vesta / .env); ask the user to provide the content"
+            )
         return await asyncio.to_thread(_read_utf8_file, target)
 
 

@@ -9,7 +9,11 @@ from typing import Any
 from app.models.types import ToolDefinition
 
 from ..base import BaseTool
-from ._workspace import resolve_workspace_path, workspace_root_path
+from ._workspace import (
+    is_protected_workspace_path,
+    resolve_workspace_path,
+    workspace_root_path,
+)
 
 
 class WriteFileTool(BaseTool):
@@ -49,6 +53,13 @@ class WriteFileTool(BaseTool):
             raise ValueError("'content' must be a string")
 
         target = resolve_workspace_path(self._workspace_root, relative_path)
+        if is_protected_workspace_path(self._workspace_root, target):
+            # 与沙箱对子进程的 deny 列表保持一致：免审批工具同样不能
+            # 覆盖 .git / .vesta / .env。
+            raise ValueError(
+                "'path' targets a protected workspace entry "
+                "(.git / .vesta / .env); ask the user to edit it manually"
+            )
         await asyncio.to_thread(_write_utf8_file, target, content)
         return {
             "path": target.relative_to(self._workspace_root).as_posix(),

@@ -217,6 +217,44 @@ async def test_write_file_creates_parent_and_returns_metadata(
 
 
 @pytest.mark.asyncio
+async def test_file_tools_reject_protected_workspace_entries(
+    tmp_path: Path,
+) -> None:
+    """write_file / read_file 与沙箱 deny 列表一致：.git/.vesta/.env 拒绝。"""
+
+    registry = ToolRegistry()
+    registry.register(WriteFileTool(tmp_path))
+    registry.register(ReadFileTool(tmp_path))
+    executor = ToolExecutor(registry)
+
+    for index, path in enumerate(
+        (".env", ".git/config", ".vesta/state.json", "sub/.env")
+    ):
+        write = await executor.execute(
+            ToolCall(
+                id=f"write-protected-{index}",
+                name="write_file",
+                arguments={"path": path, "content": "x"},
+            )
+        )
+        assert write.success is False
+        assert "protected workspace entry" in (write.error or "")
+        assert not (tmp_path / path).exists()
+
+    (tmp_path / "notes").mkdir()
+    (tmp_path / "notes" / ".env").write_text("SECRET=1", encoding="utf-8")
+    read = await executor.execute(
+        ToolCall(
+            id="read-protected",
+            name="read_file",
+            arguments={"path": "notes/.env"},
+        )
+    )
+    assert read.success is False
+    assert "protected workspace entry" in (read.error or "")
+
+
+@pytest.mark.asyncio
 async def test_read_file_returns_utf8_text(tmp_path: Path) -> None:
     target = tmp_path / "文档.txt"
     target.write_text("你好，Vesta", encoding="utf-8")

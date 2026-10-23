@@ -2,6 +2,9 @@
 
 负责把权限档位、策略引擎匹配结果与人工审批门组合成最终决定：
 - FORBIDDEN → 直接拒绝；
+- DENY 策略规则 → 对所有档位生效（ALLOWED 工具同样受用户策略约束，
+  如禁用 web_search 或限制 http 目标）；档位决定默认行为，用户策略
+  是最外层边界；
 - HUMAN_APPROVAL → 先查策略引擎（规则命中则放行，规则拒绝则拒绝），
   否则交给人审批门；用户选择 RUN/CONVERSATION 时创建并保存规则。
 """
@@ -86,19 +89,8 @@ class PermissionHook(ToolHook):
                     "for model execution."
                 )
             )
-        if permission is not ToolPermission.HUMAN_APPROVAL:
-            return None
 
-        request = ApprovalRequest(
-            tool_call_id=context.tool_call.id,
-            tool_name=context.tool_call.name,
-            arguments=context.arguments or {},
-            description=definition.description,
-            run_id=context.run_id,
-            conversation_id=context.conversation_id,
-            ui_scope=definition.ui_scope.value,
-        )
-
+        verdict = None
         if self._policy is not None:
             verdict = await self._policy.evaluate(
                 tool_name=context.tool_call.name,
@@ -112,11 +104,31 @@ class PermissionHook(ToolHook):
                         "by a stored permission rule."
                     )
                 )
-            if verdict.effect is PermissionEffect.ALLOW and verdict.rule_id:
-                return ToolHookDecision(
-                    approval_request=request,
-                    matched_rule=verdict.rule,
-                )
+
+        if permission is not ToolPermission.HUMAN_APPROVAL:
+            # ALLOWED 档经过 DENY 检查后放行：无规则命中即执行，
+            # 也不进入人工审批。
+            return None
+
+        request = ApprovalRequest(
+            tool_call_id=context.tool_call.id,
+            tool_name=context.tool_call.name,
+            arguments=context.arguments or {},
+            description=definition.description,
+            run_id=context.run_id,
+            conversation_id=context.conversation_id,
+            ui_scope=definition.ui_scope.value,
+        )
+
+        if (
+            verdict is not None
+            and verdict.effect is PermissionEffect.ALLOW
+            and verdict.rule_id
+        ):
+            return ToolHookDecision(
+                approval_request=request,
+                matched_rule=verdict.rule,
+            )
 
         return ToolHookDecision(approval_request=request)
 

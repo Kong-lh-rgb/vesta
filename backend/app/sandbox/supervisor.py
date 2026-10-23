@@ -98,10 +98,11 @@ class SandboxSupervisor:
         runtime_read, runtime_write = _runtime_support_roots(command, env)
         readable.extend(runtime_read)
         writable.extend(runtime_write)
+        # 保护路径不做存在性过滤（check-then-create 缺口）：.env 尚未存在时，
+        # 沙箱也必须拒绝子进程创建它。
         denied = tuple(
-            path
+            self.workspace_root / relative
             for relative in _PROTECTED_RELATIVE_PATHS
-            if (path := self.workspace_root / relative).exists()
         )
         return SandboxPolicy(
             filesystem=config.filesystem,

@@ -62,6 +62,25 @@ class ShellStub(BaseTool):
         return f"ran:{arguments.get('command')}"
 
 
+class AllowedStub(BaseTool):
+    """模拟 ALLOWED 档工具（如 web_search），默认免审批执行。"""
+
+    @property
+    def definition(self) -> ToolDefinition:
+        return ToolDefinition(
+            name="web_search",
+            description="search the web",
+            permission=ToolPermission.ALLOWED,
+        )
+
+    def __init__(self) -> None:
+        self.executions = 0
+
+    async def execute(self, arguments: dict[str, Any]) -> str:
+        self.executions += 1
+        return f"results:{arguments.get('query')}"
+
+
 class RecordingApprovalHook(ToolHook):
     def __init__(self) -> None:
         self.completed: list[tuple[Any, Any]] = []
@@ -366,6 +385,69 @@ async def test_run_scope_rule_remembers_exact_operation() -> None:
     )
     assert third.success is False
     assert gate.calls == 2
+
+
+@pytest.mark.asyncio
+async def test_deny_rule_blocks_allowed_tool_without_approval() -> None:
+    """DENY 规则对 ALLOWED 档工具同样生效：用户策略是最外层边界。"""
+
+    tool = AllowedStub()
+    registry = ToolRegistry()
+    registry.register(tool)
+    store = InMemoryPermissionRuleStore()
+    await store.add(
+        build_safe_rule(
+            tool_name="web_search",
+            arguments={"query": "anything"},
+            scope=ApprovalScope.CONVERSATION,
+            scope_id="conv-1",
+            effect=PermissionEffect.DENY,
+        )
+    )
+    # 空响应 ScriptedGate：任何审批调用都会拒绝，便于断言"未进审批"。
+    gate = ScriptedGate()
+    executor = ToolExecutor(
+        registry,
+        approval_gate=gate,
+        policy_engine=PermissionPolicyEngine(store),
+        rule_store=store,
+    )
+
+    blocked = await executor.execute(
+        ToolCall(id="w1", name="web_search", arguments={"query": "anything"}),
+        context=ToolExecutionContext(
+            tool_call=ToolCall(
+                id="w1",
+                name="web_search",
+                arguments={"query": "anything"},
+            ),
+            run_id="run-1",
+            conversation_id="conv-1",
+        ),
+    )
+
+    assert blocked.success is False
+    assert "denied" in (blocked.error or "")
+    assert tool.executions == 0
+    # ALLOWED 档不进入人工审批，也不因无规则命中而升级询问。
+    assert gate.calls == 0
+
+    allowed = await executor.execute(
+        ToolCall(id="w2", name="web_search", arguments={"query": "other"}),
+        context=ToolExecutionContext(
+            tool_call=ToolCall(
+                id="w2",
+                name="web_search",
+                arguments={"query": "other"},
+            ),
+            run_id="run-1",
+            conversation_id="conv-1",
+        ),
+    )
+
+    assert allowed.success is True
+    assert tool.executions == 1
+    assert gate.calls == 0
 
 
 @pytest.mark.asyncio

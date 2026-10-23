@@ -121,9 +121,9 @@ def _seatbelt_profile(command: Path, policy: SandboxPolicy) -> str:
     if policy.writable_roots:
         lines.append(_path_rule("allow", "file-write*", policy.writable_roots))
     if policy.denied_read_paths:
-        lines.append(_path_rule("deny", "file-read*", policy.denied_read_paths))
+        lines.append(_deny_path_rule("file-read*", policy.denied_read_paths))
     if policy.denied_write_paths:
-        lines.append(_path_rule("deny", "file-write*", policy.denied_write_paths))
+        lines.append(_deny_path_rule("file-write*", policy.denied_write_paths))
     if policy.network is SandboxNetworkMode.UNRESTRICTED:
         lines.append("(allow network*)")
     return "\n".join(lines)
@@ -134,6 +134,20 @@ def _path_rule(effect: str, operation: str, paths: tuple[Path, ...]) -> str:
         f"(subpath {json.dumps(str(path))})" for path in _unique_paths(paths)
     )
     return f"({effect} {operation} {selectors})"
+
+
+def _deny_path_rule(operation: str, paths: tuple[Path, ...]) -> str:
+    """deny 规则覆盖声明的路径本身，不要求目标已存在。
+
+    subpath 规则匹配路径模式而非磁盘状态；若按存在性过滤，被保护文件
+    被删除后子进程就能重新创建它（check-then-create 缺口）。
+    """
+
+    selectors = " ".join(
+        f"(subpath {json.dumps(str(path))})"
+        for path in dict.fromkeys(path.resolve() for path in paths)
+    )
+    return f"(deny {operation} {selectors})"
 
 
 def _literal_path_rule(effect: str, operation: str, paths: tuple[Path, ...]) -> str:
