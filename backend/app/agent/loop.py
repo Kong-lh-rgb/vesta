@@ -239,6 +239,9 @@ class AgentLoop:
         textual_tool_call_retry_used = False
         # Task 写回提醒只触发一次；Harness 不判断步骤完成，只提醒模型写回。
         task_writeback_reminded = False
+        # computer 验证提醒同样只触发一次；新一轮 computer_type 产生新的
+        # 未验证状态时重置，允许再次提醒。
+        computer_verify_reminded = False
         response_repair_message: Message | None = None
         request_prefix_state: RequestPrefixState | None = None
 
@@ -837,7 +840,18 @@ class AgentLoop:
             tool_calls_in_message = assistant_message.tool_calls
             if force_final_answer and tool_calls_in_message:
                 # 最终化请求没有提供工具定义；即使模型伪造工具调用也不执行。
+                # 伪造调用同样要补齐合成结果消息，否则悬空 tool_calls 落库
+                # 后该会话的后续请求会被 Provider 协议校验拒绝。
                 if budget_forces_final:
+                    messages.extend(
+                        ToolRoundExecutor.synthetic_result_messages(
+                            tool_calls_in_message,
+                            reason=(
+                                "not executed: budget finalization did not "
+                                "provide tool definitions"
+                            ),
+                        )
+                    )
                     return await stop_with_error(
                         RunBudgetExceededError(
                             "model attempted a tool call during budget finalization"
@@ -846,7 +860,17 @@ class AgentLoop:
                         step=step,
                     )
                 if tool_round_limit_reached:
+                    # fallback 路径以最终答复替换该 assistant 消息，协议自洽。
                     return stop_at_tool_round_limit(step=step)
+                messages.extend(
+                    ToolRoundExecutor.synthetic_result_messages(
+                        tool_calls_in_message,
+                        reason=(
+                            "not executed: forced finalization did not "
+                            "provide tool definitions"
+                        ),
+                    )
+                )
                 return await stop_with_error(
                     ModelInvocationError(
                         "model attempted a tool call during forced finalization"
@@ -934,7 +958,15 @@ class AgentLoop:
                         AgentStopReason.MODEL_ERROR,
                         step=step,
                     )
-                if computer_verification_pending and not computer_halted:
+                if (
+                    computer_verification_pending
+                    and not computer_halted
+                    # 收口请求不提供工具定义，模型无法调用 computer_observe；
+                    # 此时继续 nudge 只会把 Run 推向 MAX_STEPS 失败。
+                    and not force_final_answer
+                    and not computer_verify_reminded
+                ):
+                    computer_verify_reminded = True
                     messages.append(
                         Message(
                             role=MessageRole.SYSTEM,
@@ -1028,6 +1060,12 @@ class AgentLoop:
             previous_signature = round_outcome.previous_signature
             repeated_count = round_outcome.repeated_count
             computer_halted = round_outcome.computer_halted
+            if (
+                round_outcome.computer_verification_pending
+                and not computer_verification_pending
+            ):
+                # 新一次 computer_type 产生新的未验证状态：恢复提醒资格。
+                computer_verify_reminded = False
             computer_verification_pending = (
                 round_outcome.computer_verification_pending
             )

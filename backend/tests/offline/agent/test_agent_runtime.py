@@ -172,6 +172,27 @@ class DeliveryTool(CountingTool):
     )
 
 
+class UnverifiedComputerTypeTool(BaseTool):
+    """模拟 computer_type：执行成功但界面效果始终未验证。"""
+
+    definition = ToolDefinition(
+        name="computer_type",
+        description="Type text (fake, always unverified)",
+        parameters={
+            "type": "object",
+            "properties": {"text": {"type": "string"}},
+            "required": ["text"],
+        },
+    )
+
+    async def execute(self, arguments: dict[str, object]) -> str:
+        del arguments
+        return json.dumps(
+            {"ok": True, "verification_status": "unverified"},
+            ensure_ascii=False,
+        )
+
+
 class ApprovalCountingTool(CountingTool):
     definition = ToolDefinition(
         name="approval_count",
@@ -300,6 +321,25 @@ def fake_registry(
     registry = ModelAdapterRegistry(ModelSettings(_env_file=None))
     registry.register("fake", lambda _: adapter, config=config)
     return registry, adapter
+
+
+def assert_tool_protocol_paired(messages) -> None:
+    """OpenAI 协议不变量：assistant(tool_calls) 之后每个 id 都有 tool 消息。
+
+    悬空 tool_calls 落库后，该会话的后续模型请求会被 Provider 直接拒绝；
+    任何中止 / 收口路径都必须满足本不变量。
+    """
+
+    pending: set[str] = set()
+    for message in messages:
+        if message.role is MessageRole.ASSISTANT and message.tool_calls:
+            pending.update(call.id for call in message.tool_calls)
+        elif message.role is MessageRole.TOOL:
+            assert message.tool_call_id in pending, (
+                f"tool 消息 {message.tool_call_id} 没有对应的 assistant tool_call"
+            )
+            pending.discard(message.tool_call_id)
+    assert not pending, f"悬空 tool_calls：{sorted(pending)}"
 
 
 @pytest.mark.asyncio
@@ -1499,6 +1539,180 @@ async def test_three_identical_tool_calls_stop_before_third_execution() -> None:
     assert len(result.tool_rounds) == 2
     assert len(result.tool_calls) == 2
     assert "3 consecutive times" in (result.content or "")
+
+
+@pytest.mark.asyncio
+async def test_repeated_abort_synthesizes_results_for_unexecuted_calls() -> None:
+    """重复调用中止时，同轮未执行的调用必须补合成结果（协议完整性）。"""
+
+    def call(call_id: str, name: str, value: int) -> ToolCall:
+        return ToolCall(id=call_id, name=name, arguments={"value": value})
+
+    registry, _ = fake_registry(
+        [
+            model_response(tool_calls=(call("count-1", "count", 1),)),
+            model_response(tool_calls=(call("count-2", "count", 1),)),
+            # 第三轮：重复调用触发中止，同轮第二个不同调用永远不会执行。
+            model_response(
+                tool_calls=(
+                    call("count-3", "count", 1),
+                    call("other-1", "other", 7),
+                )
+            ),
+        ]
+    )
+    counting_tool = CountingTool()
+    tools = ToolRegistry()
+    tools.register(counting_tool)
+
+    result = await AgentRuntime(registry, tools, provider="fake").run("count")
+
+    assert result.stop_reason is AgentStopReason.REPEATED_TOOL_CALL
+    assert_tool_protocol_paired(result.messages)
+    # 触发中止的 count-3 与未执行的 other-1 都有合成失败结果。
+    synthesized = {
+        json.loads(message.content)["tool_call_id"]: json.loads(message.content)
+        for message in result.messages
+        if message.role is MessageRole.TOOL
+        and message.tool_call_id in {"count-3", "other-1"}
+    }
+    assert set(synthesized) == {"count-3", "other-1"}
+    assert all(item["success"] is False for item in synthesized.values())
+    assert all("not executed" in item["error"] for item in synthesized.values())
+
+
+@pytest.mark.asyncio
+async def test_forged_tool_call_during_finalization_keeps_protocol_paired() -> None:
+    """finalization 请求里模型伪造 tool_calls：必须补合成结果后才能落库。"""
+
+    registry, _ = fake_registry(
+        [
+            # 第 1、2 步调用 computer_observe（未注册，执行失败即可；
+            # 调用名满足 step==max_steps 的 finalization_pending 条件）。
+            model_response(
+                tool_calls=(
+                    ToolCall(id="obs-1", name="computer_observe", arguments={}),
+                )
+            ),
+            model_response(
+                tool_calls=(
+                    ToolCall(id="obs-2", name="computer_observe", arguments={}),
+                )
+            ),
+            # 第 3 步是 finalization 请求（无工具定义）：模型伪造工具调用。
+            model_response(
+                tool_calls=(
+                    ToolCall(id="forge-1", name="count", arguments={"value": 1}),
+                    ToolCall(id="forge-2", name="count", arguments={"value": 2}),
+                )
+            ),
+        ]
+    )
+    tools = ToolRegistry()
+    tools.register(CountingTool())
+
+    result = await AgentRuntime(
+        registry,
+        tools,
+        provider="fake",
+        max_steps=2,
+    ).run("observe then finalize")
+
+    assert result.ok is False
+    assert result.stop_reason is AgentStopReason.MODEL_ERROR
+    assert result.error is not None
+    assert "forced finalization" in result.error.message
+    assert_tool_protocol_paired(result.messages)
+    forged = {
+        json.loads(message.content)["tool_call_id"]: json.loads(message.content)
+        for message in result.messages
+        if message.role is MessageRole.TOOL
+        and message.tool_call_id in {"forge-1", "forge-2"}
+    }
+    assert set(forged) == {"forge-1", "forge-2"}
+    assert all("not executed" in item["error"] for item in forged.values())
+
+
+@pytest.mark.asyncio
+async def test_computer_verification_nudge_yields_during_forced_finalization() -> None:
+    """收口请求无法调用 computer_observe：nudge 必须让位，不能推向 MAX_STEPS。"""
+
+    registry, adapter = fake_registry(
+        [
+            model_response(
+                tool_calls=(
+                    ToolCall(
+                        id="type-1",
+                        name="computer_type",
+                        arguments={"text": "hi"},
+                    ),
+                )
+            ),
+            model_response(content="已经完成输入操作"),
+        ]
+    )
+    tools = ToolRegistry()
+    tools.register(UnverifiedComputerTypeTool())
+
+    result = await AgentRuntime(
+        registry,
+        tools,
+        provider="fake",
+        max_steps=6,
+        max_tool_rounds=1,
+    ).run("type then answer")
+
+    assert result.ok is True
+    assert result.stop_reason is AgentStopReason.FINAL_ANSWER
+    assert result.content == "已经完成输入操作"
+    assert len(adapter.requests) == 2
+    assert all(
+        "computer_observe" not in (message.content or "")
+        for message in result.messages
+        if message.role is MessageRole.SYSTEM
+    )
+
+
+@pytest.mark.asyncio
+async def test_computer_verification_nudge_is_one_shot() -> None:
+    """正常流程里验证提醒只发一次；模型坚持纯文本时放行收口。"""
+
+    registry, adapter = fake_registry(
+        [
+            model_response(
+                tool_calls=(
+                    ToolCall(
+                        id="type-1",
+                        name="computer_type",
+                        arguments={"text": "hi"},
+                    ),
+                )
+            ),
+            model_response(content="先观察一下"),
+            model_response(content="坚持直接回答"),
+        ]
+    )
+    tools = ToolRegistry()
+    tools.register(UnverifiedComputerTypeTool())
+
+    result = await AgentRuntime(
+        registry,
+        tools,
+        provider="fake",
+        max_steps=6,
+    ).run("type")
+
+    assert result.ok is True
+    assert result.stop_reason is AgentStopReason.FINAL_ANSWER
+    assert result.content == "坚持直接回答"
+    assert len(adapter.requests) == 3
+    nudges = [
+        message
+        for message in result.messages
+        if message.role is MessageRole.SYSTEM
+        and "computer_observe" in (message.content or "")
+    ]
+    assert len(nudges) == 1
 
 
 @pytest.mark.asyncio
