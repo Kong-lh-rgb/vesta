@@ -37,7 +37,10 @@ from .inputs import ConversationSource, TriggerContext
 from .store import SQLiteConversationStore
 
 if TYPE_CHECKING:  # 避免 app.context ↔ app.conversation 循环导入
-    from app.context import SQLiteConversationSummaryStore
+    from app.context import (
+        ConversationSummaryState,
+        SQLiteConversationSummaryStore,
+    )
     from app.run import Run, RunManager
 
 logger = logging.getLogger("vesta.conversation.service")
@@ -128,29 +131,12 @@ class ConversationService:
         mode: AgentMode,
     ) -> DispatchResult:
         # 1) 从持久化源加载“触发那一刻最新”的 history / summary。
-        history: tuple[Any, ...] = ()
-        if conversation_id is not None:
-            history = tuple(
-                await self._conversation_store.load_messages(conversation_id)
-            )
-        summary_state = (
-            await self._summary_store.load(conversation_id)
-            if self._summary_store is not None and conversation_id is not None
-            else None
+        history, summary_state = await self._load_history_and_summary(
+            conversation_id
         )
 
         # 2) 统一注入 Trace handler（+ 全局共享观察者 + 本次额外观察者）。
-        trace_handler = SQLiteTraceEventHandler(self._trace_store)
-        handlers: list[AgentEventHandler] = [trace_handler]
-        if self._shared_event_handler is not None:
-            handlers.append(self._shared_event_handler)
-        if event_handler is not None:
-            handlers.append(event_handler)
-        handler: AgentEventHandler = (
-            CompositeEventHandler(*handlers)
-            if len(handlers) > 1
-            else handlers[0]
-        )
+        handler = self._compose_handler(event_handler)
 
         # 3) 启动 Run（携带 provenance + mode）并等待完成。
         run_id, _ = await self._run_manager.start(
@@ -167,103 +153,17 @@ class ConversationService:
         )
         if on_run_started is not None:
             await on_run_started(run_id)
-        try:
-            run = await self._run_manager.wait(run_id)
-        except KeyboardInterrupt:
-            # 用户 Ctrl+C：取消正在执行的 Run（不残留 task），再向上传播。
-            try:
-                await self._run_manager.cancel(run_id)
-            except (ValueError, KeyError):
-                pass
-            raise
-        result = self._run_manager.result(run_id)
-        if result is None:
-            # 用户取消：runtime 的 CancelledError 直接向上传播，不会产生
-            # AgentResult，conversation 因此无法落库 —— 本次 user 消息与中断
-            # 内容一并丢失，前端还会一直卡在运行态。这里为取消的 Run 合成
-            # 终态结果：落库 user 消息 + 中断说明，并 emit agent_cancelled
-            # 让前端进入 cancelled 终态（本轮部分内容不再显示）。
-            #
-            # 终态事件同样经过 EventEmitter 分配序号：序号从 TraceStore 已
-            # 持久化的最大序号继续，避免与 agent_started(sequence=0) 冲突
-            # 被 UNIQUE(run_id, sequence) 的 INSERT OR IGNORE 静默丢弃。
-            emitter = EventEmitter(
-                handler=handler,
-                run_id=run_id,
-                conversation_id=conversation_id,
-                sequence_offset=await self._trace_store.next_sequence(run_id),
-            )
-            if run.status is RunStatus.CANCELLED:
-                cancelled_message = Message(
-                    role=MessageRole.ASSISTANT,
-                    content=(
-                        "Run cancelled：已停止，未生成最终回复。"
-                        "（本轮未完成的内容不会显示）"
-                    ),
-                )
-                result = AgentResult(
-                    run_id=run_id,
-                    final_message=cancelled_message,
-                    messages=(
-                        *history,
-                        Message(role=MessageRole.USER, content=content),
-                        cancelled_message,
-                    ),
-                    steps=0,
-                    stop_reason=AgentStopReason.CANCELLED,
-                )
-                await emitter.emit(
-                    AgentEventType.AGENT_CANCELLED,
-                    message=cancelled_message,
-                    stop_reason=AgentStopReason.CANCELLED,
-                    result=result,
-                )
-            elif run.status is RunStatus.INTERRUPTED:
-                # 暂停（中断）：合成 INTERRUPTED 终态结果并 emit agent_failed
-                # (stop_reason=interrupted)，前端进入 interrupted 终态并展示
-                # “Recover/继续”入口，用户可从 Checkpoint 断点恢复执行。
-                interrupted_message = Message(
-                    role=MessageRole.ASSISTANT,
-                    content=(
-                        "Run interrupted：已暂停，可从断点继续。"
-                        "（点击 Recover 从保存的中断点恢复）"
-                    ),
-                )
-                result = AgentResult(
-                    run_id=run_id,
-                    final_message=interrupted_message,
-                    messages=(
-                        *history,
-                        Message(role=MessageRole.USER, content=content),
-                        interrupted_message,
-                    ),
-                    steps=0,
-                    stop_reason=AgentStopReason.INTERRUPTED,
-                )
-                await emitter.emit(
-                    AgentEventType.AGENT_FAILED,
-                    message=interrupted_message,
-                    stop_reason=AgentStopReason.INTERRUPTED,
-                    result=result,
-                )
-            else:
-                raise RuntimeError("RunManager 未返回最终 AgentResult")
+        run = await self._wait_for_run(run_id)
+        result = await self._resolve_terminal_result(
+            run=run,
+            conversation_id=conversation_id,
+            handler=handler,
+            history=history,
+            user_content=content,
+        )
 
         # 4) 把新的完整 history 写回 ConversationStore（保存最新 Summary）。
-        if conversation_id is not None:
-            await self._conversation_store.replace_messages(
-                conversation_id,
-                result.messages,
-            )
-        if (
-            self._summary_store is not None
-            and conversation_id is not None
-            and result.summary_state is not None
-        ):
-            await self._summary_store.save(
-                conversation_id,
-                result.summary_state,
-            )
+        await self._write_back(conversation_id, result)
 
         return DispatchResult(
             run=run,
@@ -321,29 +221,12 @@ class ConversationService:
         on_run_started: Any | None,
     ) -> DispatchResult:
         # 1) 从持久化源加载最新 history / summary（与 dispatch 一致）。
-        history: tuple[Any, ...] = ()
-        if conversation_id is not None:
-            history = tuple(
-                await self._conversation_store.load_messages(conversation_id)
-            )
-        summary_state = (
-            await self._summary_store.load(conversation_id)
-            if self._summary_store is not None and conversation_id is not None
-            else None
+        history, summary_state = await self._load_history_and_summary(
+            conversation_id
         )
 
         # 2) 统一注入 Trace handler（+ 全局共享观察者 + 本次额外观察者）。
-        trace_handler = SQLiteTraceEventHandler(self._trace_store)
-        handlers: list[AgentEventHandler] = [trace_handler]
-        if self._shared_event_handler is not None:
-            handlers.append(self._shared_event_handler)
-        if event_handler is not None:
-            handlers.append(event_handler)
-        handler: AgentEventHandler = (
-            CompositeEventHandler(*handlers)
-            if len(handlers) > 1
-            else handlers[0]
-        )
+        handler = self._compose_handler(event_handler)
 
         # 3) 由 RunManager 启动恢复后的新 Run 并等待完成。
         new_run_id, _ = await self._run_manager.recover(
@@ -354,20 +237,169 @@ class ConversationService:
         )
         if on_run_started is not None:
             await on_run_started(new_run_id)
+        recovered_run = await self._wait_for_run(new_run_id)
+        # 恢复 Run 的 user 消息在旧 Run dispatch 时已落库（history 已包含），
+        # 合成取消 / 中断终态时不重复插入。
+        result = await self._resolve_terminal_result(
+            run=recovered_run,
+            conversation_id=conversation_id,
+            handler=handler,
+            history=history,
+            user_content=None,
+        )
+
+        # 4) 把恢复后的完整 history 写回 ConversationStore（保存最新 Summary）。
+        await self._write_back(conversation_id, result)
+
+        return DispatchResult(
+            run=recovered_run,
+            result=result,
+            trigger=trigger,
+            conversation_id=conversation_id,
+        )
+
+    async def _load_history_and_summary(
+        self,
+        conversation_id: str | None,
+    ) -> tuple[tuple[Message, ...], ConversationSummaryState | None]:
+        """从持久化源加载最新 history / summary（dispatch 与 recover 共用）。"""
+
+        history: tuple[Message, ...] = ()
+        if conversation_id is not None:
+            history = tuple(
+                await self._conversation_store.load_messages(conversation_id)
+            )
+        summary_state = (
+            await self._summary_store.load(conversation_id)
+            if self._summary_store is not None and conversation_id is not None
+            else None
+        )
+        return history, summary_state
+
+    def _compose_handler(
+        self,
+        event_handler: AgentEventHandler | None,
+    ) -> AgentEventHandler:
+        """统一注入 Trace handler（+ 全局共享观察者 + 本次额外观察者）。"""
+
+        trace_handler = SQLiteTraceEventHandler(self._trace_store)
+        handlers: list[AgentEventHandler] = [trace_handler]
+        if self._shared_event_handler is not None:
+            handlers.append(self._shared_event_handler)
+        if event_handler is not None:
+            handlers.append(event_handler)
+        return (
+            CompositeEventHandler(*handlers)
+            if len(handlers) > 1
+            else handlers[0]
+        )
+
+    async def _wait_for_run(self, run_id: str) -> Any:
+        """等待 Run 完成；用户 Ctrl+C 时先取消 Run（不残留 task）再传播。"""
+
         try:
-            recovered_run = await self._run_manager.wait(new_run_id)
+            return await self._run_manager.wait(run_id)
         except KeyboardInterrupt:
-            # 用户 Ctrl+C：取消正在执行的恢复 Run（不残留 task），再向上传播。
             try:
-                await self._run_manager.cancel(new_run_id)
+                await self._run_manager.cancel(run_id)
             except (ValueError, KeyError):
                 pass
             raise
-        result = self._run_manager.result(new_run_id)
-        if result is None:
-            raise RuntimeError("RunManager 未返回最终 AgentResult")
 
-        # 4) 把恢复后的完整 history 写回 ConversationStore（保存最新 Summary）。
+    async def _resolve_terminal_result(
+        self,
+        *,
+        run: Any,
+        conversation_id: str | None,
+        handler: AgentEventHandler,
+        history: tuple[Message, ...],
+        user_content: str | None,
+    ) -> AgentResult:
+        """取回 AgentResult；Run 被取消 / 中断时合成终态结果。
+
+        取消 / 中断的 Run 不会产生 AgentResult：不合成的话 user 消息与
+        中断说明无法落库，前端还会一直卡在运行态。dispatch 与 recover
+        共用本收口，避免两条链路行为分叉。
+
+        终态事件同样经过 EventEmitter 分配序号：序号从 TraceStore 已
+        持久化的最大序号继续，避免与 agent_started(sequence=0) 冲突
+        被 UNIQUE(run_id, sequence) 的 INSERT OR IGNORE 静默丢弃。
+
+        ``user_content``：dispatch 传入本次输入，合成 history 需要补上
+        user 消息；recover 的 user 消息已在旧 Run 时落库，传 None。
+        """
+
+        run_id = run.id
+        result = self._run_manager.result(run_id)
+        if result is not None:
+            return result
+        emitter = EventEmitter(
+            handler=handler,
+            run_id=run_id,
+            conversation_id=conversation_id,
+            sequence_offset=await self._trace_store.next_sequence(run_id),
+        )
+        user_messages = (
+            (Message(role=MessageRole.USER, content=user_content),)
+            if user_content is not None
+            else ()
+        )
+        if run.status is RunStatus.CANCELLED:
+            cancelled_message = Message(
+                role=MessageRole.ASSISTANT,
+                content=(
+                    "Run cancelled：已停止，未生成最终回复。"
+                    "（本轮未完成的内容不会显示）"
+                ),
+            )
+            cancelled_result = AgentResult(
+                run_id=run_id,
+                final_message=cancelled_message,
+                messages=(*history, *user_messages, cancelled_message),
+                steps=0,
+                stop_reason=AgentStopReason.CANCELLED,
+            )
+            await emitter.emit(
+                AgentEventType.AGENT_CANCELLED,
+                message=cancelled_message,
+                stop_reason=AgentStopReason.CANCELLED,
+                result=cancelled_result,
+            )
+            return cancelled_result
+        if run.status is RunStatus.INTERRUPTED:
+            # 暂停（中断）：合成 INTERRUPTED 终态结果并 emit agent_failed
+            # (stop_reason=interrupted)，前端进入 interrupted 终态并展示
+            # “Recover/继续”入口，用户可从 Checkpoint 断点恢复执行。
+            interrupted_message = Message(
+                role=MessageRole.ASSISTANT,
+                content=(
+                    "Run interrupted：已暂停，可从断点继续。"
+                    "（点击 Recover 从保存的中断点恢复）"
+                ),
+            )
+            interrupted_result = AgentResult(
+                run_id=run_id,
+                final_message=interrupted_message,
+                messages=(*history, *user_messages, interrupted_message),
+                steps=0,
+                stop_reason=AgentStopReason.INTERRUPTED,
+            )
+            await emitter.emit(
+                AgentEventType.AGENT_FAILED,
+                message=interrupted_message,
+                stop_reason=AgentStopReason.INTERRUPTED,
+                result=interrupted_result,
+            )
+            return interrupted_result
+        raise RuntimeError("RunManager 未返回最终 AgentResult")
+
+    async def _write_back(
+        self,
+        conversation_id: str | None,
+        result: AgentResult,
+    ) -> None:
+        """把完整 history 写回 ConversationStore（保存最新 Summary）。"""
+
         if conversation_id is not None:
             await self._conversation_store.replace_messages(
                 conversation_id,
@@ -383,18 +415,11 @@ class ConversationService:
                 result.summary_state,
             )
 
-        return DispatchResult(
-            run=recovered_run,
-            result=result,
-            trigger=trigger,
-            conversation_id=conversation_id,
-        )
-
     async def is_run_running(self, run_id: str) -> bool:
         """供 Scheduler 做 max_instances 检查（只读 Run 生命周期查询）。"""
 
         run = await self._run_manager.get_run(run_id)
-        return run is not None and run.status.value == "running"
+        return run is not None and run.status is RunStatus.RUNNING
 
 
 __all__ = ["ConversationService", "DispatchResult"]
