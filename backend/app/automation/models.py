@@ -22,6 +22,10 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 _DEFAULT_TIMEZONE = "UTC"
 
+# 每次触发都是一次完整 Agent Run（含模型调用）：给最小间隔设下限，
+# 防止 interval_seconds=0.5 之类的高频自动化失控消耗预算。
+MIN_INTERVAL_SECONDS = 60.0
+
 
 class AutomationStatus(StrEnum):
     ACTIVE = "active"
@@ -82,8 +86,12 @@ class Schedule(BaseModel):
     def validate_interval(cls, value: float | None) -> float | None:
         if value is None:
             return None
-        if value <= 0:
-            raise ValueError("interval_seconds must be > 0")
+        if value < MIN_INTERVAL_SECONDS:
+            raise ValueError(
+                "interval_seconds must be >= "
+                f"{MIN_INTERVAL_SECONDS:g} (one full Agent Run per trigger; "
+                "smaller intervals would hammer the model provider)"
+            )
         return value
 
 

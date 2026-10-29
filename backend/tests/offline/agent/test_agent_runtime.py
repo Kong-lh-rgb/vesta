@@ -2322,7 +2322,9 @@ async def test_runtime_cancellation_preserves_model_request_checkpoint(
 
     checkpoints = await checkpoint_store.list(conversation_id="conv-1")
     assert len(checkpoints) == 1
-    assert checkpoints[0].status is CheckpointStatus.INTERRUPTED
+    # 用户取消：CANCELLED 终态（不可恢复），不留下 INTERRUPTED 孤儿；
+    # phase 仍保留取消时的现场。
+    assert checkpoints[0].status is CheckpointStatus.CANCELLED
     assert checkpoints[0].phase is CheckpointPhase.MODEL_REQUEST
     assert checkpoints[0].step == 1
 
@@ -2353,7 +2355,7 @@ async def test_runtime_cancellation_preserves_uncertain_tool_call(tmp_path) -> N
 
     checkpoints = await checkpoint_store.list(conversation_id="conv-1")
     assert len(checkpoints) == 1
-    assert checkpoints[0].status is CheckpointStatus.INTERRUPTED
+    assert checkpoints[0].status is CheckpointStatus.CANCELLED
     assert checkpoints[0].phase is CheckpointPhase.TOOL_EXECUTION
     assert checkpoints[0].pending_tool_calls == (call,)
     assert checkpoints[0].completed_tool_results == ()

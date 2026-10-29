@@ -197,6 +197,24 @@ class SQLiteCheckpointStore:
             preserve_phase=True,
         )
 
+    async def cancel(self, run_id: str) -> RunCheckpoint | None:
+        """用户取消的 Run：checkpoint 进入 CANCELLED 终态，不可恢复。
+
+        CANCELLED 与 INTERRUPTED 严格区分：前者是用户主动放弃，不应
+        出现在 unrecovered 列表里，也不应被 recover 接受。取消收尾属于
+        尽力而为：目标不存在或已终态时静默返回 None。
+        """
+
+        try:
+            return await self._finish(
+                run_id,
+                status=CheckpointStatus.CANCELLED,
+                error="cancelled by user",
+                preserve_phase=True,
+            )
+        except Exception:  # noqa: BLE001
+            return None
+
     async def recover_running(
         self,
         *,

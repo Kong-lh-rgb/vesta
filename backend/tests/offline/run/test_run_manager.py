@@ -320,10 +320,11 @@ async def test_cancel_running_run_during_model_request(
     assert len(adapter.requests) == 1
     assert adapter.cancelled is True
 
-    # Checkpoint 保持可恢复边界（未决/已完成工具不丢失）。
+    # Checkpoint 进入 CANCELLED 终态：用户取消不可恢复，不再留下
+    # 无人认领的 INTERRUPTED 孤儿恢复点。
     checkpoint = await checkpoint_store.get(run_id)
     assert checkpoint is not None
-    assert checkpoint.status is CheckpointStatus.INTERRUPTED
+    assert checkpoint.status is CheckpointStatus.CANCELLED
     assert checkpoint.phase is CheckpointPhase.MODEL_REQUEST
     assert checkpoint.step == 1
     assert finalized == [run_id]
@@ -348,7 +349,7 @@ async def test_cancel_running_run_during_tool_execution(manager_factory) -> None
     assert tool.cancelled is True
     checkpoint = await checkpoint_store.get(run_id)
     assert checkpoint is not None
-    assert checkpoint.status is CheckpointStatus.INTERRUPTED
+    assert checkpoint.status is CheckpointStatus.CANCELLED
     assert checkpoint.phase is CheckpointPhase.TOOL_EXECUTION
     assert checkpoint.pending_tool_calls == (call,)
     assert checkpoint.completed_tool_results == ()

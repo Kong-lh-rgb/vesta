@@ -190,10 +190,11 @@ async def test_runmanager_cancel_shell_run_leaves_no_process(
 
     cancelled = await manager.cancel(run_id)
     assert cancelled.status is RunStatus.CANCELLED
-    # checkpoint 保留执行边界（未决工具语义）。
+    # checkpoint 进入 CANCELLED 终态（用户取消不可恢复），phase 与未决
+    # 工具语义仍保留在现场记录中。
     checkpoint = await checkpoint_store.get(run_id)
     assert checkpoint is not None
-    assert checkpoint.status.value == "interrupted"
+    assert checkpoint.status.value == "cancelled"
 
     await asyncio.sleep(0.2)
     assert await _pgrep_matches("sleep 300") is False

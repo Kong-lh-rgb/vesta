@@ -18,6 +18,9 @@ class CheckpointStatus(StrEnum):
     COMPLETED = "completed"
     FAILED = "failed"
     INTERRUPTED = "interrupted"
+    # 用户主动取消：终态且不可恢复，不进入 unrecovered 列表
+    # （与 INTERRUPTED 严格区分，避免孤儿恢复点污染）。
+    CANCELLED = "cancelled"
 
 
 class CheckpointPhase(StrEnum):

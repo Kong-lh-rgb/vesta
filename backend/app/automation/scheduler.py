@@ -24,7 +24,8 @@ V1 调度模型：每个 ACTIVE Automation 注册一个"下次触发"的一次�
 from __future__ import annotations
 
 import logging
-from datetime import UTC, datetime
+from contextlib import suppress
+from datetime import UTC, datetime, timedelta
 from typing import Any
 from zoneinfo import ZoneInfo
 
@@ -42,6 +43,8 @@ from .store import SQLiteAutomationStore
 logger = logging.getLogger("vesta.automation.scheduler")
 
 _JOB_PREFIX = "automation-"
+# ONCE 型触发失败（Run 尚未启动）后的重试间隔：可见于日志，用户可 cancel。
+_FAILURE_RETRY_SECONDS = 300.0
 
 
 class AutomationScheduler:
@@ -57,7 +60,16 @@ class AutomationScheduler:
         self._store = store
         self._conversation_service = conversation_service
         self._timezone = ZoneInfo(timezone)
-        self._scheduler = AsyncIOScheduler(timezone=self._timezone)
+        self._scheduler = AsyncIOScheduler(
+            timezone=self._timezone,
+            # misfire_grace_time=None：到点 job 不因事件循环瞬时阻塞
+            # （大 trace 同步解析等）被判 MISSED 丢弃——默认 1 秒宽限
+            # 会让 Automation 静默失联。coalesce 只补跑一次。
+            job_defaults={
+                "misfire_grace_time": None,
+                "coalesce": True,
+            },
+        )
         self._job_ids: dict[str, str] = {}
         self._running: set[str] = set()
 
@@ -208,8 +220,9 @@ class AutomationScheduler:
                     now,
                 )
                 self._schedule(refreshed, now)
-            else:
-                # 已执行过 → 直接完成，不重复触发。
+            elif automation.status is not AutomationStatus.COMPLETED:
+                # 已执行过 → 直接完成，不重复触发。触发失败路径可能已
+                # 提前转入 COMPLETED：保持幂等，不重复转换。
                 await self._store.update_status(
                     automation.id,
                     AutomationStatus.COMPLETED,
@@ -288,8 +301,9 @@ class AutomationScheduler:
             if await self._conversation_service.is_run_running(
                 automation.last_run_id
             ):
-                # 上一次 Run 还在执行 → 跳过本次，推进到下一个未来点。
-                next_run = self._next_future(automation, now)
+                # 上一次 Run 还在执行 → 跳过本次，仍以计划点为锚推进。
+                anchor = automation.next_run_at or now
+                next_run = self._next_future(automation, now, anchor=anchor)
                 await self._store.mark_triggered(
                     automation_id,
                     last_run_id=automation.last_run_id,
@@ -328,8 +342,11 @@ class AutomationScheduler:
                 self._remove_job(automation_id)
                 return
 
-            # 重复任务：仍 ACTIVE，计算下一次触发点。
-            next_run = self._next_future(automation, now)
+            # 重复任务：仍 ACTIVE。以本次计划触发点为锚推进——interval
+            # 周期不随 Run 实际耗时漂移（否则"每 2 小时"会变成
+            # 2 小时 + 每次 Run 耗时，且逐次累积）。
+            anchor = automation.next_run_at or now
+            next_run = self._next_future(automation, now, anchor=anchor)
             await self._store.mark_triggered(
                 automation_id,
                 last_run_id=run_id,
@@ -337,8 +354,41 @@ class AutomationScheduler:
                 next_run_at=next_run,
             )
             self._schedule(automation, next_run)
+        except Exception:
+            # 触发失败不能让 Automation 失联：本次 job 已被消费移除，
+            # 不重排就会停留 ACTIVE 却永不触发。
+            logger.exception("automation trigger failed: %s", automation_id)
+            with suppress(Exception):
+                await self._reschedule_after_failure(automation_id)
         finally:
             self._running.discard(automation_id)
+
+    async def _reschedule_after_failure(self, automation_id: str) -> None:
+        """触发失败后的自愈重排（调用前已记录异常日志）。"""
+
+        automation = await self._store.get(automation_id)
+        if automation is None or automation.status is not AutomationStatus.ACTIVE:
+            return
+        now = datetime.now(UTC)
+        if automation.schedule.kind is ScheduleKind.ONCE:
+            if automation.last_run_id is not None:
+                # Run 已启动过（dispatch 在启动后才失败）：按已触发完成，
+                # 不重复投递一次性任务。
+                await self._store.update_status(
+                    automation_id,
+                    AutomationStatus.COMPLETED,
+                )
+                self._remove_job(automation_id)
+                return
+            # Run 从未启动：稍后重试。本地单用户场景接受可见的周期重试
+            # （日志 + 用户可 cancel），好过静默失联。
+            retry_at = now + timedelta(seconds=_FAILURE_RETRY_SECONDS)
+            refreshed = await self._store.set_next_run_at(automation_id, retry_at)
+            self._schedule(refreshed, retry_at)
+            return
+        next_run = self._next_future(automation, now)
+        refreshed = await self._store.set_next_run_at(automation_id, next_run)
+        self._schedule(refreshed, next_run)
 
     def _record_run_started(
         self,
@@ -377,16 +427,29 @@ class AutomationScheduler:
             return CronTrigger.from_crontab(schedule.cron_expr, timezone=tz)
         return DateTrigger(schedule.run_at)
 
-    def _next_future(self, automation: Automation, now: datetime) -> datetime:
+    def _next_future(
+        self,
+        automation: Automation,
+        now: datetime,
+        *,
+        anchor: datetime | None = None,
+    ) -> datetime:
         """计算下一次（未来）触发时间；错过点不会被批量补跑。
 
-        用 APScheduler trigger 的 ``get_next_fire_time`` 计算，从 now 之后取
-        第一个未来触发点 —— 天然满足"重复任务不补跑所有错过次数"。
+        ``anchor`` 是本次的计划触发点：INTERVAL 周期以它推进（与 Run 实际
+        耗时无关）；缺省从 now 起算（创建 / 恢复 / 失败重排场景）。
+        锚点推进的结果若仍落在过去（Run 超过周期），从 now 起算下一个
+        未来点 —— 不批量补跑中间错过的触发。
         """
 
-        trigger = self._build_trigger(automation.schedule)
-        local_now = now.astimezone(ZoneInfo(automation.schedule.timezone))
-        next_local = trigger.get_next_fire_time(None, local_now)
+        schedule = automation.schedule
+        timezone = ZoneInfo(schedule.timezone)
+        trigger = self._build_trigger(schedule)
+        local_now = now.astimezone(timezone)
+        previous = anchor.astimezone(timezone) if anchor is not None else None
+        next_local = trigger.get_next_fire_time(previous, local_now)
+        if next_local is None or next_local <= local_now:
+            next_local = trigger.get_next_fire_time(None, local_now)
         if next_local is None:
             raise ValueError(
                 f"automation {automation.id} has no future trigger time"

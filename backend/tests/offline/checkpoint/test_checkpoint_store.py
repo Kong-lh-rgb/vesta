@@ -171,3 +171,49 @@ async def test_checkpoint_cannot_skip_unresolved_tool_calls(
     unchanged = await store.get("run-pending")
     assert unchanged is not None
     assert unchanged.pending_tool_calls == (call,)
+
+
+# ---------------------------------------------------------------------------
+# CANCELLED 终态：用户取消的 Run 不产生孤儿恢复点
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_cancelled_checkpoint_is_not_recoverable(store) -> None:
+    """cancel 落 CANCELLED 终态：不进 unrecovered 列表、不被 recover 接受。"""
+
+    await store.start(
+        "run-cancelled",
+        conversation_id="conv-1",
+        user_message=_USER_MESSAGE,
+    )
+    await store.before_model("run-cancelled", step=1)
+
+    cancelled = await store.cancel("run-cancelled")
+
+    assert cancelled.status is CheckpointStatus.CANCELLED
+    assert cancelled.phase is not None  # 现场保留，只是不可恢复
+    assert await store.latest_unrecovered("conv-1") is None
+    assert await store.get_unrecovered("run-cancelled") is None
+
+
+@pytest.mark.asyncio
+async def test_cancel_is_idempotent_and_tolerates_missing(store) -> None:
+    """对已完成 / 不存在的 checkpoint 调 cancel 不抛错（兜底路径安全）。"""
+
+    await store.cancel("run-never-existed")
+
+    await store.start(
+        "run-done",
+        conversation_id="conv-1",
+        user_message=_USER_MESSAGE,
+    )
+    await store.complete(
+        "run-done",
+        stop_reason=AgentStopReason.FINAL_ANSWER,
+    )
+    await store.cancel("run-done")  # 已 COMPLETED：no-op 不抛错
+
+    final = await store.get("run-done")
+    assert final is not None
+    assert final.status is CheckpointStatus.COMPLETED

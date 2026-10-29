@@ -8,6 +8,7 @@ from contextlib import suppress
 from uuid import uuid4
 
 from app.checkpoint import (
+    CheckpointStatus,
     RunCheckpoint,
     SQLiteCheckpointStore,
 )
@@ -222,6 +223,20 @@ class AgentRuntime:
                     recovery_checkpoint=recovery_checkpoint,
                     mode=mode,
                 )
+            except asyncio.CancelledError:
+                # 用户取消：Run 终态是 CANCELLED（不可恢复），checkpoint
+                # 不能标成 INTERRUPTED——否则会留下永远无人认领的孤儿
+                # 恢复点，污染 unrecovered 列表。interrupt（暂停）路径会
+                # 先把 checkpoint 标成 INTERRUPTED，这里不覆盖。
+                if self._checkpoint_store is not None:
+                    with suppress(Exception):
+                        current = await self._checkpoint_store.get(run_id)
+                        if (
+                            current is None
+                            or current.status is CheckpointStatus.RUNNING
+                        ):
+                            await self._checkpoint_store.cancel(run_id)
+                raise
             except BaseException as exc:
                 if self._checkpoint_store is not None:
                     with suppress(Exception):

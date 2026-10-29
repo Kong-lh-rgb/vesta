@@ -19,7 +19,7 @@ from app.models.types import ToolDefinition
 from ..tools.base import BaseTool
 from ..tools.hooks import ToolExecutionContext
 from ..tools.registry import ToolRegistry
-from .models import Schedule, ScheduleKind
+from .models import Automation, Schedule, ScheduleKind
 from .scheduler import AutomationScheduler
 
 _KIND_NAMES = {kind.value for kind in ScheduleKind}
@@ -165,7 +165,7 @@ class AutomationListTool(BaseTool):
 
 
 class AutomationGetTool(BaseTool):
-    """查看单个自动化详情。"""
+    """查看单个自动化详情（仅限当前会话创建的）。"""
 
     def __init__(self, scheduler: AutomationScheduler) -> None:
         self._scheduler = scheduler
@@ -188,15 +188,32 @@ class AutomationGetTool(BaseTool):
         )
 
     async def execute(self, arguments: dict[str, Any]) -> dict[str, Any]:
+        return await self._execute(arguments, conversation_id=None)
+
+    async def execute_with_context(
+        self,
+        arguments: dict[str, Any],
+        context: ToolExecutionContext,
+    ) -> dict[str, Any]:
+        return await self._execute(
+            arguments, conversation_id=context.conversation_id
+        )
+
+    async def _execute(
+        self,
+        arguments: dict[str, Any],
+        *,
+        conversation_id: str | None,
+    ) -> dict[str, Any]:
         automation_id = _require_non_empty(arguments, "id")
-        automation = await self._scheduler.get(automation_id)
-        if automation is None:
-            raise KeyError(f"自动化不存在：{automation_id}")
+        automation = await _resolve_owned_automation(
+            self._scheduler, automation_id, conversation_id
+        )
         return _automation_full(automation)
 
 
 class AutomationCancelTool(BaseTool):
-    """取消一个自动化（不再触发）。"""
+    """取消一个自动化（不再触发；仅限当前会话创建的）。"""
 
     def __init__(self, scheduler: AutomationScheduler) -> None:
         self._scheduler = scheduler
@@ -219,13 +236,33 @@ class AutomationCancelTool(BaseTool):
         )
 
     async def execute(self, arguments: dict[str, Any]) -> dict[str, Any]:
+        return await self._execute(arguments, conversation_id=None)
+
+    async def execute_with_context(
+        self,
+        arguments: dict[str, Any],
+        context: ToolExecutionContext,
+    ) -> dict[str, Any]:
+        return await self._execute(
+            arguments, conversation_id=context.conversation_id
+        )
+
+    async def _execute(
+        self,
+        arguments: dict[str, Any],
+        *,
+        conversation_id: str | None,
+    ) -> dict[str, Any]:
         automation_id = _require_non_empty(arguments, "id")
+        await _resolve_owned_automation(
+            self._scheduler, automation_id, conversation_id
+        )
         automation = await self._scheduler.cancel(automation_id)
         return _automation_brief(automation)
 
 
 class AutomationPauseTool(BaseTool):
-    """暂停一个自动化（保留，但不触发）。"""
+    """暂停一个自动化（保留，但不触发；仅限当前会话创建的）。"""
 
     def __init__(self, scheduler: AutomationScheduler) -> None:
         self._scheduler = scheduler
@@ -248,13 +285,33 @@ class AutomationPauseTool(BaseTool):
         )
 
     async def execute(self, arguments: dict[str, Any]) -> dict[str, Any]:
+        return await self._execute(arguments, conversation_id=None)
+
+    async def execute_with_context(
+        self,
+        arguments: dict[str, Any],
+        context: ToolExecutionContext,
+    ) -> dict[str, Any]:
+        return await self._execute(
+            arguments, conversation_id=context.conversation_id
+        )
+
+    async def _execute(
+        self,
+        arguments: dict[str, Any],
+        *,
+        conversation_id: str | None,
+    ) -> dict[str, Any]:
         automation_id = _require_non_empty(arguments, "id")
+        await _resolve_owned_automation(
+            self._scheduler, automation_id, conversation_id
+        )
         automation = await self._scheduler.pause(automation_id)
         return _automation_brief(automation)
 
 
 class AutomationResumeTool(BaseTool):
-    """恢复一个已暂停的自动化。"""
+    """恢复一个已暂停的自动化（仅限当前会话创建的）。"""
 
     def __init__(self, scheduler: AutomationScheduler) -> None:
         self._scheduler = scheduler
@@ -277,9 +334,51 @@ class AutomationResumeTool(BaseTool):
         )
 
     async def execute(self, arguments: dict[str, Any]) -> dict[str, Any]:
+        return await self._execute(arguments, conversation_id=None)
+
+    async def execute_with_context(
+        self,
+        arguments: dict[str, Any],
+        context: ToolExecutionContext,
+    ) -> dict[str, Any]:
+        return await self._execute(
+            arguments, conversation_id=context.conversation_id
+        )
+
+    async def _execute(
+        self,
+        arguments: dict[str, Any],
+        *,
+        conversation_id: str | None,
+    ) -> dict[str, Any]:
         automation_id = _require_non_empty(arguments, "id")
+        await _resolve_owned_automation(
+            self._scheduler, automation_id, conversation_id
+        )
         automation = await self._scheduler.resume(automation_id)
         return _automation_brief(automation)
+
+
+async def _resolve_owned_automation(
+    scheduler: AutomationScheduler,
+    automation_id: str,
+    conversation_id: str | None,
+) -> Automation:
+    """解析自动化并校验会话归属。
+
+    与 task 工具的所有权模型一致：会话 A 的模型不能查看 / 取消 /
+    暂停 / 恢复会话 B 的自动化。不存在与不属于统一报"自动化不存在"，
+    不泄露其他会话的存在性。
+    """
+
+    automation = await scheduler.get(automation_id)
+    if (
+        automation is None
+        or conversation_id is None
+        or automation.conversation_id != conversation_id
+    ):
+        raise KeyError(f"自动化不存在：{automation_id}")
+    return automation
 
 
 def register_automation_tools(

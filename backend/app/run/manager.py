@@ -15,6 +15,7 @@ import asyncio
 import inspect
 import logging
 from collections.abc import Awaitable, Callable, Sequence
+from contextlib import suppress
 from datetime import datetime
 from typing import TYPE_CHECKING, Any
 
@@ -290,6 +291,10 @@ class RunManager:
             await task
         except asyncio.CancelledError:
             pass
+        # 用户取消的 Run 不可恢复：checkpoint 进入 CANCELLED 终态，
+        # 不再留下无人认领的 INTERRUPTED 孤儿恢复点。
+        if self._checkpoint_store is not None:
+            await self._checkpoint_store.cancel(run_id)
         updated = await self._run_store.require(run_id)
         await self._cancel_pending_approvals(run_id)
         return updated
@@ -334,6 +339,15 @@ class RunManager:
             run_id,
             error="interrupted by user",
         )
+        # 暂停语义：在发取消信号前先把 checkpoint 落成 INTERRUPTED——
+        # runtime 的取消兜底只处理仍处于 RUNNING 的 checkpoint，先标
+        # INTERRUPTED 即可保住"可恢复"边界不被兜底改写。
+        if self._checkpoint_store is not None:
+            with suppress(Exception):
+                await self._checkpoint_store.interrupt(
+                    run_id,
+                    error="interrupted by user",
+                )
         task = self._active_tasks.get(run_id)
         if task is not None and not task.done():
             task.cancel()
@@ -446,12 +460,15 @@ class RunManager:
             except asyncio.CancelledError:
                 # cancel（终止）：RUNNING → CANCELLED；
                 # interrupt（暂停）：已先标为 INTERRUPTED，保持可恢复，不覆盖。
-                current = await self._run_store.get(run_id)
-                if current is None or current.status is RunStatus.RUNNING:
-                    await self._run_store.mark_cancelled(
-                        run_id,
-                        error="cancelled by user",
-                    )
+                # task 已被取消：收尾 DB 写失败（如瞬时 database is locked）
+                # 不能吞掉取消路径，否则 Run 会卡在 RUNNING 直到进程重启。
+                with suppress(Exception):
+                    current = await self._run_store.get(run_id)
+                    if current is None or current.status is RunStatus.RUNNING:
+                        await self._run_store.mark_cancelled(
+                            run_id,
+                            error="cancelled by user",
+                        )
                 raise
             except BaseException as exc:  # noqa: BLE001
                 await self._run_store.mark_failed(

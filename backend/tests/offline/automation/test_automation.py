@@ -16,6 +16,7 @@ from types import SimpleNamespace
 import pytest
 
 from app.automation.models import (
+    Automation,
     AutomationStatus,
     Schedule,
     ScheduleKind,
@@ -856,3 +857,153 @@ async def test_restart_does_not_rerun_started_once_automation(tmp_path) -> None:
         assert service.dispatched == []
     finally:
         await scheduler.shutdown()
+
+
+# ---------------------------------------------------------------------------
+# 自愈与边界：interval 下限 / 触发失败重排 / 锚点推进 / misfire 宽限 / 归属
+# ---------------------------------------------------------------------------
+
+
+def test_interval_below_minimum_is_rejected() -> None:
+    """interval_seconds 有 60 秒下限：每次触发都是一次完整 Agent Run。"""
+
+    with pytest.raises(ValueError, match="interval_seconds must be >="):
+        Schedule(
+            kind=ScheduleKind.INTERVAL,
+            interval_seconds=0.5,
+            timezone="UTC",
+        )
+
+
+@pytest.mark.asyncio
+async def test_recurring_dispatch_failure_still_reschedules(tmp_path) -> None:
+    """重复任务触发失败后必须重排下一次触发，不能停留 ACTIVE 却失联。"""
+
+    store = SQLiteAutomationStore(tmp_path / "vesta.db")
+    await store.initialize()
+    schedule = Schedule(
+        kind=ScheduleKind.INTERVAL,
+        interval_seconds=3600,
+        timezone="UTC",
+    )
+    automation = await store.create(
+        title="失败仍重排",
+        prompt="执行",
+        conversation_id="conv-1",
+        schedule=schedule,
+        next_run_at=_past(hours=1),
+    )
+
+    failing = FakeConversationService()
+    failing.fail_on_dispatch = True
+    scheduler = AutomationScheduler(store, failing)
+    try:
+        await scheduler._job_func(automation.id)()
+    finally:
+        await scheduler.shutdown()
+
+    updated = await store.get(automation.id)
+    assert updated is not None
+    assert updated.status is AutomationStatus.ACTIVE
+    assert updated.next_run_at is not None
+    assert updated.next_run_at > datetime.now(UTC)
+
+    # 失败自愈后能继续触发（非失联状态）。
+    recovered = FakeConversationService()
+    healed = AutomationScheduler(store, recovered)
+    try:
+        await healed._job_func(automation.id)()
+    finally:
+        await healed.shutdown()
+    assert recovered.dispatched, "失败重排后的 Automation 仍能触发"
+
+
+def test_next_future_uses_scheduled_anchor_not_run_duration() -> None:
+    """INTERVAL 周期以计划触发点推进，不随 Run 实际耗时漂移。"""
+
+    store = SQLiteAutomationStore(":memory:")
+    schedule = Schedule(
+        kind=ScheduleKind.INTERVAL,
+        interval_seconds=3600,
+        timezone="UTC",
+    )
+    automation = Automation(
+        id="A1",
+        title="锚点",
+        prompt="执行",
+        conversation_id="conv-1",
+        status=AutomationStatus.ACTIVE,
+        schedule=schedule,
+        next_run_at=_past(hours=1),
+        created_at=datetime.now(UTC),
+        updated_at=datetime.now(UTC),
+    )
+    scheduler = AutomationScheduler(store, FakeConversationService())
+
+    anchor = datetime.now(UTC) - timedelta(minutes=50)  # 计划触发点
+    now = anchor + timedelta(minutes=10)  # Run 实际耗时 10 分钟
+
+    next_run = scheduler._next_future(automation, now, anchor=anchor)
+
+    expected = anchor + timedelta(seconds=3600)
+    assert next_run == expected
+
+
+def test_scheduler_disables_misfire_drop(tmp_path) -> None:
+    """job 级 misfire 宽限关闭：事件循环瞬时阻塞不让触发被静默丢弃。"""
+
+    store = SQLiteAutomationStore(tmp_path / "vesta.db")
+    scheduler = AutomationScheduler(store, FakeConversationService())
+    assert scheduler._scheduler._job_defaults["misfire_grace_time"] is None
+    assert scheduler._scheduler._job_defaults["coalesce"] is True
+
+
+@pytest.mark.asyncio
+async def test_automation_tools_reject_cross_conversation_access(
+    tmp_path,
+) -> None:
+    """get / cancel 校验会话归属：会话 A 不能操作会话 B 的自动化。"""
+
+    from app.automation.tools import (
+        AutomationCancelTool,
+        AutomationGetTool,
+    )
+    from app.models.types import ToolCall
+    from app.tools.hooks import ToolExecutionContext
+
+    store = SQLiteAutomationStore(tmp_path / "vesta.db")
+    await store.initialize()
+    service = FakeConversationService()
+    scheduler = AutomationScheduler(store, service)
+    schedule = Schedule(
+        kind=ScheduleKind.ONCE,
+        run_at=_future(hours=1),
+        timezone="UTC",
+    )
+    automation = await store.create(
+        title="会话 B 的自动化",
+        prompt="执行",
+        conversation_id="conv-b",
+        schedule=schedule,
+        next_run_at=schedule.run_at,
+    )
+
+    get = AutomationGetTool(scheduler)
+    context = ToolExecutionContext(
+        tool_call=ToolCall(id="c1", name="automation_get", arguments={}),
+        run_id="run-1",
+        conversation_id="conv-a",
+    )
+    with pytest.raises(KeyError, match="自动化不存在"):
+        await get.execute_with_context(
+            {"id": automation.id}, context
+        )
+
+    cancel = AutomationCancelTool(scheduler)
+    with pytest.raises(KeyError, match="自动化不存在"):
+        await cancel.execute_with_context({"id": automation.id}, context)
+
+    # 跨会话访问没有产生任何副作用。
+    untouched = await store.get(automation.id)
+    assert untouched is not None
+    assert untouched.status is AutomationStatus.ACTIVE
