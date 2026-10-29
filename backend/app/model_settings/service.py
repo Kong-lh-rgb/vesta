@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import time
 from dataclasses import dataclass
 from typing import Any
@@ -157,7 +158,11 @@ class ModelSettingsService:
 
     async def test(self, item: ProviderSettingsUpdate) -> dict[str, Any]:
         _validate_connection_test_endpoint(item)
-        key = item.api_key or self.secrets.get(item.provider.value)
+        # Keychain 读取是同步子进程调用：移出事件循环（见 RPC handler）。
+        key = item.api_key or await asyncio.to_thread(
+            self.secrets.get,
+            item.provider.value,
+        )
         if not key:
             base_key = getattr(self.base_settings, _KEY_FIELDS[item.provider])
             key = base_key.get_secret_value() if base_key else None

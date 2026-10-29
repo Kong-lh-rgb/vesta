@@ -75,6 +75,11 @@ class RpcConnection:
     def is_closed(self) -> bool:
         return self._closed
 
+    def mark_closed(self) -> None:
+        """标记连接不可用（广播超时等外部判定）；接收循环随后清理。"""
+
+        self._closed = True
+
     # ------------------------------------------------------------------
     # 接收循环
     # ------------------------------------------------------------------
@@ -140,11 +145,18 @@ class RpcConnection:
     async def _send(self, payload: dict[str, Any]) -> None:
         if self._closed:
             return
-        text = json.dumps(_to_jsonable(payload), ensure_ascii=False)
         async with self._send_lock:
             if self._closed:
                 return
             try:
+                # 序列化也在保护范围内：载荷带不可 JSON 化的值（datetime/
+                # Path/set）时用 default=str 兜底，而不是让异常逃逸到
+                # 裸 task——那会让客户端既收不到响应也收不到错误。
+                text = json.dumps(
+                    _to_jsonable(payload),
+                    ensure_ascii=False,
+                    default=str,
+                )
                 await self._websocket.send_text(text)
             except Exception:  # noqa: BLE001 - 断线后停止发送
                 self._closed = True

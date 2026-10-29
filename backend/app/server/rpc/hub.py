@@ -24,13 +24,22 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger("vesta.server.rpc.hub")
 
+# 单连接广播超时：慢客户端（TCP 窗口耗尽、不读帧）不能拖停广播链——
+# Agent 事件发射挂在广播上会冻结正在执行的 Run。
+_BROADCAST_TIMEOUT_SECONDS = 5.0
+
 
 class RpcHub:
     """进程内维护已连接的 RPC 连接并广播 notification。"""
 
-    def __init__(self) -> None:
+    def __init__(
+        self,
+        *,
+        broadcast_timeout_seconds: float = _BROADCAST_TIMEOUT_SECONDS,
+    ) -> None:
         self._connections: set[RpcConnection] = set()
         self._lock = asyncio.Lock()
+        self._broadcast_timeout_seconds = broadcast_timeout_seconds
 
     async def register(self, connection: RpcConnection) -> None:
         async with self._lock:
@@ -43,12 +52,40 @@ class RpcHub:
         logger.debug("rpc connection unregistered (%d)", len(self._connections))
 
     async def broadcast(self, method: str, params: Any) -> None:
-        """向所有已连接客户端广播一条 notification（单个失败不影响其余）。"""
+        """向所有已连接客户端广播一条 notification（单个失败不影响其余）。
+
+        并发发送且每连接带超时：超时或失败的连接被标记关闭（由各自的
+        接收循环清理），不再阻塞其余连接与广播调用方。
+        """
 
         async with self._lock:
             connections = tuple(self._connections)
-        for connection in connections:
-            await connection.send_notification(method, params)
+        if not connections:
+            return
+        await asyncio.gather(
+            *(
+                self._send_one(connection, method, params)
+                for connection in connections
+            ),
+            return_exceptions=True,
+        )
+
+    async def _send_one(
+        self,
+        connection: RpcConnection,
+        method: str,
+        params: Any,
+    ) -> None:
+        try:
+            async with asyncio.timeout(self._broadcast_timeout_seconds):
+                await connection.send_notification(method, params)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning(
+                "broadcast to connection timed out or failed, "
+                "marking closed: %s",
+                exc,
+            )
+            connection.mark_closed()
 
     @property
     def connection_count(self) -> int:

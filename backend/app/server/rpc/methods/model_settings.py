@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from typing import Any
 
 from pydantic import ValidationError
@@ -40,8 +41,10 @@ def _view(application: Any) -> dict[str, Any]:
 async def model_settings_get(
     params: dict[str, Any], ctx: RpcContext
 ) -> dict[str, Any]:
-    application = ctx.application
-    return _view(application)
+    # view 对每个 provider 各读一次 Keychain（同步子进程）；Keychain 被
+    # 锁定 / 弹密码框时单次可挂 5-10 秒，必须移出事件循环——冻结期间
+    # 所有 WebSocket、活跃 Run 与定时器都会停摆。
+    return await asyncio.to_thread(_view, ctx.application)
 
 
 async def model_settings_update(
@@ -49,10 +52,21 @@ async def model_settings_update(
 ) -> dict[str, Any]:
     try:
         update = ModelSettingsUpdate.model_validate(params)
-        ctx.application.model_settings_service.save(update)
+        # Keychain 写入同样是同步子进程调用（见 model_settings_get）。
+        await asyncio.to_thread(
+            ctx.application.model_settings_service.save,
+            update,
+        )
     except (ValidationError, ValueError) as exc:
         raise _invalid_params(exc) from exc
-    result = _view(ctx.application)
+    except RuntimeError as exc:
+        # 非 macOS 平台 / Keychain 写入失败：给出可理解的错误而不是
+        # 泛化的 INTERNAL_ERROR。
+        raise JsonRpcError(
+            INVALID_STATE,
+            f"保存失败（系统凭据存储不可用）：{exc}",
+        ) from exc
+    result = await asyncio.to_thread(_view, ctx.application)
     result["restart_required"] = True
     return result
 

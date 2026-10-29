@@ -91,6 +91,10 @@ async def _serve(args: argparse.Namespace) -> int:
             host=args.host,
             port=args.port,
             log_level="info",
+            # 显式声明 WS keepalive（uvicorn 默认值）：半开连接由 ping
+            # 超时判定并清理，接收循环不会永久挂在 receive 上。
+            ws_ping_interval=20.0,
+            ws_ping_timeout=20.0,
         )
         server = uvicorn.Server(config)
         await server.serve()
