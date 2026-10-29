@@ -22,6 +22,8 @@ import os
 from datetime import UTC, datetime
 from pathlib import Path
 
+from yaml import YAMLError
+
 from .models import (
     MemoryRecord,
     MemoryStatus,
@@ -186,7 +188,9 @@ class MemoryStore:
                 record = await asyncio.to_thread(_read_record, path)
                 if record.status is MemoryStatus.ACTIVE:
                     records.append(record)
-            except (ValueError, OSError) as exc:
+            # Markdown 是权威存储、允许人工编辑：单个文件的解析失败
+            # （坏 YAML / 缺必填 key）只跳过该文件，不能拖垮全链路。
+            except (ValueError, OSError, KeyError, YAMLError) as exc:
                 logger.warning("skip unreadable memory %s: %s", path.name, exc)
         return tuple(sorted(records, key=lambda record: record.id))
 
@@ -201,7 +205,7 @@ class MemoryStore:
                 record = await asyncio.to_thread(_read_record, path)
                 if record.status is MemoryStatus.ARCHIVED:
                     records.append(record)
-            except (ValueError, OSError) as exc:
+            except (ValueError, OSError, KeyError, YAMLError) as exc:
                 logger.warning("skip unreadable archived memory %s: %s", path.name, exc)
         return tuple(
             sorted(records, key=lambda record: record.updated_at, reverse=True)

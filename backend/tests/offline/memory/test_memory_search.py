@@ -166,6 +166,80 @@ async def test_exact_keyword_recall_via_fts5_without_embedding(
     assert result.candidates[0].matched_by_vector is False
 
 
+@pytest.mark.asyncio
+async def test_chinese_query_matches_fts_without_embedding(
+    memory_root: Path,
+) -> None:
+    """CJK 查询按 3-gram 展开后可命中 trigram 索引。
+
+    修复前查询整词作为单个 quoted phrase，要求记忆中逐字连续出现
+    整条查询——中文几乎必然 0 命中，开箱状态下 FTS 对中文失效。
+    """
+
+    manager = MemoryManager(memory_root, embedding=None)
+    await manager.initialize()
+    await _seed(manager)
+
+    result = await manager.search("当初的数据库选型")
+
+    assert result.mode is SearchMode.FTS
+    assert result.candidates, "中文查询应能经 3-gram 命中 FTS 索引"
+    assert result.candidates[0].memory_id == "M001"
+
+
+@pytest.mark.asyncio
+async def test_single_long_paragraph_is_split_into_chunks(
+    memory_root: Path,
+) -> None:
+    """超过块上限的单段落按字符切片：尾部内容也必须进入索引。
+
+    修复前单段落不切，最终硬截断到约两倍块上限，长记忆只有头部
+    进入 FTS 与向量索引。
+    """
+
+    manager = MemoryManager(memory_root, embedding=None)
+    await manager.initialize()
+    await manager.create(
+        title="超长单段记忆",
+        summary="无空行的连续正文",
+        content=(
+            "单段落超长记忆："
+            + "这是一段没有空行的连续正文，用于验证切片。 " * 300
+            + "SPLIT-TAIL-42 结尾。"
+        ),
+    )
+
+    result = await manager.search("SPLIT-TAIL-42")
+
+    assert result.candidates, "超长段落的尾部内容也应进入检索索引"
+
+
+@pytest.mark.asyncio
+async def test_broken_yaml_memory_is_skipped_not_fatal(
+    memory_root: Path,
+) -> None:
+    """单个记忆文件坏 YAML / 缺必填 key 只跳过该文件，不拖垮全链路。"""
+
+    manager = MemoryManager(memory_root, embedding=None)
+    await manager.initialize()
+    await _seed(manager)
+
+    broken = memory_root / "active" / "M900.md"
+    broken.write_text(
+        "---\ntitle: [unclosed-flow\n  bad: :\n---\n正文",
+        encoding="utf-8",
+    )
+    missing_key = memory_root / "active" / "M901.md"
+    missing_key.write_text(
+        "---\nstatus: active\n---\n缺 id 与标题的文件",
+        encoding="utf-8",
+    )
+
+    records = await manager.store.list_active()
+
+    assert {record.id for record in records} >= {"M001", "M002"}
+
+
 # ----------------------------------------------------------------------
 # Hybrid / RRF 融合与按 memory_id 去重
 # ----------------------------------------------------------------------

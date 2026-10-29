@@ -253,12 +253,18 @@ class CoreMemoryManager:
 def _parse_document(text: str) -> tuple[dict[str, CoreMemoryEntry], str]:
     """解析结构化 Core；旧的纯 Markdown 文件作为可保留正文处理。"""
 
-    parsed = _split_front_matter(text)
+    try:
+        parsed = _split_front_matter(text)
+    except yaml.YAMLError:
+        # 坏 YAML 按纯 Markdown 兜底，单文件损坏不能打断 Core 注入。
+        return {}, text.strip()
     if parsed is None:
         return {}, text.strip()
     metadata, visible, _ = parsed
     if metadata.get("format") not in _SUPPORTED_CORE_FORMATS:
-        return {}, text.strip()
+        # 未声明受支持格式的文件按纯 Markdown 处理，但必须剥离 Front
+        # Matter：整段 YAML（含审计字段）不能作为正文进入 system prompt。
+        return {}, visible
     return _parse_entries(metadata), visible
 
 

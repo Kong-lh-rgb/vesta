@@ -180,6 +180,52 @@ async def test_core_load_hides_legacy_front_matter_before_migration(
 
 
 @pytest.mark.asyncio
+async def test_core_load_strips_front_matter_with_unknown_format(
+    memory_root: Path,
+) -> None:
+    """未声明受支持 format 的 CORE.md 按纯 Markdown 处理，但 Front
+    Matter 必须剥离——整段 YAML（含审计字段）不能进入 system prompt。"""
+
+    memory_root.mkdir(parents=True)
+    (memory_root / "CORE.md").write_text(
+        "---\n"
+        "format: custom-notes-v9\n"
+        "author: someone\n"
+        "internal_audit: private-field\n"
+        "---\n"
+        "# 人工维护的约束\n\n"
+        "部署前先跑离线测试。\n",
+        encoding="utf-8",
+    )
+    manager = CoreMemoryManager(memory_root)
+
+    visible = await manager.load()
+
+    assert "部署前先跑离线测试" in visible
+    assert "custom-notes-v9" not in visible
+    assert "internal_audit" not in visible
+    assert "author" not in visible
+
+
+@pytest.mark.asyncio
+async def test_core_load_with_broken_yaml_falls_back_to_plain_text(
+    memory_root: Path,
+) -> None:
+    """CORE.md 的 YAML 损坏时按纯 Markdown 兜底，不抛错打断注入。"""
+
+    memory_root.mkdir(parents=True)
+    (memory_root / "CORE.md").write_text(
+        "---\nbroken: [unclosed\n---\n仍然可见的正文。\n",
+        encoding="utf-8",
+    )
+    manager = CoreMemoryManager(memory_root)
+
+    visible = await manager.load()
+
+    assert "仍然可见的正文" in visible
+
+
+@pytest.mark.asyncio
 async def test_core_initialize_atomically_migrates_legacy_format(
     memory_root: Path,
 ) -> None:

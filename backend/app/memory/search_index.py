@@ -144,11 +144,23 @@ def chunk_memory_text(
     """把一条记忆切成 (chunk 文本, 正文 sha256) 列表。
 
     Chunk 文本带 ``title | summary`` 语义头部，让向量与 FTS 都能利用
-    Recall Cue；正文按段落累积切块并保留少量重叠。
+    Recall Cue；正文按段落累积切块并保留少量重叠。超过块上限的单段落
+    按字符切片（带重叠）——此前单段落不切，超长记忆只有头部进入索引。
     """
 
     header = f"{record.title} | {record.summary}"
-    paragraphs = [part.strip() for part in record.content.split("\n\n")]
+    paragraphs: list[str] = []
+    for part in record.content.split("\n\n"):
+        paragraph = part.strip()
+        if not paragraph:
+            continue
+        if len(paragraph) > settings.chunk_chars:
+            paragraphs.extend(
+                _split_long_paragraph(paragraph, settings.chunk_chars,
+                                      settings.chunk_overlap_chars)
+            )
+        else:
+            paragraphs.append(paragraph)
     bodies: list[str] = []
     current: list[str] = []
     used = 0
@@ -176,18 +188,83 @@ def chunk_memory_text(
     return tuple(chunks)
 
 
+def _split_long_paragraph(
+    paragraph: str,
+    chunk_chars: int,
+    overlap_chars: int,
+) -> list[str]:
+    """无自然边界的超长段落按字符切片；相邻片段保留重叠。"""
+
+    step = max(1, chunk_chars - overlap_chars)
+    return [
+        paragraph[start : start + chunk_chars]
+        for start in range(0, len(paragraph), step)
+    ]
+
+
+# CJK 表意文字（基本区 + 扩展 A）与全角形式的判定区间。
+_CJK_RANGES = (
+    (0x3400, 0x4DBF),
+    (0x4E00, 0x9FFF),
+    (0xF900, 0xFAFF),
+    (0xFF00, 0xFFEF),
+)
+
+
+def _is_cjk_char(char: str) -> bool:
+    code = ord(char)
+    return any(low <= code <= high for low, high in _CJK_RANGES)
+
+
+def _cjk_trigrams(query: str) -> list[str]:
+    """把 CJK 连续段切成 3 字滑窗片段。
+
+    trigram tokenizer 只索引 ≥3 字符的 token：2 字词查询永远 0 命中，
+    整句查询更要求逐字连续匹配。按 3-gram 展开 OR 查询后，中文查询
+    才能命中 trigram 索引（向量路径不受影响，仍按整段 embed）。
+    """
+
+    segments: list[str] = []
+    current: list[str] = []
+    for char in query:
+        if _is_cjk_char(char):
+            current.append(char)
+        elif current:
+            segments.append("".join(current))
+            current = []
+    if current:
+        segments.append("".join(current))
+
+    grams: list[str] = []
+    for segment in segments:
+        if len(segment) >= 3:
+            grams.extend(
+                segment[start : start + 3]
+                for start in range(len(segment) - 2)
+            )
+        elif len(segment) == 2:
+            # 2 字段无 trigram token 可命中；保留原词，寄望向量路径。
+            grams.append(segment)
+    return grams
+
+
 def _fts_match_expression(query: str, *, max_terms: int = 12) -> str | None:
-    """把自由文本 Query 转成安全的 FTS5 OR 短语表达式。"""
+    """把自由文本 Query 转成安全的 FTS5 OR 短语表达式。
+
+    拉丁/数字词按空白切分；CJK 文本按 3-gram 滑窗展开（见
+    ``_cjk_trigrams``）。两种来源的词项合并去重后限 ``max_terms``。
+    """
 
     terms: list[str] = []
     for raw in query.replace("\r", " ").replace("\n", " ").split():
         term = raw.strip().strip("\"'()*")
-        if len(term) < 2:
-            continue
-        terms.append(term)
-    if not terms:
+        if len(term) >= 2:
+            terms.append(term)
+    terms.extend(_cjk_trigrams(query))
+    unique_terms = list(dict.fromkeys(terms))
+    if not unique_terms:
         return None
-    expressions = [f'"{term}"' for term in terms[:max_terms]]
+    expressions = [f'"{term}"' for term in unique_terms[:max_terms]]
     return " OR ".join(expressions)
 
 
