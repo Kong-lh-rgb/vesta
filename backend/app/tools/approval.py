@@ -40,6 +40,9 @@ class ApprovalResponse(BaseModel):
 
     decision: ApprovalDecision
     scope: ApprovalScope = ApprovalScope.ONCE
+    # 等待用户决定超时（fail-closed 视为拒绝）时为 True；
+    # 拒绝原因据此与"用户明确拒绝"区分。
+    timed_out: bool = False
 
 
 @dataclass(frozen=True)

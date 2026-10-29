@@ -260,6 +260,43 @@ async def test_approve_right_after_record_created_wakes_run(approval_store) -> N
     assert gate.pending_count == 0
 
 
+async def test_desktop_gate_wait_timeout_denies_and_cleans_up(
+    approval_store,
+) -> None:
+    """等待用户超时：fail-closed 视为拒绝，走正规 resolve 不残留 PENDING。"""
+
+    broadcasts: list[str] = []
+
+    async def broadcaster(method: str, _params: object) -> None:
+        broadcasts.append(method)
+
+    gate = DesktopApprovalGate(
+        approval_store,
+        broadcaster=broadcaster,
+        wait_timeout_seconds=0.05,
+    )
+    submission = ApprovalSubmission(
+        tool_call_id="call-timeout",
+        tool_name="run_shell_command",
+        arguments={"command": "pytest"},
+        run_id="run-1",
+    )
+
+    response = await gate.request_approval(submission)
+
+    assert response.decision is ApprovalDecision.DENIED
+    assert response.timed_out is True
+    assert broadcasts == ["approval.required", "approval.resolved"]
+    # 记录已被正规 resolve：浮窗消失，事后 approve 被单次 resolve 拒绝。
+    records = await approval_store.list(status=ApprovalRequestStatus.PENDING)
+    assert not records
+    denied = await approval_store.list(status=ApprovalRequestStatus.DENIED)
+    assert len(denied) == 1
+    with pytest.raises(ValueError):
+        await gate.approve(denied[0].id)
+    assert gate.pending_count == 0
+
+
 async def test_cancel_run_cancels_pending_approval(tmp_path) -> None:
     """RunManager.cancel 会把该 run 下 PENDING 的 approval 置为 CANCELLED。"""
 

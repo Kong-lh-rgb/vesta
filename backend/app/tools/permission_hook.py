@@ -182,11 +182,18 @@ class PermissionHook(ToolHook):
     def denied_reason(
         context: ToolExecutionContext,
         decision: ApprovalDecision,
+        *,
+        timed_out: bool = False,
     ) -> str | None:
         """审批未通过时返回拒绝原因。"""
 
         if decision is ApprovalDecision.APPROVED:
             return None
+        if timed_out:
+            return (
+                f"Tool '{context.tool_call.name}' was not approved in time "
+                "(approval wait timed out; treated as denied)."
+            )
         return (
             f"Tool '{context.tool_call.name}' execution was denied "
             "(requires human approval)."

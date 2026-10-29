@@ -35,6 +35,11 @@ from .permissions.store import PermissionRuleStore
 from .registry import ToolRegistry
 
 MAX_TOOL_OUTPUT_CHARS = 20_000
+# 外层执行超时默认值：必须不小于任何工具自身声明的超时上限（当前最大为
+# shell 的 MAX_SHELL_TIMEOUT_SECONDS=120），否则工具级超时参数会被外层
+# 先行取消——模型看到的 schema 承诺（如 shell 的 120s）就会失效。
+# test_default_execution_timeout_covers_tool_declared_maximum 守住该不变量。
+DEFAULT_TOOL_TIMEOUT_SECONDS = 120.0
 
 
 class ToolExecutor:
@@ -42,7 +47,7 @@ class ToolExecutor:
         self,
         registry: ToolRegistry,
         *,
-        timeout_seconds: float = 30.0,
+        timeout_seconds: float = DEFAULT_TOOL_TIMEOUT_SECONDS,
         max_output_chars: int = MAX_TOOL_OUTPUT_CHARS,
         approval_gate: ApprovalGate | None = None,
         logger: ToolExecutionLogger | None = None,
@@ -196,6 +201,7 @@ class ToolExecutor:
             return self._permission_hook.denied_reason(
                 context,
                 outcome.response.decision,
+                timed_out=outcome.response.timed_out,
             )
         except Exception as exc:
             return f"Permission check failed: {type(exc).__name__}: {exc}"

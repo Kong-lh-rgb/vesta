@@ -255,6 +255,46 @@ async def test_file_tools_reject_protected_workspace_entries(
 
 
 @pytest.mark.asyncio
+async def test_read_file_rejects_files_over_size_limit(tmp_path: Path) -> None:
+    """超大文件读前拒绝，不再整文件进内存与证据落盘。"""
+
+    from app.tools.builtin.read_file import MAX_READ_BYTES
+
+    big = tmp_path / "big.bin"
+    big.write_bytes(b"x" * (MAX_READ_BYTES + 1))
+    registry = ToolRegistry()
+    registry.register(ReadFileTool(tmp_path))
+    executor = ToolExecutor(registry)
+
+    result = await executor.execute(
+        ToolCall(id="read-big", name="read_file", arguments={"path": "big.bin"})
+    )
+
+    assert result.success is False
+    assert "too large" in (result.error or "")
+
+    small = tmp_path / "small.txt"
+    small.write_text("ok", encoding="utf-8")
+    ok = await executor.execute(
+        ToolCall(id="read-small", name="read_file", arguments={"path": "small.txt"})
+    )
+    assert ok.success is True
+
+
+def test_default_execution_timeout_covers_tool_declared_maximum() -> None:
+    """外层执行超时默认值必须 ≥ 工具自身声明的最大超时（当前是 shell）。
+
+    否则工具级超时参数（如 shell 的 120s 上限）会被 executor 先行取消，
+    模型看到的 schema 承诺失效。
+    """
+
+    from app.tools.builtin.shell import MAX_SHELL_TIMEOUT_SECONDS
+    from app.tools.executor import DEFAULT_TOOL_TIMEOUT_SECONDS
+
+    assert DEFAULT_TOOL_TIMEOUT_SECONDS >= MAX_SHELL_TIMEOUT_SECONDS
+
+
+@pytest.mark.asyncio
 async def test_read_file_returns_utf8_text(tmp_path: Path) -> None:
     target = tmp_path / "文档.txt"
     target.write_text("你好，Vesta", encoding="utf-8")

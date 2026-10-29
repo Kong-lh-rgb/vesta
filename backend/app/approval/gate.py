@@ -46,6 +46,10 @@ from .store import SQLiteApprovalStore
 # 审批结果通知广播器：method + params → 发送给所有已连接的 WebSocket。
 Broadcaster = Callable[[str, Any], Awaitable[None]]
 
+# 等待用户决定的默认上限：超时按 fail-closed 视为拒绝，Run 不再无限挂起
+# （本地单用户场景，用户离开数小时不应让会话卡死；可用 None 禁用）。
+DEFAULT_APPROVAL_WAIT_TIMEOUT_SECONDS = 600.0
+
 
 class DesktopApprovalGate(ApprovalGate):
     """把 HUMAN_APPROVAL 工具的审批请求持久化，并异步等待用户决定。"""
@@ -55,9 +59,13 @@ class DesktopApprovalGate(ApprovalGate):
         store: SQLiteApprovalStore,
         *,
         broadcaster: Broadcaster | None = None,
+        wait_timeout_seconds: float | None = (
+            DEFAULT_APPROVAL_WAIT_TIMEOUT_SECONDS
+        ),
     ) -> None:
         self._store = store
         self._broadcaster = broadcaster
+        self._wait_timeout_seconds = wait_timeout_seconds
         # approval_id → Future，表示“正在等待用户决定的审批”。
         self._pending: dict[str, asyncio.Future[ApprovalResponse]] = {}
 
@@ -98,7 +106,35 @@ class DesktopApprovalGate(ApprovalGate):
         self._pending[record.id] = future
         await self._notify("approval.required", {"approval": record})
         try:
-            return await future
+            if self._wait_timeout_seconds is None:
+                return await future
+            try:
+                return await asyncio.wait_for(
+                    future,
+                    self._wait_timeout_seconds,
+                )
+            except TimeoutError:
+                # 等待超时：fail-closed 视为拒绝。走与 deny 相同的正规
+                # resolve 路径（清理 PENDING 记录并广播），桌面浮窗不会
+                # 残留；此后用户的 approve/deny 会被 store 的单次 resolve
+                # 约束拒绝。若用户恰在超时瞬间抢先 approve，本分支的
+                # resolve 抛 ValueError：此时按用户决定已落库，仍返回
+                # DENIED（工具未执行，用户重试即可）。
+                try:
+                    resolved = await self._store.resolve(
+                        record.id,
+                        ApprovalRequestStatus.DENIED,
+                    )
+                except ValueError:
+                    return ApprovalResponse(
+                        decision=ApprovalDecision.DENIED,
+                        timed_out=True,
+                    )
+                await self._notify("approval.resolved", {"approval": resolved})
+                return ApprovalResponse(
+                    decision=ApprovalDecision.DENIED,
+                    timed_out=True,
+                )
         finally:
             self._pending.pop(record.id, None)
 

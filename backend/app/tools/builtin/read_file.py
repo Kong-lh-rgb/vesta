@@ -15,6 +15,8 @@ from ._workspace import (
     workspace_root_path,
 )
 
+MAX_READ_BYTES = 2 * 1024 * 1024
+
 
 class ReadFileTool(BaseTool):
     def __init__(self, workspace_root: str | Path | None = None) -> None:
@@ -57,4 +59,13 @@ class ReadFileTool(BaseTool):
 def _read_utf8_file(path: Path) -> str:
     if not path.is_file():
         raise FileNotFoundError(f"file does not exist: {path.name}")
+    size = path.stat().st_size
+    if size > MAX_READ_BYTES:
+        # 读前限额：工具输出最终只保留 2 万字符，整文件读入内存与证据
+        # 落盘只是浪费；超大文件引导模型用 run_shell_command 取局部。
+        raise ValueError(
+            f"file is too large to read: {size} bytes exceeds the "
+            f"{MAX_READ_BYTES}-byte limit; use run_shell_command "
+            "(head/tail/sed) to read a smaller slice"
+        )
     return path.read_text(encoding="utf-8")
