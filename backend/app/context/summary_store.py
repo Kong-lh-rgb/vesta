@@ -10,6 +10,7 @@ from pathlib import Path
 import aiosqlite
 
 from app.conversation import DEFAULT_DATABASE_PATH
+from app.storage import configure_sqlite_connection
 
 from .summary import ConversationSummaryState, RollingConversationSummary
 
@@ -106,6 +107,7 @@ class SQLiteConversationSummaryStore:
     async def _connect(self) -> AsyncIterator[aiosqlite.Connection]:
         database = await aiosqlite.connect(self.database_path)
         await database.execute("PRAGMA foreign_keys = ON")
+        await configure_sqlite_connection(database)
         try:
             yield database
         finally:

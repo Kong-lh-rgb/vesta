@@ -16,6 +16,7 @@ from typing import Any
 import aiosqlite
 
 from app.conversation import DEFAULT_DATABASE_PATH
+from app.storage import configure_sqlite_connection
 
 from .models import Artifact, ArtifactKind
 
@@ -180,6 +181,7 @@ class SQLiteArtifactStore:
     async def _connect(self) -> AsyncIterator[aiosqlite.Connection]:
         connection = await aiosqlite.connect(self.database_path)
         connection.row_factory = aiosqlite.Row
+        await configure_sqlite_connection(connection)
         try:
             yield connection
         finally:

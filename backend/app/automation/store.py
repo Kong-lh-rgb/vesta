@@ -15,6 +15,7 @@ from uuid import uuid4
 import aiosqlite
 
 from app.conversation import DEFAULT_DATABASE_PATH
+from app.storage import configure_sqlite_connection
 
 from .models import Automation, AutomationStatus, Schedule
 
@@ -310,6 +311,7 @@ class SQLiteAutomationStore:
     async def _connect(self) -> AsyncIterator[aiosqlite.Connection]:
         database = await aiosqlite.connect(self.database_path)
         database.row_factory = aiosqlite.Row
+        await configure_sqlite_connection(database)
         try:
             yield database
         finally:

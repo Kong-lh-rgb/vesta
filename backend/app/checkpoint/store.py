@@ -13,6 +13,7 @@ import aiosqlite
 from app.agent.result import AgentStopReason
 from app.conversation import DEFAULT_DATABASE_PATH
 from app.models.types import Message, MessageRole, ToolCall, ToolResult
+from app.storage import configure_sqlite_connection
 
 from .models import CheckpointPhase, CheckpointStatus, RunCheckpoint
 
@@ -448,6 +449,7 @@ class SQLiteCheckpointStore:
     async def _connect(self) -> AsyncIterator[aiosqlite.Connection]:
         database = await aiosqlite.connect(self.database_path)
         database.row_factory = aiosqlite.Row
+        await configure_sqlite_connection(database)
         try:
             yield database
         finally:

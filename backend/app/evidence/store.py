@@ -13,6 +13,7 @@ from uuid import uuid4
 import aiosqlite
 
 from app.conversation.store import DEFAULT_DATABASE_PATH
+from app.storage import configure_sqlite_connection
 
 from .models import EvidenceDocument, EvidenceRecord, EvidenceSearchHit
 
@@ -76,6 +77,13 @@ ON evidence(conversation_id, task_id, created_at DESC);
 
 CREATE INDEX IF NOT EXISTS idx_evidence_run
 ON evidence(run_id, created_at ASC);
+
+-- 容量计数的运行总量（单行表）：create 的容量检查从全表 SUM 改为
+-- O(1) 读取；启动 / 删除路径做一次全量对账。
+CREATE TABLE IF NOT EXISTS evidence_usage (
+    id INTEGER PRIMARY KEY CHECK (id = 1),
+    total_bytes INTEGER NOT NULL
+);
 """
 _EVIDENCE_ID_RE = re.compile(r"^[0-9a-f]{4,32}$")
 DEFAULT_MAX_EVIDENCE_ITEM_BYTES = 16 * 1024 * 1024
@@ -116,6 +124,16 @@ class SQLiteEvidenceStore:
         self.database_path.parent.mkdir(parents=True, exist_ok=True)
         async with self._connect() as database:
             await database.executescript(_SCHEMA)
+            # 用量对账：旧版本数据 / 外部修改后重算一次运行总量。
+            await database.execute(
+                "INSERT OR IGNORE INTO evidence_usage (id, total_bytes) "
+                "VALUES (1, 0)"
+            )
+            await database.execute(
+                "UPDATE evidence_usage SET total_bytes = "
+                "(SELECT COALESCE(SUM(content_bytes), 0) FROM evidence) "
+                "WHERE id = 1"
+            )
             await database.commit()
             await self._initialize_fts(database)
 
@@ -204,9 +222,12 @@ class SQLiteEvidenceStore:
                         f"{content_bytes} > {self.max_item_bytes}"
                     )
                 cursor = await database.execute(
-                    "SELECT COALESCE(SUM(content_bytes), 0) AS total FROM evidence"
+                    "SELECT total_bytes FROM evidence_usage WHERE id = 1"
                 )
-                total_bytes = int((await cursor.fetchone())["total"])
+                usage_row = await cursor.fetchone()
+                total_bytes = (
+                    int(usage_row["total_bytes"]) if usage_row else 0
+                )
                 if total_bytes + content_bytes > self.max_total_bytes:
                     raise EvidenceCapacityError(
                         "evidence store exceeds max_total_bytes: "
@@ -235,6 +256,11 @@ class SQLiteEvidenceStore:
                         task_step_id,
                         created_at.isoformat(),
                     ),
+                )
+                await database.execute(
+                    "UPDATE evidence_usage SET total_bytes = total_bytes + ? "
+                    "WHERE id = 1",
+                    (content_bytes,),
                 )
                 await database.commit()
             except Exception:
@@ -488,6 +514,12 @@ class SQLiteEvidenceStore:
                 "DELETE FROM evidence WHERE conversation_id = ?",
                 (normalized,),
             )
+            # 删除是低频路径：直接全量对账运行总量。
+            await database.execute(
+                "UPDATE evidence_usage SET total_bytes = "
+                "(SELECT COALESCE(SUM(content_bytes), 0) FROM evidence) "
+                "WHERE id = 1"
+            )
             await database.commit()
         return max(cursor.rowcount, 0)
 
@@ -495,6 +527,7 @@ class SQLiteEvidenceStore:
     async def _connect(self) -> AsyncIterator[aiosqlite.Connection]:
         database = await aiosqlite.connect(self.database_path)
         database.row_factory = aiosqlite.Row
+        await configure_sqlite_connection(database)
         try:
             yield database
         finally:

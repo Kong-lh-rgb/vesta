@@ -321,3 +321,83 @@ async def test_recorder_attributes_evidence_to_active_task_step(tmp_path) -> Non
     assert document is not None
     assert document.record.task_id == task.id
     assert document.record.task_step_id == "research"
+
+
+@pytest.mark.asyncio
+async def test_capacity_counter_ignores_idempotent_replay_and_reconciles(
+    tmp_path,
+) -> None:
+    """用量计数：幂等重放不虚增；重启对账后依然正确拒绝超容量。"""
+
+    store = SQLiteEvidenceStore(
+        tmp_path / "vesta.db",
+        max_item_bytes=4,
+        max_total_bytes=6,
+    )
+    await store.initialize()
+    arguments = {
+        "conversation_id": "conversation-a",
+        "run_id": "run-a",
+        "tool_call_id": "call-a",
+        "tool_name": "read_file",
+        "content": "abc",
+        "sha256": "a" * 64,
+    }
+    first = await store.create(**arguments)
+    replayed = await store.create(**arguments)
+
+    assert first.id == replayed.id
+    # 重放不虚增用量（真实字节数 3 ≤ 6，仍可写入新内容）。
+    extra = await store.create(
+        conversation_id="conversation-a",
+        run_id="run-b",
+        tool_call_id="call-b",
+        tool_name="read_file",
+        content="def",
+        sha256="b" * 64,
+    )
+    assert extra.id != first.id
+    # 总量 3+3=6 已满：新内容拒绝。
+    with pytest.raises(EvidenceCapacityError, match="max_total_bytes"):
+        await store.create(
+            conversation_id="conversation-a",
+            run_id="run-c",
+            tool_call_id="call-c",
+            tool_name="read_file",
+            content="g",
+            sha256="c" * 64,
+        )
+
+    # 重启对账：用量从原文重算，容量判定与重启前一致。
+    reopened = SQLiteEvidenceStore(
+        tmp_path / "vesta.db",
+        max_item_bytes=4,
+        max_total_bytes=6,
+    )
+    await reopened.initialize()
+    with pytest.raises(EvidenceCapacityError, match="max_total_bytes"):
+        await reopened.create(
+            conversation_id="conversation-a",
+            run_id="run-d",
+            tool_call_id="call-d",
+            tool_name="read_file",
+            content="h",
+            sha256="d" * 64,
+        )
+
+
+@pytest.mark.asyncio
+async def test_store_connections_enable_wal(tmp_path) -> None:
+    """共享存储配置：连接启用 WAL（读写不再整库互斥）。"""
+
+    import aiosqlite
+
+    from app.trace import SQLiteTraceStore
+
+    database_path = tmp_path / "vesta.db"
+    store = SQLiteTraceStore(database_path)
+    await store.initialize()
+
+    async with aiosqlite.connect(database_path) as database:
+        rows = await database.execute_fetchall("PRAGMA journal_mode")
+        assert rows[0][0] == "wal"

@@ -479,13 +479,14 @@ async def test_disconnect_does_not_auto_decide(approval_store) -> None:
         run_id="run-1",
     )
     waiting = asyncio.create_task(gate.request_approval(submission))
-    for _ in range(200):
+    for _ in range(500):
         pending = await approval_store.list(
             status=ApprovalRequestStatus.PENDING,
         )
         if pending:
             break
-        await asyncio.sleep(0)
+        # 小间隔让出：全量测试负载下 sleep(0) 忙循环可能轮空整个窗口。
+        await asyncio.sleep(0.005)
 
     assert pending and pending[0].status is ApprovalRequestStatus.PENDING
     # 等待任务仍在阻塞，没有被自动 approve / deny。

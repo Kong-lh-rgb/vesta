@@ -12,6 +12,7 @@ from uuid import uuid4
 import aiosqlite
 
 from app.models.types import Message, ToolCall
+from app.storage import configure_sqlite_connection
 
 from .models import Conversation, ConversationMessageRecord
 
@@ -292,6 +293,7 @@ class SQLiteConversationStore:
     async def _connect(self) -> AsyncIterator[aiosqlite.Connection]:
         database = await aiosqlite.connect(self.database_path)
         database.row_factory = aiosqlite.Row
+        await configure_sqlite_connection(database)
         await database.execute("PRAGMA foreign_keys = ON")
         try:
             yield database

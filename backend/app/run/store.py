@@ -17,6 +17,7 @@ import aiosqlite
 
 from app.conversation import DEFAULT_DATABASE_PATH
 from app.models.types import AgentMode
+from app.storage import configure_sqlite_connection
 
 from .models import (
     _ALLOWED_TRANSITIONS,
@@ -324,6 +325,7 @@ class SQLiteRunStore:
     async def _connect(self) -> AsyncIterator[aiosqlite.Connection]:
         database = await aiosqlite.connect(self.database_path)
         database.row_factory = aiosqlite.Row
+        await configure_sqlite_connection(database)
         try:
             yield database
         finally:

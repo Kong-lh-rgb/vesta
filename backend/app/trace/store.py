@@ -12,6 +12,7 @@ import aiosqlite
 from app.agent.events import AgentEvent, AgentEventHandler, AgentEventType
 from app.agent.result import AgentStopReason
 from app.conversation import DEFAULT_DATABASE_PATH
+from app.storage import configure_sqlite_connection
 
 from .models import AgentRunTrace, RunStatus
 
@@ -93,7 +94,7 @@ class SQLiteTraceStore:
                     event.model,
                 ),
             )
-            await database.execute(
+            cursor = await database.execute(
                 """
                 INSERT OR IGNORE INTO agent_events (
                     event_id,
@@ -115,7 +116,12 @@ class SQLiteTraceStore:
                     event.model_dump_json(exclude_none=True),
                 ),
             )
-            await self._update_run(database, event)
+            # 重复事件被 IGNORE：计数不虚增（rowcount=0 → +0）。
+            await self._update_run(
+                database,
+                event,
+                appended=1 if cursor.rowcount else 0,
+            )
             await database.commit()
 
     async def get(self, run_id: str) -> AgentRunTrace | None:
@@ -283,6 +289,8 @@ class SQLiteTraceStore:
     async def _update_run(
         database: aiosqlite.Connection,
         event: AgentEvent,
+        *,
+        appended: int,
     ) -> None:
         status: RunStatus | None = None
         completed_at: str | None = None
@@ -326,9 +334,10 @@ class SQLiteTraceStore:
                 input_tokens = MAX(input_tokens, ?),
                 output_tokens = MAX(output_tokens, ?),
                 total_tokens = MAX(total_tokens, ?),
-                event_count = (
-                    SELECT COUNT(*) FROM agent_events WHERE run_id = ?
-                )
+                -- 增量维护：每次 append 恰好一个事件，子查询 COUNT(*)
+                -- 会让单 Run 的事件写入代价随事件数线性增长（O(n²)）。
+                -- 重复事件被 IGNORE 时 appended=0，计数不虚增。
+                event_count = event_count + ?
             WHERE run_id = ?
             """,
             (
@@ -342,7 +351,7 @@ class SQLiteTraceStore:
                 usage.input_tokens if usage else 0,
                 usage.output_tokens if usage else 0,
                 usage.total_tokens if usage else 0,
-                event.run_id,
+                appended,
                 event.run_id,
             ),
         )
@@ -351,6 +360,7 @@ class SQLiteTraceStore:
     async def _connect(self) -> AsyncIterator[aiosqlite.Connection]:
         database = await aiosqlite.connect(self.database_path)
         database.row_factory = aiosqlite.Row
+        await configure_sqlite_connection(database)
         await database.execute("PRAGMA foreign_keys = ON")
         try:
             yield database
