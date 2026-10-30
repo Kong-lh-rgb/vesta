@@ -710,3 +710,111 @@ def test_chat_auto_selects_the_only_configured_provider() -> None:
     )
 
     assert select_provider(settings, None) is ModelProvider.QWEN
+
+
+@pytest.mark.asyncio
+async def test_openai_responses_reasoning_summary_texts_are_joined() -> None:
+    """Responses 推理摘要取 summary[].text：列表直接 join 会 TypeError。"""
+
+    result = SimpleNamespace(
+        id="resp_reason",
+        model="gpt-test",
+        output_text="答案",
+        output=[],
+        status="completed",
+        reasoning=[
+            SimpleNamespace(
+                summary=[
+                    SimpleNamespace(text="先分析输入。"),
+                    SimpleNamespace(text="再给出结论。"),
+                ]
+            )
+        ],
+        usage=None,
+    )
+    client = FakeOpenAIClient(responses_result=result)
+    adapter = OpenAICompatibleAdapter(
+        provider_config("openai", ApiStyle.RESPONSES, "gpt-test"),
+        client=client,
+    )
+
+    response = await adapter.complete(
+        ModelRequest(
+            messages=(Message(role=MessageRole.USER, content="Why?"),),
+        )
+    )
+
+    assert response.message.reasoning == "先分析输入。再给出结论。"
+
+
+@pytest.mark.asyncio
+async def test_openai_chat_stream_repeated_call_id_is_not_concatenated() -> None:
+    """兼容端点每个 chunk 重复回传同一 id：取首个非空值，不拼接。"""
+
+    def chunk(tool_call: Any, *, finish: str | None = None) -> Any:
+        return SimpleNamespace(
+            id="chat-stream",
+            model="compat-test",
+            usage=None,
+            choices=[
+                SimpleNamespace(
+                    finish_reason=finish,
+                    delta=SimpleNamespace(
+                        content=None,
+                        reasoning_content=None,
+                        tool_calls=[tool_call],
+                    ),
+                )
+            ],
+        )
+
+    chunks = AsyncStream(
+        [
+            chunk(
+                SimpleNamespace(
+                    index=0,
+                    id="call-abc",
+                    function=SimpleNamespace(name="search", arguments='{"q'),
+                )
+            ),
+            chunk(
+                SimpleNamespace(
+                    index=0,
+                    id="call-abc",
+                    function=SimpleNamespace(
+                        name=None, arguments='uery":"x"}'
+                    ),
+                ),
+                finish="tool_calls",
+            ),
+            SimpleNamespace(
+                id="chat-stream",
+                model="compat-test",
+                usage=SimpleNamespace(
+                    prompt_tokens=5,
+                    completion_tokens=3,
+                    total_tokens=8,
+                ),
+                choices=[],
+            ),
+        ]
+    )
+    adapter = OpenAICompatibleAdapter(
+        provider_config("compat", ApiStyle.CHAT_COMPLETIONS, "compat-test"),
+        client=FakeOpenAIClient(chat_result=chunks),
+    )
+
+    async def _no_delta(_: str) -> None:
+        return None
+
+    response = await adapter.complete_stream(
+        ModelRequest(
+            messages=(Message(role=MessageRole.USER, content="Search"),),
+        ),
+        on_text_delta=_no_delta,
+    )
+
+    tool_calls = response.message.tool_calls
+    assert len(tool_calls) == 1
+    assert tool_calls[0].id == "call-abc"
+    assert tool_calls[0].arguments == {"query": "x"}

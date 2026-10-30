@@ -274,12 +274,18 @@ class OpenAICompatibleAdapter(ModelAdapter):
                     attempt.visible_delta_emitted = True
                     await on_reasoning_delta(reasoning)
             for call in getattr(delta, "tool_calls", None) or ():
+                # 不提供 index 的兼容端点全部进槽 0：多个并发调用的增量
+                # 在协议层面无法区分，与既有行为一致（不引入猜测性拆分）。
                 index = int(getattr(call, "index", 0) or 0)
                 part = tool_parts.setdefault(
                     index,
                     {"id": "", "name": "", "arguments": ""},
                 )
-                part["id"] += getattr(call, "id", None) or ""
+                # id 只接受首个非空值：部分兼容端点每个 chunk 都重复回传
+                # 同一 id，用拼接语义会得到 "call_abccall_abc"。
+                call_id = getattr(call, "id", None)
+                if call_id and not part["id"]:
+                    part["id"] = call_id
                 function = getattr(call, "function", None)
                 if function is not None:
                     part["name"] += getattr(function, "name", None) or ""
@@ -350,12 +356,18 @@ def _normalize_responses_response(response: Any, provider: str) -> ModelResponse
 
 
 def _responses_reasoning(response: Any) -> str | None:
-    """Responses API 的推理摘要（reasoning items 的 summary 拼接）。"""
+    """Responses API 的推理摘要（reasoning items 的 summary 拼接）。
+
+    ``summary`` 是 ``list[ReasoningText]``（每项有 ``.text``）：直接把
+    列表交给 join 会抛 TypeError，导致开启推理的模型走 Responses 路径
+    即崩溃（再被包装成泛化的 ModelAdapterError，丢失真实原因）。
+    """
     parts: list[str] = []
     for item in getattr(response, "reasoning", None) or ():
-        summary = getattr(item, "summary", None)
-        if summary:
-            parts.append(summary)
+        for summary in getattr(item, "summary", None) or ():
+            text = getattr(summary, "text", None)
+            if text:
+                parts.append(text)
     return "".join(parts) or None
 
 
