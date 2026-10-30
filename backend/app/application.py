@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Callable
+from contextlib import suppress
 from pathlib import Path
 from typing import Any
 
@@ -377,10 +378,27 @@ class Application:
     # ------------------------------------------------------------------
 
     async def start(self) -> None:
-        """初始化全部 store，装配工具 / Runtime / Service / Scheduler。"""
+        """初始化全部 store，装配工具 / Runtime / Service / Scheduler。
+
+        装配中途失败（配置损坏、磁盘错误等）时回收已启动的外部资源
+        （MCP 子进程、Computer helper、Scheduler），不留下孤儿进程。
+        """
 
         if self._started:
             return
+        try:
+            await self._start_internal()
+        except BaseException:
+            logger.exception(
+                "Application.start() failed; rolling back partial "
+                "initialization"
+            )
+            await self._abort_partial_start()
+            raise
+        self._started = True
+
+    async def _start_internal(self) -> None:
+        """装配主体；失败由 start() 统一回滚已启动的外部资源。"""
 
         database = self.database
         conversation_store = SQLiteConversationStore(database)
@@ -411,6 +429,9 @@ class Application:
             self.workspace_root,
             sandbox_supervisor=sandbox_supervisor,
         )
+        # 即时挂载：装配中途失败时的回滚（_abort_partial_start）需要
+        # 能拿到已创建的对象。
+        self.tool_registry = tool_registry
 
         artifact_store = SQLiteArtifactStore(database)
         await artifact_store.initialize()
@@ -432,6 +453,7 @@ class Application:
         )
 
         memory_manager = await self._build_memory()
+        self.memory_manager = memory_manager
         register_memory_tools(tool_registry, memory_manager)
 
         skill_store = SkillStore(
@@ -488,6 +510,9 @@ class Application:
             computer_lease = ComputerLeaseManager(
                 database.parent / "computer" / "machine.lock"
             )
+            # 即时挂载（见 tool_registry 处注释）。
+            self.computer_session = computer_session
+            self.computer_lease = computer_lease
             computer_hooks = (
                 ComputerLeaseHook(
                     computer_lease,
@@ -550,6 +575,8 @@ class Application:
                 sandbox_supervisor=sandbox_supervisor,
             )
             mcp_statuses = await mcp_manager.start(tool_registry)
+            # 子进程已启动：立即挂载供回滚（见 tool_registry 处注释）。
+            self.mcp_manager = mcp_manager
         except MCPConfigurationError as exc:
             mcp_error = f"{type(exc).__name__}: {exc}"
             logger.warning("MCP disabled: %s", mcp_error)
@@ -654,6 +681,8 @@ class Application:
             conversation_service,
         )
         register_automation_tools(tool_registry, automation_scheduler)
+        # 调度器即将持有后台 job：先挂载再启动（见 tool_registry 处注释）。
+        self.automation_scheduler = automation_scheduler
         await automation_scheduler.start()
 
         conversation_lifecycle = ConversationLifecycleService(
@@ -739,8 +768,6 @@ class Application:
         self.automation_scheduler = automation_scheduler
         self.reconciled_runs = reconciled_runs
 
-        self._started = True
-
     async def _build_memory(self) -> MemoryManager:
         """Memory 装配 builder：Embedding 独立分层，失败只降级不阻断启动。
 
@@ -764,30 +791,59 @@ class Application:
         return manager
 
     async def close(self) -> None:
-        """优雅关闭 Post-Run / Scheduler / MCP / Computer / 模型适配器（幂等）。"""
+        """优雅关闭 Post-Run / Scheduler / MCP / Computer / 模型适配器。
 
-        if not self._started:
-            return
+        幂等且对部分初始化状态安全：close 不要求 start() 曾完整成功
+        （装配中途失败后同样可以调用）；每步独立容错，单步失败不阻断
+        其余回收。
+        """
+
         # 先 drain post-run 后台任务（可能仍在用模型 registry / memory store），
         # 避免 event loop 关闭时遗留 pending task；有界等待，超时后 cancel。
-        await self.post_run_processor.close()
-        if self.automation_scheduler is not None:
-            await self.automation_scheduler.shutdown()
-        if self.mcp_manager is not None and self.tool_registry is not None:
-            await self.mcp_manager.close(self.tool_registry)
-        if self.computer_lease is not None:
-            self.computer_lease.close()
-        if self.computer_session is not None:
-            self.computer_session.close()
-        if self.computer_runtime is not None:
-            # 只在确实注入真实 MacOSComputerRuntime（有 close）时关闭 helper。
-            close_runtime = getattr(self.computer_runtime, "close", None)
-            if callable(close_runtime):
-                await close_runtime()
-        if self.memory_manager is not None:
-            await self.memory_manager.close()
-        if self.memory_embedding_adapter is not None:
-            await self.memory_embedding_adapter.close()
-            self.memory_embedding_adapter = None
-        await self.registry.close()
+        with suppress(Exception):
+            await self.post_run_processor.close()
+        await self._shutdown_resources()
         self._started = False
+
+    async def _abort_partial_start(self) -> None:
+        """start() 中途失败的回滚：尽力回收已启动的外部资源。"""
+
+        await self._shutdown_resources()
+
+    async def _shutdown_resources(self) -> None:
+        """按依赖逆序关闭外部资源（幂等；单步失败不阻断其余）。"""
+
+        with suppress(Exception):
+            if self.automation_scheduler is not None:
+                await self.automation_scheduler.shutdown()
+                self.automation_scheduler = None
+        with suppress(Exception):
+            if self.mcp_manager is not None and self.tool_registry is not None:
+                await self.mcp_manager.close(self.tool_registry)
+            self.mcp_manager = None
+        with suppress(Exception):
+            if self.computer_lease is not None:
+                self.computer_lease.close()
+                self.computer_lease = None
+        with suppress(Exception):
+            if self.computer_session is not None:
+                self.computer_session.close()
+                self.computer_session = None
+        with suppress(Exception):
+            if self.computer_runtime is not None:
+                # 只在确实注入真实 MacOSComputerRuntime（有 close）时关闭
+                # helper；_computer_runtime 保留注入源供再次启动。
+                close_runtime = getattr(self.computer_runtime, "close", None)
+                if callable(close_runtime):
+                    await close_runtime()
+                self.computer_runtime = None
+        with suppress(Exception):
+            if self.memory_manager is not None:
+                await self.memory_manager.close()
+                self.memory_manager = None
+        with suppress(Exception):
+            if self.memory_embedding_adapter is not None:
+                await self.memory_embedding_adapter.close()
+                self.memory_embedding_adapter = None
+        with suppress(Exception):
+            await self.registry.close()

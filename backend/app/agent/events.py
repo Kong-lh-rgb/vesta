@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from abc import ABC, abstractmethod
 from datetime import UTC, datetime
 from enum import StrEnum
@@ -13,6 +14,8 @@ from app.models.types import Message, ModelUsage, ToolCall, ToolResult
 from app.tools.approval import ApprovalDecision
 
 from .result import AgentError, AgentResult, AgentStopReason
+
+logger = logging.getLogger("vesta.agent.events")
 
 
 class AgentEventType(StrEnum):
@@ -225,7 +228,15 @@ class CompositeEventHandler(AgentEventHandler):
             try:
                 await handler.emit(event)
             except Exception:
-                # 单个观察者故障不影响其他事件消费者。
+                # 单个观察者故障不影响其他事件消费者，但要留痕：
+                # Trace 持久化静默失败意味着该 Run 之后的事件丢失。
+                logger.exception(
+                    "event handler %s failed for %s (sequence=%s); "
+                    "remaining handlers still run",
+                    type(handler).__name__,
+                    event.type.value,
+                    event.sequence,
+                )
                 continue
 
 

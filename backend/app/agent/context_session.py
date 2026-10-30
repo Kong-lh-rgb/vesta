@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
 
 from app.checkpoint import RunCheckpoint, render_checkpoint_context
@@ -18,6 +19,8 @@ from app.task.context import TaskContextProvider
 from .event_stream import EventEmitter
 from .events import AgentEventType
 from .runtime_helpers import skill_read_outcome
+
+logger = logging.getLogger("vesta.agent.context_session")
 
 
 @dataclass(frozen=True, slots=True)
@@ -108,6 +111,12 @@ class RuntimeContextSession:
                     conversation_id
                 )
             except Exception:
+                # 降级必须可见：Agent "突然失忆"时排障需要这条线索。
+                logger.warning(
+                    "memory injection failed; run continues without "
+                    "memory context",
+                    exc_info=True,
+                )
                 self._memory_messages = ()
         messages.extend(self._memory_messages)
 
@@ -118,6 +127,11 @@ class RuntimeContextSession:
                 try:
                     self._catalog = await self._skill_store.catalog()
                 except Exception:
+                    logger.warning(
+                        "skill catalog failed; run continues without "
+                        "skill catalog",
+                        exc_info=True,
+                    )
                     self._catalog = ()
             catalog_message = provider.catalog_message(self._catalog)
             if catalog_message is not None:
@@ -195,7 +209,12 @@ class RuntimeContextSession:
             query = await self._recall_query_with_task(conversation_id)
             snapshot = await manager.recall(query)
         except Exception:
-            # 自动召回失败不能阻塞 Run：退回 Legacy INDEX 注入。
+            # 自动召回失败不能阻塞 Run：退回 Legacy INDEX 注入（留痕）。
+            logger.warning(
+                "hybrid recall failed; falling back to legacy INDEX "
+                "injection",
+                exc_info=True,
+            )
             return await _legacy_context_messages(manager)
         self._recall_snapshot = snapshot
         if snapshot.mode is SearchMode.UNAVAILABLE:

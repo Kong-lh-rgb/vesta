@@ -3,9 +3,12 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 from typing import Any
 
 from .events import AgentEvent, AgentEventHandler, AgentEventType
+
+logger = logging.getLogger("vesta.agent.event_stream")
 
 
 class EventEmitter:
@@ -42,7 +45,16 @@ class EventEmitter:
         try:
             await self._handler.emit(event)
         except Exception:
-            # 事件观察者故障不能中断 Agent 的核心执行流程。
+            # 事件观察者故障不能中断 Agent 的核心执行流程，但必须留痕：
+            # Trace 持久化从此静默失败的话，Run 之后的事件会无声丢失，
+            # 排障将没有任何线索。
+            logger.exception(
+                "event handler failed; subsequent events of this run may "
+                "be lost (run=%s sequence=%d type=%s)",
+                self._run_id,
+                event.sequence,
+                event.type.value,
+            )
             return
 
 

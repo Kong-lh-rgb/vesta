@@ -104,3 +104,68 @@ def test_event_rejects_invalid_identity_order_or_time(field, value) -> None:
 
     with pytest.raises(ValidationError):
         AgentEvent.model_validate(values)
+
+
+# ---------------------------------------------------------------------------
+# 观察者故障隔离：吞异常必须留痕（Trace 静默丢失是排障黑洞）
+# ---------------------------------------------------------------------------
+
+
+class ExplodingHandler:
+    async def emit(self, event: AgentEvent) -> None:
+        raise RuntimeError("trace store write failed")
+
+
+class RecordingHandler:
+    def __init__(self) -> None:
+        self.events: list[AgentEvent] = []
+
+    async def emit(self, event: AgentEvent) -> None:
+        self.events.append(event)
+
+
+@pytest.mark.asyncio
+async def test_event_emitter_logs_swallowed_handler_failure(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """EventEmitter 吞掉 handler 异常但不无声：日志必须留下线索。"""
+
+    from app.agent.event_stream import EventEmitter
+
+    emitter = EventEmitter(
+        handler=ExplodingHandler(),
+        run_id="run-1",
+        conversation_id="conv-1",
+    )
+
+    with caplog.at_level("ERROR", logger="vesta.agent.event_stream"):
+        await emitter.emit(AgentEventType.MODEL_COMPLETED)
+
+    assert any(
+        "event handler failed" in record.message for record in caplog.records
+    )
+
+
+@pytest.mark.asyncio
+async def test_composite_handler_isolates_and_logs_failures(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Composite 中单个 handler 故障：其余 handler 仍收到事件，且有日志。"""
+
+    from app.agent.events import CompositeEventHandler
+
+    healthy = RecordingHandler()
+    composite = CompositeEventHandler(
+        ExplodingHandler(),
+        healthy,
+    )
+    event = AgentEvent(run_id="run-1", type=AgentEventType.AGENT_STARTED)
+
+    with caplog.at_level("ERROR", logger="vesta.agent.events"):
+        await composite.emit(event)
+
+    assert healthy.events == [event]
+    assert any(
+        "event handler ExplodingHandler failed" in record.message
+        for record in caplog.records
+    )

@@ -1519,8 +1519,8 @@ def test_server_shutdown_closes_resources(make_app) -> None:
         assert application._started is True
     # lifespan finally 已执行 application.close()。
     assert application._started is False
-    assert application.automation_scheduler._running == set()
-    assert application.automation_scheduler._job_ids == {}
+    # 外部资源在 close 中被释放并置空（比"字段清空"更强的回收证明）。
+    assert application.automation_scheduler is None
 
 
 async def test_application_start_close_idempotent(tmp_path: Path) -> None:
@@ -1562,3 +1562,75 @@ async def test_application_start_close_idempotent(tmp_path: Path) -> None:
     await application.close()
     await application.close()  # 幂等
     assert application._started is False
+
+
+async def test_application_start_failure_rolls_back_started_resources(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """装配中途失败：已启动的外部资源必须被回收，不泄漏进程。"""
+
+    from app.automation.scheduler import AutomationScheduler
+    from app.mcp.manager import MCPClientManager
+
+    config = ProviderConfig(
+        provider="fake",
+        model="fake-model",
+        api_key=SecretStr("offline-test-key"),
+        api_style=ApiStyle.CHAT_COMPLETIONS,
+    )
+    adapter = RepeatingFakeAdapter(config, _model_response("ok"))
+    registry = ModelAdapterRegistry(ModelSettings(_env_file=None))
+    registry.register("fake", lambda _: adapter, config=config)
+
+    closed_managers: list[object] = []
+    original_start = AutomationScheduler.start
+
+    async def _failing_scheduler_start(self: AutomationScheduler) -> None:
+        raise RuntimeError("scheduler backend unavailable")
+
+    async def _record_close(self: object, tool_registry: object) -> None:
+        closed_managers.append(self)
+
+    monkeypatch.setattr(AutomationScheduler, "start", _failing_scheduler_start)
+    monkeypatch.setattr(MCPClientManager, "close", _record_close)
+
+    application = Application(
+        provider="fake",
+        model="fake-model",
+        database=tmp_path / "vesta.db",
+        tasks_dir=tmp_path / "tasks",
+        mcp_config=tmp_path / "mcp.json",
+        memory_dir=tmp_path / "memory",
+        skills_user_dir=tmp_path / "skills-user",
+        skills_project_dir=tmp_path / "skills-project",
+        registry=registry,
+        memory_reflection_config=MemoryReflectionConfig(
+            _env_file=None, enabled=False
+        ),
+        memory_maintenance_config=MemoryMaintenanceConfig(
+            _env_file=None, enabled=False
+        ),
+        skill_learning_settings=SkillLearningSettings(
+            _env_file=None,
+            skill_learning_enabled=False,
+            skill_learning_data_dir=tmp_path / "skill-learning",
+        ),
+    )
+
+    with pytest.raises(RuntimeError, match="scheduler backend unavailable"):
+        await application.start()
+
+    # 回滚已完成：外部资源被回收并置空，未进入已启动状态。
+    assert application._started is False
+    assert application.mcp_manager is None
+    assert application.automation_scheduler is None
+    assert application.memory_manager is None
+    # MCP manager 的 close 在回滚中被调用（子进程不泄漏）。
+    assert closed_managers
+
+    # 回滚后再次 start 仍可正常完成（属性可重建）。
+    monkeypatch.setattr(AutomationScheduler, "start", original_start)
+    await application.start()
+    assert application._started is True
+    await application.close()
