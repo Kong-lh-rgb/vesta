@@ -17,6 +17,23 @@ enum WindowScreenshotError: Error {
     case captureFailed(String)
 }
 
+private final class CaptureResultBox: @unchecked Sendable {
+    private let lock = NSLock()
+    private var value: Result<WindowScreenshot, WindowScreenshotError>?
+
+    func store(_ result: Result<WindowScreenshot, WindowScreenshotError>) {
+        lock.lock()
+        value = result
+        lock.unlock()
+    }
+
+    func load() -> Result<WindowScreenshot, WindowScreenshotError>? {
+        lock.lock()
+        defer { lock.unlock() }
+        return value
+    }
+}
+
 func screenCaptureGranted(prompt: Bool) -> Bool {
     if #available(macOS 10.15, *) {
         if CGPreflightScreenCaptureAccess() { return true }
@@ -25,14 +42,14 @@ func screenCaptureGranted(prompt: Bool) -> Bool {
     return false
 }
 
-/// ScreenCaptureKit 的 async API 在 helper 的同步 JSONL 主循环外执行并等待单帧。
+/// ScreenCaptureKit 的 async API 在独立任务中执行；同步 JSONL 请求最多等待 10 秒。
 @available(macOS 14.0, *)
 func captureWindow(pid: pid_t, bounds: CGRect, title: String,
                    outputPath: String) -> Result<WindowScreenshot, WindowScreenshotError> {
     guard screenCaptureGranted(prompt: false) else { return .failure(.permissionRequired) }
     let semaphore = DispatchSemaphore(value: 0)
-    var captured: Result<WindowScreenshot, WindowScreenshotError>!
-    Task {
+    let captured = CaptureResultBox()
+    let task = Task.detached {
         do {
             let content = try await SCShareableContent.excludingDesktopWindows(
                 false, onScreenWindowsOnly: true)
@@ -59,6 +76,7 @@ func captureWindow(pid: pid_t, bounds: CGRect, title: String,
             configuration.showsCursor = false
             let image = try await SCScreenshotManager.captureImage(
                 contentFilter: filter, configuration: configuration)
+            try Task.checkCancellation()
             let url = URL(fileURLWithPath: outputPath)
             guard let destination = CGImageDestinationCreateWithURL(
                 url as CFURL, UTType.png.identifier as CFString, 1, nil) else {
@@ -68,17 +86,20 @@ func captureWindow(pid: pid_t, bounds: CGRect, title: String,
             guard CGImageDestinationFinalize(destination) else {
                 throw WindowScreenshotError.captureFailed("cannot write PNG")
             }
-            captured = .success(WindowScreenshot(path: outputPath,
+            captured.store(.success(WindowScreenshot(path: outputPath,
                 mapping: ScreenshotMapping(pixelWidth: image.width, pixelHeight: image.height,
                     bounds: LogicalBounds(x: bounds.minX, y: bounds.minY,
-                                          width: bounds.width, height: bounds.height))))
+                                          width: bounds.width, height: bounds.height)))))
         } catch let error as WindowScreenshotError {
-            captured = .failure(error)
+            captured.store(.failure(error))
         } catch {
-            captured = .failure(.captureFailed(String(describing: error)))
+            captured.store(.failure(.captureFailed(String(describing: error))))
         }
         semaphore.signal()
     }
-    semaphore.wait()
-    return captured
+    guard semaphore.wait(timeout: .now() + 10) == .success else {
+        task.cancel()
+        return .failure(.captureFailed("screen capture timed out"))
+    }
+    return captured.load() ?? .failure(.captureFailed("screen capture returned no result"))
 }
