@@ -813,6 +813,8 @@ do {
     check("focused window 优先", v7Result?["window_order"] as? [Int] == [1, 0, 2])
     check("scroll 非零校验", v7Result?["valid_scroll"] as? Bool == true
         && v7Result?["invalid_scroll"] as? Bool == false)
+    check("scroll 范围校验", v7Result?["bounded_scroll"] as? Bool == true
+        && v7Result?["oversized_scroll"] as? Bool == false)
 
     let changed = try request([
         "id": 84, "method": "__test_fresh_guard",
