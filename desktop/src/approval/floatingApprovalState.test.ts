@@ -199,6 +199,27 @@ describe('reduceFloatingApprovalState', () => {
     expect(state.phase).toBe('pending')
   })
 
+  it('执行阶段出现新审批时不会把它排在隐藏浮窗之后', () => {
+    const executing = {
+      ...initialFloatingApprovalState,
+      current: approval('a', { status: 'approved' }),
+      phase: 'executing' as const,
+    }
+    const fromEvent = reduceFloatingApprovalState(executing, {
+      type: 'approval_required',
+      approval: approval('b'),
+    })
+    expect(fromEvent.current?.id).toBe('b')
+    expect(fromEvent.phase).toBe('pending')
+
+    const fromReconnect = reduceFloatingApprovalState(executing, {
+      type: 'sync_pending',
+      approvals: [approval('b')],
+    })
+    expect(fromReconnect.current?.id).toBe('b')
+    expect(fromReconnect.phase).toBe('pending')
+  })
+
   it('终态 dismiss 后继续 FIFO 下一项', () => {
     const a = approval('a')
     const b = approval('b')
