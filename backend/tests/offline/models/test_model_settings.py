@@ -32,6 +32,19 @@ class FakeSecrets:
     def set(self, provider: str, value: str) -> None:
         self.values[provider] = value
 
+    def delete(self, provider: str) -> None:
+        self.values.pop(provider, None)
+
+
+@dataclass
+class FailingSecrets(FakeSecrets):
+    fail_on: str | None = None
+
+    def set(self, provider: str, value: str) -> None:
+        if provider == self.fail_on and value.startswith("secret-"):
+            raise RuntimeError("injected Keychain failure")
+        super().set(provider, value)
+
 
 def _base_settings() -> ModelSettings:
     return ModelSettings(
@@ -109,6 +122,45 @@ def test_save_keeps_api_key_out_of_json(tmp_path: Path) -> None:
     assert "api_key" not in raw
     assert secrets.values == {"qwen": "secret-qwen"}
     assert json.loads(raw)["default_provider"] == "qwen"
+
+
+def test_keychain_failure_restores_earlier_keys(tmp_path: Path) -> None:
+    path = tmp_path / "models.json"
+    secrets = FailingSecrets(values={"qwen": "old-qwen"}, fail_on="deepseek")
+    service = ModelSettingsService(
+        store=ModelSettingsStore(path),
+        secrets=secrets,
+        base_settings=_base_settings(),
+    )
+    update = _update().model_copy(
+        update={
+            "providers": tuple(
+                item.model_copy(update={"api_key": "secret-deepseek"})
+                if item.provider is ModelProvider.DEEPSEEK else item
+                for item in _update().providers
+            )
+        }
+    )
+    with pytest.raises(RuntimeError, match="injected Keychain failure"):
+        service.save(update)
+    assert secrets.values == {"qwen": "old-qwen"}
+    assert not path.exists()
+
+
+def test_settings_file_failure_removes_new_key(tmp_path: Path) -> None:
+    class FailingStore(ModelSettingsStore):
+        def save(self, settings) -> None:
+            raise OSError("injected settings write failure")
+
+    secrets = FakeSecrets()
+    service = ModelSettingsService(
+        store=FailingStore(tmp_path / "models.json"),
+        secrets=secrets,
+        base_settings=_base_settings(),
+    )
+    with pytest.raises(OSError, match="injected settings write failure"):
+        service.save(_update())
+    assert secrets.values == {}
 
 
 def test_effective_configuration_merges_roles_and_keychain(tmp_path: Path) -> None:

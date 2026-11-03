@@ -14,6 +14,8 @@ class ModelSecretStore(Protocol):
 
     def set(self, provider: str, value: str) -> None: ...
 
+    def delete(self, provider: str) -> None: ...
+
 
 class MacOSKeychainSecretStore:
     """通过macOS Keychain保存密钥，不把密钥写入项目或JSON。"""
@@ -67,6 +69,27 @@ class MacOSKeychainSecretStore:
         )
         if result.returncode != 0:
             message = result.stderr.strip() or "macOS Keychain write failed"
+            raise RuntimeError(message)
+
+    def delete(self, provider: str) -> None:
+        if sys.platform != "darwin":
+            raise RuntimeError("model API keys require macOS Keychain")
+        result = subprocess.run(  # noqa: S603 - 固定绝对路径且不经过shell
+            [
+                "/usr/bin/security",
+                "delete-generic-password",
+                "-a",
+                provider,
+                "-s",
+                self.service,
+            ],
+            capture_output=True,
+            check=False,
+            text=True,
+            timeout=10,
+        )
+        if result.returncode != 0:
+            message = result.stderr.strip() or "macOS Keychain delete failed"
             raise RuntimeError(message)
 
 

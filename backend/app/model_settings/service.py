@@ -150,10 +150,38 @@ class ModelSettingsService:
             maintenance=update.maintenance,
             summary=update.summary,
         )
-        for item in update.providers:
-            if item.api_key:
+        key_updates = [item for item in update.providers if item.api_key]
+        previous_keys = {
+            item.provider.value: self.secrets.get(item.provider.value)
+            for item in key_updates
+        }
+        attempted: list[str] = []
+        try:
+            for item in key_updates:
+                attempted.append(item.provider.value)
                 self.secrets.set(item.provider.value, item.api_key)
-        self.store.save(stored)
+            self.store.save(stored)
+        except Exception as exc:
+            rollback_errors: list[str] = []
+            for provider in reversed(attempted):
+                try:
+                    old_key = previous_keys[provider]
+                    if self.secrets.get(provider) == old_key:
+                        continue
+                    if old_key is None:
+                        self.secrets.delete(provider)
+                    else:
+                        self.secrets.set(provider, old_key)
+                except Exception as rollback_exc:
+                    rollback_errors.append(
+                        f"{provider}: {type(rollback_exc).__name__}"
+                    )
+            if rollback_errors:
+                raise RuntimeError(
+                    "model settings save failed and Keychain rollback failed for "
+                    + ", ".join(rollback_errors)
+                ) from exc
+            raise
         return stored
 
     async def test(self, item: ProviderSettingsUpdate) -> dict[str, Any]:
