@@ -36,7 +36,7 @@ class SkillLearningSettings(BaseSettings):
     skill_learning_provider: str | None = None
     skill_learning_model: str | None = None
     skill_learning_temperature: float = Field(default=0.0, ge=0.0, le=2.0)
-    skill_learning_max_output_tokens: int = Field(default=2_000, ge=1)
+    skill_learning_max_output_tokens: int = Field(default=8_192, ge=1)
     skill_learning_timeout_seconds: float = Field(default=60.0, gt=0.0)
     # 关闭 reasoning（thinking）的 extra_body；None=自动（仅对实测支持的
     # Provider 生效）。

@@ -29,6 +29,7 @@
 
 from __future__ import annotations
 
+import json
 from collections import defaultdict
 from dataclasses import dataclass
 
@@ -122,7 +123,18 @@ class TaskTraceSelector:
                 task_id_arg = arguments.get("task_id")
                 if not isinstance(task_id_arg, str) or not task_id_arg.strip():
                     continue
-                if not task.id.startswith(task_id_arg.strip()):
+                requested_task_id = task_id_arg.strip()
+                if requested_task_id.lower() == "current":
+                    # The Task tool resolves this handle at execution time.
+                    # Its successful result must identify this exact task;
+                    # the handle alone cannot prove ownership in a later trace.
+                    try:
+                        resolved = json.loads(result.output or "")
+                    except (TypeError, ValueError):
+                        continue
+                    if not isinstance(resolved, dict) or resolved.get("id") != task.id:
+                        continue
+                elif not task.id.startswith(requested_task_id):
                     # 更新其他 Task 的 task_update 不算当前 Task 的 Anchor。
                     continue
                 step_id = arguments.get("step_id")

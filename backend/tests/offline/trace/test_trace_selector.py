@@ -7,6 +7,7 @@
 
 from __future__ import annotations
 
+import json
 from datetime import UTC, datetime
 
 from app.agent.events import AgentEvent, AgentEventType
@@ -37,6 +38,7 @@ def _tool_event(
     arguments: dict,
     *,
     success: bool = True,
+    output: str | None = None,
 ) -> AgentEvent:
     return AgentEvent(
         run_id=run_id,
@@ -48,6 +50,7 @@ def _tool_event(
             tool_call_id=f"c{sequence}",
             tool_name=name,
             success=success,
+            output=output,
             duration_ms=0.0,
         ),
     )
@@ -143,6 +146,25 @@ def test_failed_task_update_is_not_anchor() -> None:
     selector = TaskTraceSelector()
     # 唯一的 task_update 失败 → 无有效 Anchor → 空（Task-only fallback）。
     assert selector.select(_task(), {"r1": run}) == ()
+
+
+def test_current_handle_requires_matching_resolved_task_id() -> None:
+    run = _run(
+        _tool_event("r1", 1, 1, "task_update", {"task_id": "current"},
+                    output=json.dumps({"id": TASK_B})),
+        _tool_event("r1", 2, 2, "task_update", {"task_id": "current"},
+                    output="malformed"),
+        _tool_event(
+            "r1", 3, 3, "task_update",
+            {"task_id": "current", "step_id": "s1", "step_status": "in_progress"},
+            output=json.dumps({"id": TASK_A}),
+        ),
+        _tool_event("r1", 4, 4, "edit_file", {}),
+        _tool_event("r1", 5, 5, "task_update",
+                    {"task_id": "current", "step_id": "s1", "step_status": "done"},
+                    output=json.dumps({"id": TASK_A})),
+    )
+    assert _selected_steps(TaskTraceSelector(), _task(), {"r1": run}) == [3, 4, 5]
 
 
 # ---------------------------------------------------------------------------
