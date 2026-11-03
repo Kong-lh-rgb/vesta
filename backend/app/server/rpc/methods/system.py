@@ -30,18 +30,18 @@ async def system_restart(
     """在无活跃Run时请求入口监督循环优雅重启Host。"""
 
     application = ctx.application
-    active_run_ids = application.run_manager.active_run_ids
-    if active_run_ids:
-        raise JsonRpcError(
-            INVALID_STATE,
-            "存在正在执行的 Run，暂时不能重启 Host",
-            {"active_run_ids": list(active_run_ids)},
-        )
     callback = application.host_restart_callback
     if callback is None:
         raise JsonRpcError(
             INVALID_STATE,
             "当前 Host 启动方式不支持应用内重启",
+        )
+    active_run_ids = await application.run_manager.stop_accepting_if_idle()
+    if active_run_ids:
+        raise JsonRpcError(
+            INVALID_STATE,
+            "存在正在执行的 Run，暂时不能重启 Host",
+            {"active_run_ids": list(active_run_ids)},
         )
     asyncio.get_running_loop().call_later(0.25, callback)
     return {"accepted": True}

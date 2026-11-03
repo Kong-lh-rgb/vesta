@@ -236,6 +236,38 @@ async def test_start_running_to_completed(manager_factory) -> None:
     assert result is not None and result.ok is True
 
 
+async def test_restart_reservation_blocks_new_runs(manager_factory) -> None:
+    registry, _ = fake_registry([model_response(content="完成")])
+    manager, _, _ = await manager_factory(registry)
+
+    assert await manager.stop_accepting_if_idle() == ()
+    with pytest.raises(RuntimeError, match="shutting down"):
+        await manager.start("must not start")
+    assert await manager.list_runs() == ()
+
+
+async def test_restart_reservation_does_not_stop_active_run(manager_factory) -> None:
+    config = ProviderConfig(
+        provider="blocking",
+        model="blocking-model",
+        api_key=SecretStr("offline-test-key"),
+        api_style=ApiStyle.CHAT_COMPLETIONS,
+    )
+    adapter = BlockingModelAdapter(config)
+    registry = ModelAdapterRegistry(ModelSettings(_env_file=None))
+    registry.register("blocking", lambda _: adapter, config=config)
+    manager, _, _ = await manager_factory(registry, provider="blocking")
+
+    run_id, _ = await manager.start("active")
+    await adapter.started.wait()
+    try:
+        assert await manager.stop_accepting_if_idle() == (run_id,)
+        second_run_id, _ = await manager.start("another active run")
+        await manager.cancel(second_run_id)
+    finally:
+        await manager.cancel(run_id)
+
+
 # ---------------------------------------------------------------------------
 # 2. Runtime 异常 → FAILED 且 error 被记录
 # ---------------------------------------------------------------------------

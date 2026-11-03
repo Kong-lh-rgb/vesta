@@ -57,6 +57,8 @@ class RunManager:
         self._run_finalizers = tuple(run_finalizers)
         # 进程内正在执行的 Run → asyncio.Task（用于 cancel / wait）。
         self._active_tasks: dict[str, asyncio.Task[None]] = {}
+        self._start_guard = asyncio.Lock()
+        self._accepting_runs = True
         # 会话内最近一次执行完成的 AgentResult（供 CLI 读取，不持久化）。
         self._last_results: dict[str, AgentResult] = {}
 
@@ -163,31 +165,43 @@ class RunManager:
         执行的模式（NORMAL / PLAN），一并持久化。
         """
 
-        run = await self._run_store.create(
-            conversation_id=conversation_id,
-            user_message=user_message,
-            recovered_from_run_id=recovered_from_run_id,
-            source=source,
-            source_id=source_id,
-            scheduled_for=scheduled_for,
-            triggered_at=triggered_at,
-            mode=mode,
-        )
-        await self._run_store.mark_started(run.id)
-        task = asyncio.create_task(
-            self._execute(
-                run.id,
-                user_message=user_message,
+        async with self._start_guard:
+            if not self._accepting_runs:
+                raise RuntimeError("Host is shutting down; new runs are disabled")
+            run = await self._run_store.create(
                 conversation_id=conversation_id,
-                history=history,
-                summary_state=summary_state,
-                event_handler=event_handler,
-                recovery_run_id=recovery_run_id,
+                user_message=user_message,
+                recovered_from_run_id=recovered_from_run_id,
+                source=source,
+                source_id=source_id,
+                scheduled_for=scheduled_for,
+                triggered_at=triggered_at,
                 mode=mode,
             )
-        )
-        self._active_tasks[run.id] = task
-        return run.id, task
+            await self._run_store.mark_started(run.id)
+            task = asyncio.create_task(
+                self._execute(
+                    run.id,
+                    user_message=user_message,
+                    conversation_id=conversation_id,
+                    history=history,
+                    summary_state=summary_state,
+                    event_handler=event_handler,
+                    recovery_run_id=recovery_run_id,
+                    mode=mode,
+                )
+            )
+            self._active_tasks[run.id] = task
+            return run.id, task
+
+    async def stop_accepting_if_idle(self) -> tuple[str, ...]:
+        """Atomically reserve an idle manager for a Host restart."""
+
+        async with self._start_guard:
+            active = self.active_run_ids
+            if not active:
+                self._accepting_runs = False
+            return active
 
     async def wait(self, run_id: str) -> Run:
         """等待 Run 执行结束并返回最终 Run 记录（幂等，可多次调用）。"""

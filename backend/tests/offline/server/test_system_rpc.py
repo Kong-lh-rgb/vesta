@@ -16,11 +16,22 @@ class ImmediateLoop:
         callback()
 
 
+class FakeRunManager:
+    def __init__(self, active_run_ids: tuple[str, ...] = ()) -> None:
+        self.active_run_ids = active_run_ids
+        self.reserved = False
+
+    async def stop_accepting_if_idle(self) -> tuple[str, ...]:
+        self.reserved = not self.active_run_ids
+        return self.active_run_ids
+
+
 @pytest.mark.asyncio
 async def test_restart_is_accepted_without_active_runs(monkeypatch) -> None:  # noqa: ANN001
     called: list[bool] = []
+    run_manager = FakeRunManager()
     application = SimpleNamespace(
-        run_manager=SimpleNamespace(active_run_ids=()),
+        run_manager=run_manager,
         host_restart_callback=lambda: called.append(True),
     )
     monkeypatch.setattr(system.asyncio, "get_running_loop", ImmediateLoop)
@@ -32,12 +43,13 @@ async def test_restart_is_accepted_without_active_runs(monkeypatch) -> None:  # 
 
     assert result == {"accepted": True}
     assert called == [True]
+    assert run_manager.reserved
 
 
 @pytest.mark.asyncio
 async def test_restart_rejects_active_runs() -> None:
     application = SimpleNamespace(
-        run_manager=SimpleNamespace(active_run_ids=("run-1",)),
+        run_manager=FakeRunManager(("run-1",)),
         host_restart_callback=lambda: None,
     )
 
@@ -54,7 +66,7 @@ async def test_restart_rejects_active_runs() -> None:
 @pytest.mark.asyncio
 async def test_restart_rejects_unsupported_entrypoint() -> None:
     application = SimpleNamespace(
-        run_manager=SimpleNamespace(active_run_ids=()),
+        run_manager=FakeRunManager(),
         host_restart_callback=None,
     )
 
