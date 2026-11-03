@@ -203,6 +203,15 @@ class RunManager:
                 self._accepting_runs = False
             return active
 
+    async def shutdown(self) -> None:
+        """Stop new runs and interrupt active ones before shared resources close."""
+
+        async with self._start_guard:
+            self._accepting_runs = False
+            active = self.active_run_ids
+        for run_id in active:
+            await self.interrupt(run_id)
+
     async def wait(self, run_id: str) -> Run:
         """等待 Run 执行结束并返回最终 Run 记录（幂等，可多次调用）。"""
 

@@ -798,10 +798,6 @@ class Application:
         其余回收。
         """
 
-        # 先 drain post-run 后台任务（可能仍在用模型 registry / memory store），
-        # 避免 event loop 关闭时遗留 pending task；有界等待，超时后 cancel。
-        with suppress(Exception):
-            await self.post_run_processor.close()
         await self._shutdown_resources()
         self._started = False
 
@@ -817,6 +813,12 @@ class Application:
             if self.automation_scheduler is not None:
                 await self.automation_scheduler.shutdown()
                 self.automation_scheduler = None
+        with suppress(Exception):
+            if self.run_manager is not None:
+                await self.run_manager.shutdown()
+        # Run 收束后再 drain post-run；它仍可能使用模型和 memory store。
+        with suppress(Exception):
+            await self.post_run_processor.close()
         with suppress(Exception):
             if self.mcp_manager is not None and self.tool_registry is not None:
                 await self.mcp_manager.close(self.tool_registry)

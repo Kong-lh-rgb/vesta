@@ -268,6 +268,32 @@ async def test_restart_reservation_does_not_stop_active_run(manager_factory) -> 
         await manager.cancel(run_id)
 
 
+async def test_shutdown_interrupts_active_run_before_closing_resources(
+    manager_factory,
+) -> None:
+    config = ProviderConfig(
+        provider="blocking",
+        model="blocking-model",
+        api_key=SecretStr("offline-test-key"),
+        api_style=ApiStyle.CHAT_COMPLETIONS,
+    )
+    adapter = BlockingModelAdapter(config)
+    registry = ModelAdapterRegistry(ModelSettings(_env_file=None))
+    registry.register("blocking", lambda _: adapter, config=config)
+    manager, _, _ = await manager_factory(registry, provider="blocking")
+
+    run_id, task = await manager.start("active")
+    await adapter.started.wait()
+    await manager.shutdown()
+
+    assert task.done()
+    assert adapter.cancelled
+    assert manager.active_run_ids == ()
+    assert (await manager.get_run(run_id)).status is RunStatus.INTERRUPTED
+    with pytest.raises(RuntimeError, match="shutting down"):
+        await manager.start("late")
+
+
 # ---------------------------------------------------------------------------
 # 2. Runtime 异常 → FAILED 且 error 被记录
 # ---------------------------------------------------------------------------
