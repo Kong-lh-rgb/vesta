@@ -29,6 +29,7 @@ from __future__ import annotations
 import asyncio
 from collections.abc import Awaitable, Callable
 from typing import Any
+from uuid import uuid4
 
 from app.tools.approval import (
     ApprovalDecision,
@@ -86,26 +87,26 @@ class DesktopApprovalGate(ApprovalGate):
     ) -> ApprovalResponse:
         """创建持久化 PENDING 审批并等待用户 approve / deny。
 
-        顺序保证：先创建记录 → 再创建并注册 Future → 最后广播 approval.required。
-        这样 Desktop 在收到 approval.required 后立刻 approve / deny 时，
-        Future 必然已注册，`_settle` 一定能唤醒等待中的 Run —— 不会出现
-        "数据库已 resolved 但 Run 没被唤醒" 的竞态。
+        Future 在记录可见之前注册。审批既可能来自广播，也可能来自
+        pending 列表轮询；两条路径都必须能唤醒 Run。
         """
 
-        record = await self._store.create(
-            run_id=request.run_id,
-            conversation_id=request.conversation_id,
-            tool_name=request.tool_name,
-            tool_call_id=request.tool_call_id,
-            arguments=request.arguments,
-            reason=request.description,
-            ui_scope=request.ui_scope,
-        )
+        approval_id = uuid4().hex
         loop = asyncio.get_running_loop()
         future: asyncio.Future[ApprovalResponse] = loop.create_future()
-        self._pending[record.id] = future
-        await self._notify("approval.required", {"approval": record})
+        self._pending[approval_id] = future
         try:
+            record = await self._store.create(
+                approval_id=approval_id,
+                run_id=request.run_id,
+                conversation_id=request.conversation_id,
+                tool_name=request.tool_name,
+                tool_call_id=request.tool_call_id,
+                arguments=request.arguments,
+                reason=request.description,
+                ui_scope=request.ui_scope,
+            )
+            await self._notify("approval.required", {"approval": record})
             if self._wait_timeout_seconds is None:
                 return await future
             try:
@@ -136,7 +137,7 @@ class DesktopApprovalGate(ApprovalGate):
                     timed_out=True,
                 )
         finally:
-            self._pending.pop(record.id, None)
+            self._pending.pop(approval_id, None)
 
     async def approve(self, approval_id: str) -> ApprovalRecord:
         """批准一个 PENDING 审批；已 resolved 时抛 ValueError。"""

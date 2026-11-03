@@ -12,6 +12,10 @@
 
 from __future__ import annotations
 
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
+from pathlib import Path
+
 import aiosqlite
 
 BUSY_TIMEOUT_MS = 5_000
@@ -24,4 +28,17 @@ async def configure_sqlite_connection(database: aiosqlite.Connection) -> None:
     await database.execute(f"PRAGMA busy_timeout={BUSY_TIMEOUT_MS}")
 
 
-__all__ = ["configure_sqlite_connection"]
+@asynccontextmanager
+async def sqlite_connection(path: str | Path) -> AsyncIterator[aiosqlite.Connection]:
+    """Open a configured row-producing connection and close it on every exit."""
+
+    database = await aiosqlite.connect(path)
+    try:
+        database.row_factory = aiosqlite.Row
+        await configure_sqlite_connection(database)
+        yield database
+    finally:
+        await database.close()
+
+
+__all__ = ["configure_sqlite_connection", "sqlite_connection"]

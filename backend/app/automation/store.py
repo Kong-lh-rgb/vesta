@@ -6,8 +6,6 @@
 
 from __future__ import annotations
 
-from collections.abc import AsyncIterator
-from contextlib import asynccontextmanager
 from datetime import UTC, datetime
 from pathlib import Path
 from uuid import uuid4
@@ -15,7 +13,7 @@ from uuid import uuid4
 import aiosqlite
 
 from app.conversation import DEFAULT_DATABASE_PATH
-from app.storage import configure_sqlite_connection
+from app.storage import sqlite_connection
 
 from .models import Automation, AutomationStatus, Schedule
 
@@ -73,7 +71,7 @@ class SQLiteAutomationStore:
 
     async def initialize(self) -> None:
         self.database_path.parent.mkdir(parents=True, exist_ok=True)
-        async with self._connect() as database:
+        async with sqlite_connection(self.database_path) as database:
             await database.executescript(_SCHEMA)
             await database.commit()
 
@@ -90,7 +88,7 @@ class SQLiteAutomationStore:
 
         automation_id = uuid4().hex
         now = _now()
-        async with self._connect() as database:
+        async with sqlite_connection(self.database_path) as database:
             await database.execute("BEGIN IMMEDIATE")
             await database.execute(
                 """
@@ -116,7 +114,7 @@ class SQLiteAutomationStore:
         return automation
 
     async def get(self, automation_id: str) -> Automation | None:
-        async with self._connect() as database:
+        async with sqlite_connection(self.database_path) as database:
             cursor = await database.execute(
                 "SELECT * FROM automations WHERE id = ?",
                 (_required_identifier(automation_id, "automation_id"),),
@@ -133,7 +131,7 @@ class SQLiteAutomationStore:
         exact = await self.get(normalized)
         if exact is not None:
             return exact
-        async with self._connect() as database:
+        async with sqlite_connection(self.database_path) as database:
             cursor = await database.execute(
                 """
                 SELECT * FROM automations
@@ -170,7 +168,7 @@ class SQLiteAutomationStore:
         query += " ORDER BY updated_at DESC LIMIT ?"
         parameters.append(limit)
 
-        async with self._connect() as database:
+        async with sqlite_connection(self.database_path) as database:
             cursor = await database.execute(query, tuple(parameters))
             rows = await cursor.fetchall()
         return tuple(_automation_from_row(row) for row in rows)
@@ -182,7 +180,7 @@ class SQLiteAutomationStore:
         """不截断地列出会话关联的全部自动化。"""
 
         normalized = _required_identifier(conversation_id, "conversation_id")
-        async with self._connect() as database:
+        async with sqlite_connection(self.database_path) as database:
             cursor = await database.execute(
                 """
                 SELECT * FROM automations
@@ -198,7 +196,7 @@ class SQLiteAutomationStore:
         """删除会话关联的全部自动化记录。"""
 
         normalized = _required_identifier(conversation_id, "conversation_id")
-        async with self._connect() as database:
+        async with sqlite_connection(self.database_path) as database:
             cursor = await database.execute(
                 "DELETE FROM automations WHERE conversation_id = ?",
                 (normalized,),
@@ -215,7 +213,7 @@ class SQLiteAutomationStore:
     ) -> Automation:
         """更新状态（可一并更新下一次触发时间）；非法转换被拒绝。"""
 
-        async with self._connect() as database:
+        async with sqlite_connection(self.database_path) as database:
             await database.execute("BEGIN IMMEDIATE")
             current = await _require_row(database, automation_id)
             allowed = _AUTOMATION_TRANSITIONS[current.status]
@@ -252,7 +250,7 @@ class SQLiteAutomationStore:
     ) -> Automation:
         """仅更新下一次触发时间（不改状态，用于重启恢复时重新校准计划）。"""
 
-        async with self._connect() as database:
+        async with sqlite_connection(self.database_path) as database:
             await database.execute("BEGIN IMMEDIATE")
             await _require_row(database, automation_id)
             await database.execute(
@@ -276,7 +274,7 @@ class SQLiteAutomationStore:
     ) -> Automation:
         """记录一次触发：更新 last_run_id / last_run_at / next_run_at。"""
 
-        async with self._connect() as database:
+        async with sqlite_connection(self.database_path) as database:
             await database.execute("BEGIN IMMEDIATE")
             await _require_row(database, automation_id)
             await database.execute(
@@ -307,15 +305,6 @@ class SQLiteAutomationStore:
             raise KeyError(f"Automation 不存在：{automation_id}")
         return automation
 
-    @asynccontextmanager
-    async def _connect(self) -> AsyncIterator[aiosqlite.Connection]:
-        database = await aiosqlite.connect(self.database_path)
-        database.row_factory = aiosqlite.Row
-        await configure_sqlite_connection(database)
-        try:
-            yield database
-        finally:
-            await database.close()
 
 
 def _now() -> str:

@@ -7,8 +7,6 @@
 
 from __future__ import annotations
 
-from collections.abc import AsyncIterator
-from contextlib import asynccontextmanager
 from datetime import UTC, datetime
 from pathlib import Path
 from uuid import uuid4
@@ -17,7 +15,7 @@ import aiosqlite
 
 from app.conversation import DEFAULT_DATABASE_PATH
 from app.models.types import AgentMode
-from app.storage import configure_sqlite_connection
+from app.storage import sqlite_connection
 
 from .models import (
     _ALLOWED_TRANSITIONS,
@@ -71,7 +69,7 @@ class SQLiteRunStore:
 
     async def initialize(self) -> None:
         self.database_path.parent.mkdir(parents=True, exist_ok=True)
-        async with self._connect() as database:
+        async with sqlite_connection(self.database_path) as database:
             await database.executescript(_SCHEMA)
             for column in _PROVENANCE_COLUMNS:
                 try:
@@ -98,7 +96,7 @@ class SQLiteRunStore:
 
         run_id = uuid4().hex
         now = _now()
-        async with self._connect() as database:
+        async with sqlite_connection(self.database_path) as database:
             await database.execute("BEGIN IMMEDIATE")
             await database.execute(
                 """
@@ -136,7 +134,7 @@ class SQLiteRunStore:
         return run
 
     async def get(self, run_id: str) -> Run | None:
-        async with self._connect() as database:
+        async with sqlite_connection(self.database_path) as database:
             cursor = await database.execute(
                 "SELECT * FROM runs WHERE run_id = ?",
                 (_required_identifier(run_id, "run_id"),),
@@ -169,7 +167,7 @@ class SQLiteRunStore:
         query += " ORDER BY created_at DESC LIMIT ?"
         parameters.append(limit)
 
-        async with self._connect() as database:
+        async with sqlite_connection(self.database_path) as database:
             cursor = await database.execute(query, tuple(parameters))
             rows = await cursor.fetchall()
         return tuple(_run_from_row(row) for row in rows)
@@ -191,7 +189,7 @@ class SQLiteRunStore:
                 (RunStatus.PENDING.value, RunStatus.RUNNING.value)
             )
         query += " ORDER BY created_at DESC"
-        async with self._connect() as database:
+        async with sqlite_connection(self.database_path) as database:
             cursor = await database.execute(query, tuple(parameters))
             rows = await cursor.fetchall()
         return tuple(_run_from_row(row) for row in rows)
@@ -200,7 +198,7 @@ class SQLiteRunStore:
         """删除某会话的全部 Run 生命周期记录。"""
 
         normalized = _required_identifier(conversation_id, "conversation_id")
-        async with self._connect() as database:
+        async with sqlite_connection(self.database_path) as database:
             cursor = await database.execute(
                 "DELETE FROM runs WHERE conversation_id = ?",
                 (normalized,),
@@ -220,7 +218,7 @@ class SQLiteRunStore:
 
         if not isinstance(status, RunStatus):
             status = RunStatus(status)
-        async with self._connect() as database:
+        async with sqlite_connection(self.database_path) as database:
             await database.execute("BEGIN IMMEDIATE")
             current = await _require_row(database, run_id)
             allowed = _ALLOWED_TRANSITIONS[current.status]
@@ -321,15 +319,6 @@ class SQLiteRunStore:
             raise KeyError(f"Run 不存在：{run_id}")
         return run
 
-    @asynccontextmanager
-    async def _connect(self) -> AsyncIterator[aiosqlite.Connection]:
-        database = await aiosqlite.connect(self.database_path)
-        database.row_factory = aiosqlite.Row
-        await configure_sqlite_connection(database)
-        try:
-            yield database
-        finally:
-            await database.close()
 
 
 def _now() -> str:
