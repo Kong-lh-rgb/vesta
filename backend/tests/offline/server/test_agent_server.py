@@ -279,6 +279,18 @@ def test_rpc_rejects_non_loopback_client(make_app, monkeypatch) -> None:
                 pass
 
 
+def test_health_rejects_non_loopback_client(make_app, monkeypatch) -> None:
+    app, _application, _adapter = make_app()
+    with TestClient(app) as client:
+        assert client.get("/health").status_code == 200
+        monkeypatch.setattr(
+            server_app_module, "_is_loopback_client", lambda host: False
+        )
+        response = client.get("/health")
+        assert response.status_code == 403
+        assert "provider" not in response.text
+
+
 def test_parse_error(make_app) -> None:
     app, _, _ = make_app()
     with TestClient(app) as client:

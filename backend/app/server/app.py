@@ -199,6 +199,9 @@ def create_app(
 
     @app.get("/health")
     async def health(request: Request) -> dict[str, object]:
+        client_host = request.client.host if request.client is not None else None
+        if not _is_loopback_client(client_host):
+            raise HTTPException(status_code=403, detail="forbidden")
         current: Application = request.app.state.application
         return {
             "status": "ok",
