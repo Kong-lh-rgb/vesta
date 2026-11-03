@@ -6,6 +6,9 @@ import { defineConfig } from 'vite'
 // 多入口：main（主窗口）+ approval（独立浮动审批小窗）。
 export default defineConfig({
   plugins: [react()],
+  // Electron loadFile() uses file://; root-absolute /assets URLs would load
+  // from the filesystem root and leave packaged windows blank.
+  base: './',
   server: {
     host: '127.0.0.1',
     port: 5173,
