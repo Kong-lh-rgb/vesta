@@ -25,6 +25,8 @@ jobs:
             backend/requirements-dev.txt
       - name: Install dependencies
         run: python -m pip install -r requirements.txt -r requirements-dev.txt
+      - name: Verify generated Desktop model types
+        run: python scripts/generate_desktop_models.py --check
       - name: Test
         run: python -m pytest
       - name: Lint

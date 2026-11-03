@@ -14,6 +14,7 @@ const approval: ApprovalRequest = {
   tool_call_id: 'call-abc',
   arguments: { command: 'ls -la' },
   reason: '需要执行 shell 命令',
+  ui_scope: 'sandbox',
   status: 'pending',
   created_at: '2026-08-20T00:00:00+00:00',
   resolved_at: null,
@@ -50,6 +51,7 @@ describe('ApprovalCard', () => {
     const computerApproval: ApprovalRequest = {
       ...approval,
       tool_name: 'computer_type',
+      ui_scope: 'desktop',
       arguments: { text: 'hello' },
     }
     const html = renderToStaticMarkup(

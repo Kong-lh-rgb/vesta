@@ -21,14 +21,16 @@ import {
 } from './computerApproval'
 
 function approval(overrides: Partial<ApprovalRequest>): ApprovalRequest {
+  const toolName = overrides.tool_name ?? 'computer_click'
   return {
     id: 'appr-1',
     run_id: 'run-1',
     conversation_id: 'conv-1',
-    tool_name: 'computer_click',
+    tool_name: toolName,
     tool_call_id: 'call-1',
     arguments: {},
     reason: '',
+    ui_scope: toolName.startsWith('computer_') ? 'desktop' : 'sandbox',
     status: 'pending',
     created_at: '2026-08-21T00:00:00+00:00',
     resolved_at: null,
@@ -78,10 +80,12 @@ describe('isDesktopApproval / isSandboxApproval（声明式 ui_scope）', () => 
   })
 
   it('ui_scope 缺失 → 回退 computer_ 前缀', () => {
-    expect(isDesktopApproval(approval({ tool_name: 'computer_type' }))).toBe(true)
-    expect(
-      isDesktopApproval(approval({ tool_name: 'run_shell_command' })),
-    ).toBe(false)
+    const computer = approval({ tool_name: 'computer_type' })
+    const shell = approval({ tool_name: 'run_shell_command' })
+    delete (computer as Partial<ApprovalRequest>).ui_scope
+    delete (shell as Partial<ApprovalRequest>).ui_scope
+    expect(isDesktopApproval(computer)).toBe(true)
+    expect(isDesktopApproval(shell)).toBe(false)
   })
 })
 

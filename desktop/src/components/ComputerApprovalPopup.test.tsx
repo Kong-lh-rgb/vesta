@@ -15,6 +15,7 @@ const computerApproval: ApprovalRequest = {
   tool_call_id: 'call-1',
   arguments: { text: '测试' },
   reason: '需要输入文本',
+  ui_scope: 'desktop',
   status: 'pending',
   created_at: '2026-08-21T00:00:00+00:00',
   resolved_at: null,
@@ -35,10 +36,10 @@ describe('isComputerApproval', () => {
 
   it('非 computer 工具 → false', () => {
     expect(
-      isComputerApproval({ ...computerApproval, tool_name: 'run_shell_command' }),
+      isComputerApproval({ ...computerApproval, tool_name: 'run_shell_command', ui_scope: 'sandbox' }),
     ).toBe(false)
     expect(
-      isComputerApproval({ ...computerApproval, tool_name: 'http_request' }),
+      isComputerApproval({ ...computerApproval, tool_name: 'http_request', ui_scope: 'sandbox' }),
     ).toBe(false)
   })
 })

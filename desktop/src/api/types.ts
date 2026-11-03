@@ -1,12 +1,20 @@
 /** 与 Vesta Host JSON-RPC 对应的 Desktop 类型。 */
-
-export interface Conversation {
-  id: string
-  title: string
-  created_at: string
-  updated_at: string
-  message_count: number
-}
+import type { Run } from './backendModels.generated'
+export type {
+  ApprovalRequest,
+  ApprovalRequestStatus as ApprovalStatus,
+  Automation,
+  AutomationStatus,
+  Schedule,
+  ScheduleKind as AutomationKind,
+  AgentMode,
+  Conversation,
+  Run,
+  RunStatus,
+  Task,
+  TaskStatus,
+  TaskStep,
+} from './backendModels.generated'
 
 export type MessageRole = 'system' | 'user' | 'assistant' | 'tool'
 
@@ -24,35 +32,6 @@ export interface Message {
   tool_calls?: ToolCall[]
   /** 模型思考/推理内容（DeepSeek/Qwen reasoning_content、Anthropic thinking）。 */
   reasoning?: string | null
-}
-
-export type RunStatus =
-  | 'pending'
-  | 'running'
-  | 'completed'
-  | 'failed'
-  | 'cancelled'
-  | 'interrupted'
-
-export type AgentMode = 'normal' | 'plan'
-
-export interface Run {
-  id: string
-  conversation_id: string | null
-  status: RunStatus
-  user_message: string
-  created_at: string
-  started_at: string | null
-  updated_at: string
-  completed_at: string | null
-  error: string | null
-  stop_reason: string | null
-  recovered_from_run_id: string | null
-  source: string | null
-  source_id: string | null
-  scheduled_for: string | null
-  triggered_at: string | null
-  mode: AgentMode
 }
 
 export interface ModelUsage {
@@ -130,40 +109,6 @@ export interface SendMessageResponse {
   run: Run
   result: AgentResult
   plan_task_id: string | null
-}
-
-export type TaskStatus =
-  | 'pending'
-  | 'active'
-  | 'paused'
-  | 'completed'
-  | 'failed'
-  | 'cancelled'
-
-export interface TaskStep {
-  id: string
-  title: string
-  status: 'todo' | 'in_progress' | 'done' | 'blocked'
-  note: string | null
-}
-
-export interface Task {
-  id: string
-  title: string
-  description: string | null
-  goal: string | null
-  status: TaskStatus
-  priority: string
-  constraints: string[]
-  state: string[]
-  key_facts: string[]
-  steps: TaskStep[]
-  owner_conversation_id: string
-  run_ids: string[]
-  created_at: string
-  updated_at: string
-  completed_at: string | null
-  revision: number
 }
 
 export interface AgentRunTrace {
@@ -250,48 +195,6 @@ export interface AgentEvent {
   active_skill_names?: string[]
   active_skill_tokens?: number | null
   [key: string]: unknown
-}
-
-export type AutomationStatus = 'active' | 'paused' | 'completed' | 'cancelled'
-export type AutomationKind = 'once' | 'interval' | 'cron'
-
-export interface Schedule {
-  kind: AutomationKind
-  run_at: string | null
-  interval_seconds: number | null
-  cron_expr: string | null
-  timezone: string
-}
-
-export interface Automation {
-  id: string
-  title: string
-  prompt: string
-  conversation_id: string | null
-  status: AutomationStatus
-  schedule: Schedule
-  next_run_at: string | null
-  last_run_at: string | null
-  last_run_id: string | null
-  created_at: string
-  updated_at: string
-}
-
-export type ApprovalStatus = 'pending' | 'approved' | 'denied'
-
-export interface ApprovalRequest {
-  id: string
-  run_id: string | null
-  conversation_id: string | null
-  tool_name: string
-  tool_call_id: string
-  arguments: Record<string, unknown>
-  reason: string
-  /** 声明式审批落点：desktop（跟随用户注意力，可进浮窗）/ sandbox（进 Chat）。 */
-  ui_scope?: 'desktop' | 'sandbox'
-  status: ApprovalStatus
-  created_at: string
-  resolved_at: string | null
 }
 
 export interface Health {
