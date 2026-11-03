@@ -650,6 +650,10 @@ class Application:
             approval_store=approval_store,
             run_finalizers=tuple(computer_finalizers),
         )
+        if computer_lease is not None:
+            computer_lease.set_owner_active(
+                lambda run_id: run_id in run_manager.active_run_ids
+            )
         # 启动 reconciliation（Run + Checkpoint 统一处理）。
         reconciled_runs = await run_manager.initialize()
         # 孤儿审批：Host 启动后，没有对应活跃 Run（非终态）的 PENDING approval

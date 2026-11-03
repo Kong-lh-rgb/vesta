@@ -7,6 +7,7 @@ from typing import Any
 
 import pytest
 
+import app.computer.lease as lease_module
 from app.computer import (
     ComputerBusyError,
     ComputerLeaseHook,
@@ -40,6 +41,43 @@ def test_machine_lease_owner_lifecycle(tmp_path) -> None:
     manager.close()
     manager.close()
     assert manager.snapshot.owner_run_id is None
+
+
+def test_expired_lease_reclaimed_only_after_owner_is_inactive(
+    tmp_path, monkeypatch
+) -> None:
+    now = [100.0]
+    monkeypatch.setattr(lease_module.time, "monotonic", lambda: now[0])
+    active = {"run-a"}
+    manager = ComputerLeaseManager(
+        tmp_path / "machine.lock",
+        ttl_seconds=10,
+        owner_active=lambda run_id: run_id in active,
+    )
+    try:
+        manager.acquire("run-a")
+        now[0] = 111.0
+        with pytest.raises(ComputerBusyError):
+            manager.acquire("run-b")
+        active.clear()
+        assert manager.acquire("run-b").owner_run_id == "run-b"
+    finally:
+        manager.close()
+
+
+def test_expired_lease_without_liveness_source_stays_fail_closed(
+    tmp_path, monkeypatch
+) -> None:
+    now = [100.0]
+    monkeypatch.setattr(lease_module.time, "monotonic", lambda: now[0])
+    manager = ComputerLeaseManager(tmp_path / "machine.lock", ttl_seconds=10)
+    try:
+        manager.acquire("run-a")
+        now[0] = 111.0
+        with pytest.raises(ComputerBusyError):
+            manager.acquire("run-b")
+    finally:
+        manager.close()
 
 
 def test_flock_blocks_second_manager(tmp_path) -> None:
