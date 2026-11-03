@@ -53,6 +53,37 @@ async def approval_store(tmp_path):
     return store
 
 
+@pytest.mark.asyncio
+async def test_gate_handles_decision_between_record_commit_and_create_return(
+    tmp_path,
+) -> None:
+    class EarlyDecisionStore(SQLiteApprovalStore):
+        gate: DesktopApprovalGate
+
+        async def create(self, **kwargs):
+            record = await super().create(**kwargs)
+            await self.gate.approve(record.id)
+            return record
+
+    store = EarlyDecisionStore(tmp_path / "approval-race.db")
+    await store.initialize()
+    gate = DesktopApprovalGate(store)
+    store.gate = gate
+    response = await asyncio.wait_for(
+        gate.request_approval(
+            ApprovalSubmission(
+                tool_call_id="call-race",
+                tool_name="run_shell_command",
+                arguments={"command": "true"},
+                run_id="run-race",
+            )
+        ),
+        timeout=2,
+    )
+    assert response.decision is ApprovalDecision.APPROVED
+    assert gate.pending_count == 0
+
+
 async def _create(store, **overrides) -> object:
     params = {
         "run_id": "run-1",
