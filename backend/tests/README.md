@@ -14,6 +14,9 @@ tests/
 `offline/` 按 Agent、Context、Memory、Task、Computer 等生产领域分组。这里的测试不得调用
 真实模型 API 或依赖外部服务，适合本地回归和 CI。
 
+自定义 OpenAI 兼容端点的配置示例、流结束行为差异和离线复现方式见
+[OpenAI-compatible endpoint checks](offline/models/README.md)。
+
 ```bash
 cd backend
 .venv/bin/python -m pytest
