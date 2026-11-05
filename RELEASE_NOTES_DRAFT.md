@@ -17,7 +17,8 @@ automation, traces, usage, and artifacts. The
 
 - Python 3.12+ and Node.js 22+; npm is used for Desktop development.
 - macOS and Swift tooling for Computer Helper and Seatbelt-isolated Shell/MCP
-  processes. Accessibility permission is needed for Computer control.
+  processes. Computer control needs Accessibility permission; window screenshots
+  need macOS 14+ and Screen Recording permission.
 - A configured model provider and API key for live Agent runs.
 
 Follow the [README quick start](README.md#quick-start) to create a Backend
@@ -35,33 +36,22 @@ installer or signed app in this repository.
   future work.
 - Skill Learning produces candidates that require human confirmation.
 - Real-provider evaluations cost money and are outside the default offline CI.
+- The Electron build has not been validated as a packaged, signed, clean-machine
+  application; source-run Desktop checks do not cover that distribution path.
 
 ## Validation before publishing
 
 CI runs the Backend offline suite, Ruff, and compile checks on Linux; Desktop
 tests, typecheck, and build on Linux; native Sandbox tests and Helper checks on
-macOS. Record the actual result and commit SHA here before publication:
+macOS. For commit `eb29312`, all four jobs passed in
+[CI run 41954993018](https://github.com/Kong-lh-rgb/vesta/actions/runs/41954993018):
+Backend, Backend macOS Sandbox, Desktop, and Native macOS.
 
-- Backend Linux: **passed** in run
-  [39744190256](https://github.com/Kong-lh-rgb/vesta/actions/runs/39744190256)
-- Backend macOS Sandbox: **failed** in the same run
-  (`test_shell_tool_uses_workspace_sandbox`); root cause was a test-only
-  defect — creating a socket is not filtered by macOS Seatbelt, so the old
-  probe exited 0 inside the sandbox. Fixed by switching the probe to a real
-  TCP connect against a locally listened port, with an unsandboxed positive
-  control and an EPERM-vs-connection-refused distinction. Production sandbox
-  policy is unchanged. **Pending a passing remote re-run.**
-- Desktop: **passed** in the same run
-- Native Helper: **passed** in the same run
-- Live model and end-to-end Desktop run: **not yet validated for this draft**
-
-Local development check on 2026-10-22 (macOS, Python 3.14; not the Linux CI
-runner): Backend 1149 passed / 1 skipped, Desktop 249 passed, Desktop typecheck
-and build passed, Swift build and protocol check passed. After the sandbox
-network-probe fix on the same day, the full offline Backend suite is 1085
-passed / 1 skipped and a mutation check confirmed the new network assertion
-fails when the sandbox policy is weakened to unrestricted. These local results
-do not replace a passing remote CI run or a clean-machine release check.
+On 2026-11-05, focused local Backend server/trace/memory tests passed
+(190 tests), Desktop tests passed (250 tests), and Desktop typecheck and build
+passed. Live-model evaluation, a full Desktop/Helper interaction on a clean
+machine, and packaged-app testing remain unverified for this draft. Recheck
+the final commit and record its CI result before publishing.
 
 ## Next work
 

@@ -161,8 +161,9 @@ ConversationService / RunManager / AgentRuntime
 
 - Python 3.12+
 - Node.js 22+
-- macOS + Swift：Computer Runtime 需要 macOS 和辅助功能权限；当前受限 Shell 与 MCP
-  进程也只有 macOS Seatbelt 后端。其他平台缺少安全后端时会拒绝启动这些进程。
+- macOS + Swift：Computer Runtime 需要辅助功能权限；窗口截图还需要 macOS 14+
+  和屏幕录制权限。当前受限 Shell 与 MCP 进程只有 macOS Seatbelt 后端；其他平台
+  缺少安全后端时会拒绝启动这些进程。
 
 ### 1. Clone and install Backend
 
