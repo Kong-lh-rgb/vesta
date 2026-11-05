@@ -2,7 +2,7 @@
 
 import { describe, expect, it } from 'vitest'
 
-import type { AgentEvent, ApprovalRequest } from '../api/types'
+import type { AgentEvent, AgentEventType, ApprovalRequest } from '../api/types'
 import {
   floatingApprovalDismissDelay,
   floatingApprovalShouldBeVisible,
@@ -28,7 +28,7 @@ function approval(id: string, overrides: Partial<ApprovalRequest> = {}): Approva
 }
 
 function agentEvent(
-  type: string,
+  type: AgentEventType,
   overrides: Partial<AgentEvent> = {},
 ): AgentEvent {
   return {

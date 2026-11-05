@@ -17,6 +17,14 @@ from typing import Any, get_args, get_origin
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "backend"))
 
+from app.agent.events import AgentEvent, AgentEventType  # noqa: E402
+from app.agent.result import (  # noqa: E402
+    AgentError,
+    AgentResult,
+    AgentStopReason,
+    ToolCallRecord,
+    ToolRound,
+)
 from app.approval.models import (  # noqa: E402
     ApprovalRequest,
     ApprovalRequestStatus,
@@ -27,8 +35,20 @@ from app.automation.models import (  # noqa: E402
     Schedule,
     ScheduleKind,
 )
+from app.context.summary import (  # noqa: E402
+    ConversationSummaryState,
+    RollingConversationSummary,
+)
 from app.conversation.models import Conversation  # noqa: E402
-from app.models.types import AgentMode  # noqa: E402
+from app.memory.models import MemoryRecord, MemoryStatus  # noqa: E402
+from app.models.types import (  # noqa: E402
+    AgentMode,
+    Message,
+    MessageRole,
+    ModelUsage,
+    ToolCall,
+    ToolResult,
+)
 from app.run.models import Run, RunStatus  # noqa: E402
 from app.task.models import (  # noqa: E402
     Task,
@@ -37,13 +57,48 @@ from app.task.models import (  # noqa: E402
     TaskStep,
     TaskStepStatus,
 )
+from app.tools.approval import ApprovalDecision  # noqa: E402
+from app.trace.models import AgentRunTrace, RunUsageSummary  # noqa: E402
 
 OUTPUT = ROOT / "desktop" / "src" / "api" / "backendModels.generated.ts"
 ENUMS = (
-    RunStatus, AgentMode, TaskStatus, TaskPriority, TaskStepStatus,
-    AutomationStatus, ScheduleKind, ApprovalRequestStatus,
+    RunStatus,
+    AgentMode,
+    TaskStatus,
+    TaskPriority,
+    TaskStepStatus,
+    AutomationStatus,
+    ScheduleKind,
+    ApprovalRequestStatus,
+    MessageRole,
+    MemoryStatus,
+    AgentStopReason,
+    AgentEventType,
+    ApprovalDecision,
 )
-MODELS = (Conversation, Run, TaskStep, Task, Schedule, Automation, ApprovalRequest)
+MODELS = (
+    Conversation,
+    Run,
+    TaskStep,
+    Task,
+    Schedule,
+    Automation,
+    ApprovalRequest,
+    ToolCall,
+    Message,
+    ToolResult,
+    ModelUsage,
+    MemoryRecord,
+    AgentRunTrace,
+    RunUsageSummary,
+    RollingConversationSummary,
+    ConversationSummaryState,
+    AgentError,
+    ToolCallRecord,
+    ToolRound,
+    AgentResult,
+    AgentEvent,
+)
 
 
 def _typescript(annotation: Any) -> str:
