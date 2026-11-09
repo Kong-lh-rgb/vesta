@@ -8,6 +8,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 from typing import Any
@@ -20,6 +21,7 @@ from ..protocol import INVALID_STATE, JsonRpcError, RpcErrorCode
 logger = logging.getLogger("vesta.server.rpc.computer")
 
 _PERMISSIONS = frozenset({"accessibility", "screen_recording"})
+_STATUS_TIMEOUT_SECONDS = 5.0
 
 
 def _permission_state(value: bool | None) -> str:
@@ -57,13 +59,10 @@ async def _live_permissions(application: Any) -> tuple[str, str]:
     if client is None:
         return "unknown", "unknown"
     try:
-        await client.ensure_started()
-    except Exception as exc:
-        logger.warning("computer status: helper unavailable: %s", exc)
-        return "unknown", "unknown"
-    try:
-        accessibility = await client.call("accessibility_status", {})
-        screen = await client.call("screen_capture_status", {})
+        async with asyncio.timeout(_STATUS_TIMEOUT_SECONDS):
+            await client.ensure_started()
+            accessibility = await client.call("accessibility_status", {})
+            screen = await client.call("screen_capture_status", {})
     except Exception as exc:
         logger.warning("computer status permission check failed: %s", exc)
         return "unknown", "unknown"

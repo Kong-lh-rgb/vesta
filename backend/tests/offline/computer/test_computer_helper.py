@@ -24,6 +24,7 @@ from pathlib import Path
 import pytest
 from pydantic import SecretStr
 
+import app.computer.helper_client as helper_client_module
 import app.computer.macos as macos_module
 from app.application import Application
 from app.computer import (
@@ -291,6 +292,21 @@ async def test_timeout_late_response_is_ignored() -> None:
         with pytest.raises(ComputerHelperError, match="timed out"):
             await client.call("__delay", {"seconds": 0.05}, timeout=0.005)
         # helper 先发退休 id 的迟到响应，再处理 ping；连接仍健康。
+        assert await client.call("ping", {}, timeout=1) == {"ok": True}
+        assert client._pending == {}
+    finally:
+        await client.close()
+
+
+async def test_default_timeout_bounds_unresponsive_helper(monkeypatch) -> None:
+    monkeypatch.setattr(
+        helper_client_module, "DEFAULT_HELPER_REQUEST_TIMEOUT_SECONDS", 0.005
+    )
+    client = _make_client()
+    await client.start()
+    try:
+        with pytest.raises(ComputerHelperError, match="timed out"):
+            await client.call("__delay", {"seconds": 0.05})
         assert await client.call("ping", {}, timeout=1) == {"ok": True}
         assert client._pending == {}
     finally:

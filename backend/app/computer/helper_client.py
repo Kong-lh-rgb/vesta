@@ -33,6 +33,7 @@ from pathlib import Path
 from typing import Any
 
 logger = logging.getLogger("vesta.computer.helper")
+DEFAULT_HELPER_REQUEST_TIMEOUT_SECONDS = 30.0
 
 
 class ComputerHelperError(RuntimeError):
@@ -193,26 +194,23 @@ class MacOSHelperClient:
             + "\n"
         ).encode("utf-8")
 
-        try:
-            process.stdin.write(line)
-            await process.stdin.drain()
-        except asyncio.CancelledError:
+        effective_timeout = (
+            DEFAULT_HELPER_REQUEST_TIMEOUT_SECONDS if timeout is None else timeout
+        )
+        if effective_timeout <= 0:
             self._pending.pop(request_id, None)
             future.cancel()
-            self._retire(request_id)
-            raise
-        except Exception as exc:
-            self._pending.pop(request_id, None)
-            future.cancel()
-            self._retire(request_id)
-            raise ComputerHelperProcessError(
-                f"failed to write to computer helper: {exc}"
-            ) from exc
-
+            raise ValueError("timeout must be greater than zero")
         try:
-            if timeout is not None:
-                return await asyncio.wait_for(future, timeout)
-            return await future
+            async with asyncio.timeout(effective_timeout):
+                try:
+                    process.stdin.write(line)
+                    await process.stdin.drain()
+                except Exception as exc:
+                    raise ComputerHelperProcessError(
+                        f"failed to write to computer helper: {exc}"
+                    ) from exc
+                return await future
         except TimeoutError:
             self._pending.pop(request_id, None)
             future.cancel()
@@ -221,6 +219,11 @@ class MacOSHelperClient:
                 f"computer helper request {request_id} timed out"
             ) from None
         except asyncio.CancelledError:
+            self._pending.pop(request_id, None)
+            future.cancel()
+            self._retire(request_id)
+            raise
+        except ComputerHelperProcessError:
             self._pending.pop(request_id, None)
             future.cancel()
             self._retire(request_id)
