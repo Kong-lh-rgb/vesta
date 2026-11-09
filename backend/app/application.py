@@ -634,15 +634,27 @@ class Application:
         )
 
         run_store = SQLiteRunStore(database)
-        # Run 终态 finalizer 顺序：先 end ComputerSession（清 target/snapshot + 通知
-        # helper 清 Native 状态），再 release Machine Lease。
+        # Computer 清理与 Lease 释放必须是同一个有序 finalizer：如果旧 helper
+        # 无法确认退出，隔离租约，拒绝下一个 Run 接管机器。
         computer_finalizers: list[object] = []
-        if computer_session is not None:
-            end_session = getattr(self._computer_runtime, "end_session", None)
-            if callable(end_session):
-                computer_finalizers.append(end_session)
-        if computer_lease is not None:
-            computer_finalizers.append(computer_lease.release)
+        end_session = (
+            getattr(self._computer_runtime, "end_session", None)
+            if computer_session is not None
+            else None
+        )
+        if callable(end_session) or computer_lease is not None:
+            async def finalize_computer(run_id: str) -> None:
+                try:
+                    if callable(end_session):
+                        await end_session(run_id)
+                except BaseException:
+                    if computer_lease is not None:
+                        computer_lease.quarantine()
+                    raise
+                if computer_lease is not None:
+                    computer_lease.release(run_id)
+
+            computer_finalizers.append(finalize_computer)
         run_manager = RunManager(
             run_store,
             checkpoint_store,
@@ -829,21 +841,25 @@ class Application:
                 await self.mcp_manager.close(self.tool_registry)
             self.mcp_manager = None
         with suppress(Exception):
-            if self.computer_lease is not None:
-                self.computer_lease.close()
-                self.computer_lease = None
-        with suppress(Exception):
             if self.computer_session is not None:
                 self.computer_session.close()
                 self.computer_session = None
-        with suppress(Exception):
+        helper_retired = True
+        try:
             if self.computer_runtime is not None:
-                # 只在确实注入真实 MacOSComputerRuntime（有 close）时关闭
-                # helper；_computer_runtime 保留注入源供再次启动。
+                # 先确认 helper 退出，再释放机器租约。
                 close_runtime = getattr(self.computer_runtime, "close", None)
                 if callable(close_runtime):
                     await close_runtime()
                 self.computer_runtime = None
+        except Exception:
+            helper_retired = False
+            logger.exception("computer helper could not be retired on shutdown")
+        if helper_retired:
+            with suppress(Exception):
+                if self.computer_lease is not None:
+                    self.computer_lease.close()
+                    self.computer_lease = None
         with suppress(Exception):
             if self.memory_manager is not None:
                 await self.memory_manager.close()

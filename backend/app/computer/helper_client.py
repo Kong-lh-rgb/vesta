@@ -125,8 +125,17 @@ class MacOSHelperClient:
             except TimeoutError:
                 with contextlib.suppress(Exception):
                     process.terminate()
-                with contextlib.suppress(Exception):
+                try:
                     await asyncio.wait_for(process.wait(), timeout=5)
+                except TimeoutError:
+                    with contextlib.suppress(Exception):
+                        process.kill()
+                    try:
+                        await asyncio.wait_for(process.wait(), timeout=5)
+                    except TimeoutError as exc:
+                        raise ComputerHelperProcessError(
+                            "computer helper could not be retired"
+                        ) from exc
         self._process = None
 
     async def restart(self) -> None:

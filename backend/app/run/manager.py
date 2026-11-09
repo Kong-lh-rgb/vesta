@@ -532,8 +532,10 @@ class RunManager:
                     stop_reason=result.stop_reason.value,
                 )
         finally:
-            await self._run_finalizers_for(run_id)
-            self._active_tasks.pop(run_id, None)
+            try:
+                await self._run_finalizers_for(run_id)
+            finally:
+                self._active_tasks.pop(run_id, None)
 
 
 __all__ = ["RunManager"]

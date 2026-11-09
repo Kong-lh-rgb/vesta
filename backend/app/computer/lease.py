@@ -52,6 +52,7 @@ class ComputerLeaseManager:
         self._acquired_at: datetime | None = None
         self._lock_file = None
         self._last_touch: float | None = None
+        self._quarantined = False
 
     def set_owner_active(self, predicate: Callable[[str], bool]) -> None:
         with self._guard:
@@ -70,6 +71,10 @@ class ComputerLeaseManager:
         if not isinstance(run_id, str) or not run_id.strip():
             raise ValueError("computer action requires run context")
         with self._guard:
+            if self._quarantined:
+                raise ComputerBusyError(
+                    "computer helper cleanup was not confirmed; restart Host"
+                )
             if self._owner_run_id == run_id:
                 self._last_touch = time.monotonic()
                 return self.snapshot_unlocked()
@@ -129,6 +134,12 @@ class ComputerLeaseManager:
             self._release_unlocked()
             logger.info("computer lease released by run %s", run_id)
             return True
+
+    def quarantine(self) -> None:
+        """Refuse new owners after an unconfirmed native cleanup."""
+
+        with self._guard:
+            self._quarantined = True
 
     def close(self) -> None:
         with self._guard:
