@@ -13,6 +13,7 @@ from uuid import uuid4
 
 import aiosqlite
 
+from app.checkpoint.models import CheckpointStatus
 from app.conversation import DEFAULT_DATABASE_PATH
 from app.models.types import AgentMode
 from app.storage import sqlite_connection
@@ -244,6 +245,48 @@ class SQLiteRunStore:
             rows = await cursor.fetchall()
         return tuple(_run_from_row(row) for row in rows)
 
+    async def list_interrupted_runs(self) -> tuple[Run, ...]:
+        """Unbounded startup audit of legacy interrupted records."""
+
+        async with sqlite_connection(self.database_path) as database:
+            cursor = await database.execute(
+                "SELECT * FROM runs WHERE status = ? ORDER BY created_at ASC",
+                (RunStatus.INTERRUPTED.value,),
+            )
+            rows = await cursor.fetchall()
+        return tuple(_run_from_row(row) for row in rows)
+
+    async def repair_unrecoverable_interrupt(
+        self,
+        run_id: str,
+        *,
+        status: RunStatus,
+        error: str | None = None,
+        stop_reason: str | None = None,
+    ) -> Run:
+        """Correct only preexisting INTERRUPTED rows without a recovery point."""
+
+        if status not in {
+            RunStatus.COMPLETED,
+            RunStatus.FAILED,
+            RunStatus.CANCELLED,
+        }:
+            raise ValueError("invalid interrupt repair status")
+        async with sqlite_connection(self.database_path) as database:
+            await database.execute("BEGIN IMMEDIATE")
+            run = await _require_row(database, run_id)
+            if run.status is not RunStatus.INTERRUPTED:
+                raise ValueError("only interrupted runs can be repaired")
+            await database.execute(
+                """
+                UPDATE runs SET status = ?, updated_at = ?, error = ?, stop_reason = ?
+                WHERE run_id = ?
+                """,
+                (status.value, _now(), error, stop_reason, run_id),
+            )
+            await database.commit()
+        return await self.require(run_id)
+
     async def update_status(
         self,
         run_id: str,
@@ -312,6 +355,49 @@ class SQLiteRunStore:
             RunStatus.COMPLETED,
             stop_reason=stop_reason,
         )
+
+    async def mark_interrupted_with_checkpoint(self, run_id: str) -> Run:
+        """Persist both recoverability facts in one SQLite transaction."""
+
+        async with sqlite_connection(self.database_path) as database:
+            await database.execute("BEGIN IMMEDIATE")
+            run = await _require_row(database, run_id)
+            if run.status is not RunStatus.RUNNING:
+                raise ValueError(f"cannot interrupt run in state {run.status.value}")
+            cursor = await database.execute(
+                "SELECT status FROM run_checkpoints WHERE run_id = ?", (run_id,)
+            )
+            checkpoint = await cursor.fetchone()
+            if checkpoint is None:
+                raise KeyError(f"Checkpoint 不存在：{run_id}")
+            if checkpoint["status"] != CheckpointStatus.RUNNING.value:
+                raise ValueError("checkpoint is no longer running")
+            now = _now()
+            await database.execute(
+                """
+                UPDATE run_checkpoints
+                SET status = ?, error = ?, updated_at = ?, completed_at = ?,
+                    revision = revision + 1
+                WHERE run_id = ?
+                """,
+                (
+                    CheckpointStatus.INTERRUPTED.value,
+                    "interrupted by user",
+                    now,
+                    now,
+                    run_id,
+                ),
+            )
+            await database.execute(
+                """
+                UPDATE runs
+                SET status = ?, updated_at = ?, completed_at = ?, error = ?
+                WHERE run_id = ?
+                """,
+                (RunStatus.INTERRUPTED.value, now, now, "interrupted by user", run_id),
+            )
+            await database.commit()
+        return await self.require(run_id)
 
     async def mark_failed(
         self,
