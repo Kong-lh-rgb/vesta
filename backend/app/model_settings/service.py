@@ -73,6 +73,20 @@ class ModelSettingsService:
         active_model: str,
         active_roles: dict[str, dict[str, Any]] | None = None,
     ) -> dict[str, Any]:
+        with self.store.transaction():
+            return self._view_locked(
+                active_provider=active_provider,
+                active_model=active_model,
+                active_roles=active_roles,
+            )
+
+    def _view_locked(
+        self,
+        *,
+        active_provider: str,
+        active_model: str,
+        active_roles: dict[str, dict[str, Any]] | None,
+    ) -> dict[str, Any]:
         base = self.base_settings
         stored = self.store.load() or _defaults(base)
         providers = []
@@ -116,6 +130,10 @@ class ModelSettingsService:
         }
 
     def save(self, update: ModelSettingsUpdate) -> StoredModelSettings:
+        with self.store.transaction():
+            return self._save_locked(update)
+
+    def _save_locked(self, update: ModelSettingsUpdate) -> StoredModelSettings:
         base = self.base_settings
         existing_keys = {
             provider: bool(self.secrets.get(provider.value))
@@ -242,6 +260,15 @@ def load_effective_model_configuration(
     """启动时合并.env、非敏感JSON和Keychain；显式设置优先。"""
 
     resolved_store = store or ModelSettingsStore()
+    with resolved_store.transaction():
+        return _load_effective_locked(resolved_store, secrets, base_settings)
+
+
+def _load_effective_locked(
+    resolved_store: ModelSettingsStore,
+    secrets: ModelSecretStore | None,
+    base_settings: ModelSettings | None,
+) -> EffectiveModelConfiguration:
     stored = resolved_store.load()
     base = base_settings or ModelSettings()
     if stored is None:

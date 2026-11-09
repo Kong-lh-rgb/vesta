@@ -3,6 +3,9 @@
 from __future__ import annotations
 
 import json
+import select
+import subprocess
+import sys
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -122,6 +125,36 @@ def test_save_keeps_api_key_out_of_json(tmp_path: Path) -> None:
     assert "api_key" not in raw
     assert secrets.values == {"qwen": "secret-qwen"}
     assert json.loads(raw)["default_provider"] == "qwen"
+
+
+def test_settings_transaction_serializes_other_processes(tmp_path: Path) -> None:
+    store = ModelSettingsStore(tmp_path / "models.json")
+    script = (
+        "import sys\n"
+        "from app.model_settings.store import ModelSettingsStore\n"
+        "print('ready', flush=True)\n"
+        "with ModelSettingsStore(sys.argv[1]).transaction():\n"
+        "    print('acquired', flush=True)\n"
+    )
+    with store.transaction():
+        child = subprocess.Popen(
+            [sys.executable, "-c", script, str(store.path)],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+        )
+        try:
+            assert child.stdout is not None
+            assert child.stdout.readline().strip() == "ready"
+            readable, _, _ = select.select([child.stdout], [], [], 0.2)
+            assert readable == []
+        except BaseException:
+            child.kill()
+            child.communicate(timeout=5)
+            raise
+    output, errors = child.communicate(timeout=5)
+    assert child.returncode == 0, errors
+    assert output.strip() == "acquired"
 
 
 def test_keychain_failure_restores_earlier_keys(tmp_path: Path) -> None:
