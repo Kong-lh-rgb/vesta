@@ -153,6 +153,7 @@ class RunManager:
         scheduled_for: datetime | None = None,
         triggered_at: datetime | None = None,
         mode: AgentMode = AgentMode.NORMAL,
+        needs_writeback: bool = False,
     ) -> tuple[str, asyncio.Task[None]]:
         """创建一个新 Run 并开始异步执行，返回 (run_id, task)。
 
@@ -177,6 +178,7 @@ class RunManager:
                 scheduled_for=scheduled_for,
                 triggered_at=triggered_at,
                 mode=mode,
+                needs_writeback=needs_writeback,
             )
             await self._run_store.mark_started(run.id)
             task = asyncio.create_task(
@@ -223,6 +225,11 @@ class RunManager:
                 # 取消后的 Run 状态已由 _execute 更新为 CANCELLED。
                 pass
         return await self._run_store.require(run_id)
+
+    async def pending_writebacks(
+        self, conversation_id: str | None = None
+    ) -> tuple[Run, ...]:
+        return await self._run_store.list_pending_writebacks(conversation_id)
 
     def result(self, run_id: str) -> AgentResult | None:
         """返回本进程内最近一次执行的 AgentResult（用于 CLI 读取最终消息）。"""
@@ -410,6 +417,7 @@ class RunManager:
         history: tuple[Any, ...] = (),
         summary_state: ConversationSummaryState | None = None,
         event_handler: AgentEventHandler | None = None,
+        needs_writeback: bool = False,
     ) -> tuple[str, asyncio.Task[None]]:
         """恢复一个 INTERRUPTED Run。
 
@@ -447,6 +455,7 @@ class RunManager:
             recovered_from_run_id=run_id,
             # 恢复后的新 Run 沿用旧 Run 的执行模式。
             mode=run.mode,
+            needs_writeback=needs_writeback,
         )
 
     # ------------------------------------------------------------------

@@ -49,6 +49,11 @@ ON runs(conversation_id, created_at DESC);
 
 CREATE INDEX IF NOT EXISTS idx_runs_status_updated
 ON runs(status, created_at DESC);
+
+CREATE TABLE IF NOT EXISTS run_writebacks (
+    run_id TEXT PRIMARY KEY,
+    conversation_id TEXT NOT NULL
+);
 """
 
 # 旧库迁移：为已存在的 runs 表补齐 provenance 列（新库由 _SCHEMA 直接创建）。
@@ -91,6 +96,7 @@ class SQLiteRunStore:
         scheduled_for: datetime | None = None,
         triggered_at: datetime | None = None,
         mode: AgentMode = AgentMode.NORMAL,
+        needs_writeback: bool = False,
     ) -> Run:
         """创建一个 PENDING Run，并返回完整记录。"""
 
@@ -129,6 +135,14 @@ class SQLiteRunStore:
                     AgentMode(mode).value,
                 ),
             )
+            if needs_writeback:
+                if conversation_id is None:
+                    raise ValueError("writeback requires a conversation")
+                await database.execute(
+                    "INSERT INTO run_writebacks (run_id, conversation_id) "
+                    "VALUES (?, ?)",
+                    (run_id, conversation_id),
+                )
             await database.commit()
         run = await self.require(run_id)
         return run
@@ -199,12 +213,36 @@ class SQLiteRunStore:
 
         normalized = _required_identifier(conversation_id, "conversation_id")
         async with sqlite_connection(self.database_path) as database:
+            await database.execute("BEGIN IMMEDIATE")
+            await database.execute(
+                "DELETE FROM run_writebacks WHERE conversation_id = ?",
+                (normalized,),
+            )
             cursor = await database.execute(
                 "DELETE FROM runs WHERE conversation_id = ?",
                 (normalized,),
             )
             await database.commit()
         return max(cursor.rowcount, 0)
+
+    async def list_pending_writebacks(
+        self, conversation_id: str | None = None
+    ) -> tuple[Run, ...]:
+        """Return runs whose conversation result has not been committed yet."""
+
+        query = (
+            "SELECT r.* FROM runs AS r JOIN run_writebacks AS w "
+            "ON w.run_id = r.run_id"
+        )
+        parameters: tuple[object, ...] = ()
+        if conversation_id is not None:
+            query += " WHERE w.conversation_id = ?"
+            parameters = (conversation_id,)
+        query += " ORDER BY r.created_at ASC, r.run_id ASC"
+        async with sqlite_connection(self.database_path) as database:
+            cursor = await database.execute(query, parameters)
+            rows = await cursor.fetchall()
+        return tuple(_run_from_row(row) for row in rows)
 
     async def update_status(
         self,

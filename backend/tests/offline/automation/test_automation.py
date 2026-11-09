@@ -665,7 +665,8 @@ async def test_completed_and_cancelled_automations_do_not_dispatch(
 class _IntegrationRunManager:
     """真实 ConversationService 用的极简 Run 管理器（返回固定结果）。"""
 
-    def __init__(self) -> None:
+    def __init__(self, database) -> None:
+        self._database = database
         self.started: list[str] = []
         self._result = _integration_result()
 
@@ -683,9 +684,23 @@ class _IntegrationRunManager:
         scheduled_for=None,
         triggered_at=None,
         mode=None,
+        needs_writeback=False,
     ) -> tuple[str, None]:
         self.started.append(user_message)
+        if needs_writeback:
+            import aiosqlite
+
+            async with aiosqlite.connect(self._database) as database:
+                await database.execute(
+                    "INSERT INTO run_writebacks (run_id, conversation_id) "
+                    "VALUES (?, ?)",
+                    ("run-auto", conversation_id),
+                )
+                await database.commit()
         return "run-auto", None
+
+    async def pending_writebacks(self, conversation_id=None):
+        return ()
 
     async def wait(self, run_id: str):
         return SimpleNamespace(
@@ -735,7 +750,7 @@ async def test_scheduler_auto_triggers_without_manual_trigger(tmp_path) -> None:
     await summary_store.initialize()
     await SQLiteRunStore(database).initialize()
 
-    manager = _IntegrationRunManager()
+    manager = _IntegrationRunManager(database)
     service = ConversationService(
         conversation_store,
         manager,

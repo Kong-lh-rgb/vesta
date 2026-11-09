@@ -322,7 +322,7 @@ async def test_cli_persists_and_restores_complete_tool_protocol_history(
             )
             final_message = Message(role=MessageRole.ASSISTANT, content="搜索摘要")
             return AgentResult(
-                run_id="tool-run",
+                run_id=run_id or "tool-run",
                 final_message=final_message,
                 messages=(
                     *history,

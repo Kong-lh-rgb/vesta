@@ -7,6 +7,7 @@ from collections.abc import AsyncIterator, Sequence
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import TYPE_CHECKING
 from uuid import uuid4
 
 import aiosqlite
@@ -15,6 +16,9 @@ from app.models.types import Message, ToolCall
 from app.storage import configure_sqlite_connection
 
 from .models import Conversation, ConversationMessageRecord
+
+if TYPE_CHECKING:
+    from app.agent.result import AgentResult
 
 DEFAULT_DATABASE_PATH = (
     Path(__file__).resolve().parents[2] / ".vesta" / "vesta.db"
@@ -255,6 +259,70 @@ class SQLiteConversationStore:
         if conversation is None:  # pragma: no cover - SQLite 更新后的防御性检查
             raise RuntimeError("更新会话后无法重新读取会话")
         return conversation
+
+    async def commit_run_writeback(
+        self, run_id: str, conversation_id: str, result: AgentResult
+    ) -> bool:
+        """Atomically persist messages, summary and the writeback receipt.
+
+        The pending receipt is created with the Run.  Replaying the same Run
+        after a crash is safe because a committed receipt is removed in the
+        same transaction as the conversation update.
+        """
+
+        if result.run_id != run_id:
+            raise ValueError("writeback result belongs to a different run")
+        now = _now_iso()
+        async with self._connect() as database:
+            await database.execute("BEGIN IMMEDIATE")
+            cursor = await database.execute(
+                "SELECT conversation_id FROM run_writebacks WHERE run_id = ?",
+                (run_id,),
+            )
+            pending = await cursor.fetchone()
+            if pending is None:
+                return False
+            if pending["conversation_id"] != conversation_id:
+                raise ValueError("writeback conversation does not match the run")
+            cursor = await database.execute(
+                "SELECT 1 FROM conversations WHERE id = ?",
+                (conversation_id,),
+            )
+            if await cursor.fetchone() is None:
+                raise KeyError(f"会话不存在：{conversation_id}")
+            await database.execute(
+                "DELETE FROM messages WHERE conversation_id = ?",
+                (conversation_id,),
+            )
+            await self._insert_messages(database, conversation_id, result.messages, now)
+            await database.execute(
+                "UPDATE conversations SET updated_at = ? WHERE id = ?",
+                (now, conversation_id),
+            )
+            if result.summary_state is not None:
+                await database.execute(
+                    """
+                    INSERT INTO conversation_summaries (
+                        conversation_id, summary_json,
+                        covered_message_count, updated_at
+                    ) VALUES (?, ?, ?, ?)
+                    ON CONFLICT(conversation_id) DO UPDATE SET
+                        summary_json = excluded.summary_json,
+                        covered_message_count = excluded.covered_message_count,
+                        updated_at = excluded.updated_at
+                    """,
+                    (
+                        conversation_id,
+                        result.summary_state.summary.model_dump_json(),
+                        result.summary_state.covered_message_count,
+                        now,
+                    ),
+                )
+            await database.execute(
+                "DELETE FROM run_writebacks WHERE run_id = ?", (run_id,)
+            )
+            await database.commit()
+        return True
 
     async def rename(self, conversation_id: str, title: str) -> Conversation:
         """修改会话标题。"""

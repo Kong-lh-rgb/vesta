@@ -678,6 +678,7 @@ class Application:
             shared_event_handler=self.shared_event_handler,
             operation_coordinator=conversation_operations,
         )
+        await conversation_service.reconcile_all_writebacks()
 
         automation_store = SQLiteAutomationStore(database)
         automation_scheduler = AutomationScheduler(
