@@ -20,6 +20,7 @@ import logging
 import re
 from collections.abc import Callable
 from contextlib import asynccontextmanager
+from hmac import compare_digest
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, Request, Response, WebSocket
@@ -27,6 +28,7 @@ from fastapi.responses import FileResponse
 
 from app.application import Application
 
+from .auth import RPC_SUBPROTOCOL_PREFIX, load_or_create_rpc_token
 from .rpc import (
     RpcBroadcastEventHandler,
     RpcConnection,
@@ -143,6 +145,7 @@ def create_app(
     application: Application | None = None,
     *,
     restart_callback: Callable[[], None] | None = None,
+    rpc_token_file: Path | None = None,
 ) -> FastAPI:
     """构造 Vesta Host 应用。
 
@@ -157,6 +160,7 @@ def create_app(
     else:
         application.desktop_approval = True
     application.host_restart_callback = restart_callback
+    rpc_token = load_or_create_rpc_token(rpc_token_file)
 
     # 全局共享事件观察者：在 application.start() 之前注入，
     # ConversationService 构造时会把 RPC 广播与 Trace 一起组合。
@@ -196,6 +200,7 @@ def create_app(
     app.state.application = application
     app.state.hub = hub
     app.state.dispatcher = dispatcher
+    app.state.rpc_token = rpc_token
 
     @app.get("/health")
     async def health(request: Request) -> dict[str, object]:
@@ -225,12 +230,28 @@ def create_app(
     @app.websocket("/rpc")
     async def rpc_endpoint(websocket: WebSocket) -> None:
         # WS /rpc 承载全部业务能力（消耗 API key 执行 Agent、computer、
-        # artifact、模型设置……），与 GET 媒体路由执行同一套 loopback 限制：
-        # 非本机客户端直接拒绝握手，防御不能只做 GET 一半。
+        # artifact、模型设置……）。同时要求 loopback、可信 Renderer Origin
+        # 和本机凭证；单靠 loopback 无法阻止外部网页连接本机端口。
         client_host = websocket.client.host if websocket.client is not None else None
-        if not _is_loopback_client(client_host):
+        origin = websocket.headers.get("origin")
+        allowed_origins = {
+            "http://127.0.0.1:5173",
+            "http://localhost:5173",
+            "null",
+            "file://",
+        }
+        expected_protocol = RPC_SUBPROTOCOL_PREFIX + rpc_token
+        authorized = any(
+            compare_digest(protocol, expected_protocol)
+            for protocol in websocket.scope.get("subprotocols", ())
+        )
+        if (
+            not _is_loopback_client(client_host)
+            or origin not in allowed_origins
+            or not authorized
+        ):
             logger.warning(
-                "拒绝非 loopback 的 WS /rpc 连接：client=%s", client_host
+                "拒绝未授权的 WS /rpc 连接：client=%s origin=%s", client_host, origin
             )
             await websocket.close(code=1008)
             return

@@ -209,7 +209,9 @@ npm ci
 npm run electron:dev
 ```
 
-纯浏览器 Renderer 调试可以使用 `npm run dev`，完整桌面能力需要 Electron。
+纯浏览器 Renderer 可使用 `npm run dev` 检查界面；连接本机 Host 的 RPC
+需要 Electron。Host 会在 `~/.vesta/rpc-token` 创建仅当前用户可读的连接凭证，
+Desktop 自动读取。若已有凭证文件权限不安全，Host 会拒绝启动并提示修正权限。
 
 ## Extensions
 

@@ -7,6 +7,7 @@ import {
   shell,
 } from 'electron'
 import path from 'node:path'
+import { pathToFileURL } from 'node:url'
 
 const DEV_SERVER_URL = process.env.VITE_DEV_SERVER_URL ?? 'http://127.0.0.1:5173'
 const NOTIFICATION_KINDS = new Set(['approval', 'run', 'artifact'])
@@ -69,6 +70,7 @@ function createApprovalWindow(): void {
     },
   })
   approvalWindow = win
+  restrictNavigation(win, 'approval.html')
 
   // 跨 macOS Space 可见：用户切到其它 Space 操作 App 时审批仍能出现。
   win.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true })
@@ -143,6 +145,7 @@ function createWindow(): void {
     },
   })
   mainWindow = win
+  restrictNavigation(win, 'index.html')
 
   if (!app.isPackaged) {
     void win.loadURL(DEV_SERVER_URL)
@@ -176,6 +179,30 @@ function isHttpUrl(value: string): boolean {
   } catch {
     return false
   }
+}
+
+/** 只有 Vesta 自己的页面可以使用带本机 RPC 凭证的 preload bridge。 */
+function restrictNavigation(win: BrowserWindow, page: string): void {
+  win.webContents.on('will-navigate', (event, destination) => {
+    let allowed = false
+    try {
+      const url = new URL(destination)
+      if (app.isPackaged) {
+        const expected = pathToFileURL(
+          path.join(__dirname, '..', '..', 'dist', page),
+        )
+        allowed = url.protocol === 'file:' && url.pathname === expected.pathname
+      } else {
+        allowed = url.origin === new URL(DEV_SERVER_URL).origin
+      }
+    } catch {
+      allowed = false
+    }
+    if (!allowed) {
+      event.preventDefault()
+      if (isHttpUrl(destination)) void shell.openExternal(destination)
+    }
+  })
 }
 
 ipcMain.handle('vesta:open-external', async (_event, url: unknown) => {
