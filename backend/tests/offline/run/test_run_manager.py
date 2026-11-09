@@ -676,6 +676,34 @@ async def test_reconcile_stale_pending_becomes_failed(
         await manager.recover(pending.id)
 
 
+async def test_reconcile_drains_more_than_one_page_of_stale_runs(
+    tmp_path,
+    manager_factory,
+) -> None:
+    database = tmp_path / "vesta.db"
+    run_store = SQLiteRunStore(database)
+    checkpoint_store = SQLiteCheckpointStore(database)
+    await run_store.initialize()
+    await checkpoint_store.initialize()
+    for index in range(21):
+        await run_store.create(user_message=f"pending {index}")
+        running = await run_store.create(user_message=f"running {index}")
+        await run_store.mark_started(running.id)
+
+    registry, _ = fake_registry([model_response(content="完成")])
+    manager, _, _ = await manager_factory(
+        registry,
+        run_store=run_store,
+        checkpoint_store=checkpoint_store,
+    )
+    reconciled = await manager.initialize()
+
+    assert len(reconciled) == 42
+    assert all(run.status is RunStatus.FAILED for run in reconciled)
+    assert await run_store.list_runs(status=RunStatus.PENDING, limit=100) == ()
+    assert await run_store.list_runs(status=RunStatus.RUNNING, limit=100) == ()
+
+
 # ---------------------------------------------------------------------------
 # 5. recover INTERRUPTED Run → 使用 Checkpoint → 继续执行 → COMPLETED
 # ---------------------------------------------------------------------------

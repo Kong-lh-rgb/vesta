@@ -94,44 +94,48 @@ class RunManager:
 
         if self._checkpoint_store is not None:
             await self._checkpoint_store.recover_running()
-        stale_pending = await self._run_store.list_runs(status=RunStatus.PENDING)
         reconciled: list[Run] = []
-        for run in stale_pending:
-            updated = await self._run_store.mark_failed(
-                run.id,
-                error=_STALE_PENDING_ERROR,
-            )
-            reconciled.append(updated)
-        stale = await self._run_store.list_runs(status=RunStatus.RUNNING)
-        for run in stale:
-            checkpoint = await self._checkpoint_store.get(run.id)
-            if checkpoint is None:
+        # list_runs is a UI query with a default limit of 20. Drain each
+        # nonterminal status so larger restart backlogs cannot remain stuck.
+        while stale_pending := await self._run_store.list_runs(
+            status=RunStatus.PENDING
+        ):
+            for run in stale_pending:
                 updated = await self._run_store.mark_failed(
                     run.id,
-                    error=_STALE_RUN_ERROR
-                    + " (no recoverable checkpoint)",
+                    error=_STALE_PENDING_ERROR,
                 )
-            elif checkpoint.status is CheckpointStatus.INTERRUPTED:
-                updated = await self._run_store.mark_interrupted(
-                    run.id,
-                    error=_STALE_RUN_ERROR
-                    + " (recoverable checkpoint preserved)",
-                )
-            elif checkpoint.status is CheckpointStatus.COMPLETED:
-                updated = await self._run_store.mark_completed(
-                    run.id,
-                    stop_reason=(
-                        checkpoint.stop_reason.value
-                        if checkpoint.stop_reason is not None
-                        else None
-                    ),
-                )
-            else:  # FAILED
-                updated = await self._run_store.mark_failed(
-                    run.id,
-                    error=checkpoint.error,
-                )
-            reconciled.append(updated)
+                reconciled.append(updated)
+        while stale := await self._run_store.list_runs(status=RunStatus.RUNNING):
+            for run in stale:
+                checkpoint = await self._checkpoint_store.get(run.id)
+                if checkpoint is None:
+                    updated = await self._run_store.mark_failed(
+                        run.id,
+                        error=_STALE_RUN_ERROR
+                        + " (no recoverable checkpoint)",
+                    )
+                elif checkpoint.status is CheckpointStatus.INTERRUPTED:
+                    updated = await self._run_store.mark_interrupted(
+                        run.id,
+                        error=_STALE_RUN_ERROR
+                        + " (recoverable checkpoint preserved)",
+                    )
+                elif checkpoint.status is CheckpointStatus.COMPLETED:
+                    updated = await self._run_store.mark_completed(
+                        run.id,
+                        stop_reason=(
+                            checkpoint.stop_reason.value
+                            if checkpoint.stop_reason is not None
+                            else None
+                        ),
+                    )
+                else:  # FAILED
+                    updated = await self._run_store.mark_failed(
+                        run.id,
+                        error=checkpoint.error,
+                    )
+                reconciled.append(updated)
         # 旧版本在 checkpoint 写失败后可能先把 Run 标为 INTERRUPTED。
         # 只修正没有可恢复 Checkpoint 的遗留记录；正常中断保持原状态。
         for run in await self._run_store.list_interrupted_runs():
