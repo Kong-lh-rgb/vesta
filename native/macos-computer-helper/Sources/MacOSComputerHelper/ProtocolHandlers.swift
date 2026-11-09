@@ -1187,7 +1187,7 @@ func handleScroll(params: Any?, id: Any?) {
           !expectedObservationID.isEmpty, !sessionID.isEmpty,
           validScroll(deltaX: dx, deltaY: dy) else {
         writeResponse(makeError(id: id, code: "invalid_params",
-                                message: "scroll deltas must contain a non-zero integer")); return
+                                message: "scroll deltas must be non-zero and within +/-10000")); return
     }
     switch checkSession(sessionID) {
     case .ok:
@@ -1199,11 +1199,11 @@ func handleScroll(params: Any?, id: Any?) {
         writeResponse(makeError(id: id, code: "session_mismatch",
                                 message: "session mismatch; does not match the active run")); return
     }
-    guard requireBackgroundFresh(
-        expectedObservationID,
-        sessionID: sessionID,
-        id: id,
-        allowForegroundRestore: true
+    // CGEvent posts to the global HID tap. Restore and verify the recorded
+    // target in the foreground before posting, or the user's active app could
+    // receive this scroll instead.
+    guard requireFreshObservation(
+        expectedObservationID, id: id, restoreOnDrift: true
     ) else { return }
     guard AXIsProcessTrusted() else {
         writeResponse(makeError(id: id, code: "accessibility_permission_required",
@@ -1214,9 +1214,16 @@ func handleScroll(params: Any?, id: Any?) {
         writeResponse(makeError(id: id, code: "input_event_failed",
                                 message: "failed to create scroll event")); return
     }
+    guard foregroundTargetIsFresh(
+        expectedObservationID: expectedObservationID, sessionID: sessionID
+    ) else {
+        clearObservationCache()
+        writeResponse(makeError(id: id, code: "stale_observation",
+                                message: "target lost foreground before scroll")); return
+    }
     event.post(tap: .cghidEventTap); clearObservationCache()
     writeResponse(["id": id ?? NSNull(), "result": ["delta_x": dx, "delta_y": dy,
-        "method": "scroll_event", "execution_mode": "background"]])
+        "method": "scroll_event", "execution_mode": "foreground_fallback"]])
 }
 
 func handleClickCoordinate(params: Any?, id: Any?) {
@@ -1283,7 +1290,9 @@ func handleTestV7Logic(params: Any?, id: Any?) {
         "out_of_bounds": mapping.globalPoint(x: 1600, y: 0) == nil,
         "window_order": focusedFirstIndices(count: 3, focusedIndex: 1),
         "valid_scroll": validScroll(deltaX: 0, deltaY: -1),
-        "invalid_scroll": validScroll(deltaX: 0, deltaY: 0)
+        "invalid_scroll": validScroll(deltaX: 0, deltaY: 0),
+        "bounded_scroll": validScroll(deltaX: -10_000, deltaY: 10_000),
+        "oversized_scroll": validScroll(deltaX: Int.max, deltaY: 0)
     ]])
 }
 

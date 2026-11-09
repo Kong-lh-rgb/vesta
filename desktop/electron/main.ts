@@ -7,8 +7,11 @@ import {
   shell,
 } from 'electron'
 import path from 'node:path'
+import { pathToFileURL } from 'node:url'
 
 const DEV_SERVER_URL = process.env.VITE_DEV_SERVER_URL ?? 'http://127.0.0.1:5173'
+const SMOKE_BUILT_ASSETS = process.env.VESTA_DESKTOP_SMOKE === '1'
+const USE_BUILT_ASSETS = app.isPackaged || SMOKE_BUILT_ASSETS
 const NOTIFICATION_KINDS = new Set(['approval', 'run', 'artifact'])
 const MAX_NOTIFICATION_TITLE = 100
 const MAX_NOTIFICATION_BODY = 240
@@ -21,6 +24,7 @@ const APPROVAL_RIGHT_MARGIN = 20
 let mainWindow: BrowserWindow | null = null
 let approvalWindow: BrowserWindow | null = null
 let isQuitting = false
+const smokeLoadedWindows = new Set<string>()
 
 interface NotificationPayload {
   title: string
@@ -69,11 +73,13 @@ function createApprovalWindow(): void {
     },
   })
   approvalWindow = win
+  restrictNavigation(win, 'approval.html')
+  registerSmokeWindow(win, 'approval')
 
   // 跨 macOS Space 可见：用户切到其它 Space 操作 App 时审批仍能出现。
   win.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true })
 
-  if (!app.isPackaged) {
+  if (!USE_BUILT_ASSETS) {
     void win.loadURL(`${DEV_SERVER_URL}/approval.html`)
   } else {
     // 从 dist-electron/electron 回到桌面根目录再进入 Vite 产物。
@@ -143,8 +149,10 @@ function createWindow(): void {
     },
   })
   mainWindow = win
+  restrictNavigation(win, 'index.html')
+  registerSmokeWindow(win, 'main')
 
-  if (!app.isPackaged) {
+  if (!USE_BUILT_ASSETS) {
     void win.loadURL(DEV_SERVER_URL)
   } else {
     // 从 dist-electron/electron 回到桌面根目录再进入 Vite 产物。
@@ -176,6 +184,74 @@ function isHttpUrl(value: string): boolean {
   } catch {
     return false
   }
+}
+
+/** 只有 Vesta 自己的页面可以使用带本机 RPC 凭证的 preload bridge。 */
+function restrictNavigation(win: BrowserWindow, page: string): void {
+  win.webContents.on('will-navigate', (event, destination) => {
+    let allowed = false
+    try {
+      const url = new URL(destination)
+      if (USE_BUILT_ASSETS) {
+        const expected = pathToFileURL(
+          path.join(__dirname, '..', '..', 'dist', page),
+        )
+        allowed = url.protocol === 'file:' && url.pathname === expected.pathname
+      } else {
+        allowed = url.origin === new URL(DEV_SERVER_URL).origin
+      }
+    } catch {
+      allowed = false
+    }
+    if (!allowed) {
+      event.preventDefault()
+      if (isHttpUrl(destination)) void shell.openExternal(destination)
+    }
+  })
+}
+
+/** CI-only load check for both built HTML entries and their preload bridge. */
+function registerSmokeWindow(win: BrowserWindow, name: 'main' | 'approval'): void {
+  if (!SMOKE_BUILT_ASSETS) return
+  win.webContents.on('did-fail-load', (_event, code, reason, _url, isMainFrame) => {
+    if (isMainFrame) failSmoke(`${name} failed to load: ${code} ${reason}`)
+  })
+  win.webContents.on('render-process-gone', (_event, details) => {
+    failSmoke(`${name} renderer exited: ${details.reason}`)
+  })
+  win.webContents.on('did-finish-load', () => {
+    void win.webContents.executeJavaScript(`new Promise(resolve => {
+      const deadline = Date.now() + 5000
+      const check = () => {
+        const root = document.getElementById('root')
+        const bridge = typeof window.vesta?.getRpcToken === 'function'
+        if (root && bridge && (${JSON.stringify(name)} === 'approval' || root.childElementCount > 0)) {
+          resolve(true)
+        } else if (Date.now() >= deadline) {
+          resolve(false)
+        } else {
+          setTimeout(check, 50)
+        }
+      }
+      check()
+    })`).then((ready: boolean) => {
+      if (!ready) {
+        failSmoke(`${name} did not render or preload failed`)
+        return
+      }
+      smokeLoadedWindows.add(name)
+      if (smokeLoadedWindows.size === 2) {
+        console.log('VESTA_DESKTOP_SMOKE_OK')
+        app.quit()
+      }
+    }).catch((error: unknown) => failSmoke(`${name} script failed: ${error}`))
+  })
+}
+
+function failSmoke(message: string): void {
+  if (!SMOKE_BUILT_ASSETS || isQuitting) return
+  console.error(`VESTA_DESKTOP_SMOKE_FAILED: ${message}`)
+  app.exit(1)
 }
 
 ipcMain.handle('vesta:open-external', async (_event, url: unknown) => {
@@ -219,6 +295,9 @@ ipcMain.on('vesta:approval-set-size', (_event, height: unknown) => {
 })
 
 void app.whenReady().then(() => {
+  if (SMOKE_BUILT_ASSETS) {
+    setTimeout(() => failSmoke('timed out'), 20_000).unref()
+  }
   createWindow()
   // 浮窗常驻（隐藏），保持 WS 订阅，审批到来时立即弹出。
   createApprovalWindow()

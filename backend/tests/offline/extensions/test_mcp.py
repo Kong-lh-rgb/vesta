@@ -477,8 +477,11 @@ async def test_stdio_client_call_timeout() -> None:
     client = StdioMCPClient(_stdio_config(call_timeout=0.05))
     await client.start()
     try:
-        with pytest.raises(MCPToolCallError, match="TimeoutError"):
+        with pytest.raises(MCPToolCallError, match="调用超时"):
             await client.call_tool("slow", {"delay": 0.5})
+        assert client._session is None
+        output = json.loads(await client.call_tool("echo", {"text": "reconnected"}))
+        assert output["structured_content"] == {"result": "reconnected"}
     finally:
         await client.close()
 

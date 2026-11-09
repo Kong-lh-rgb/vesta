@@ -57,6 +57,8 @@ class RunManager:
         self._run_finalizers = tuple(run_finalizers)
         # 进程内正在执行的 Run → asyncio.Task（用于 cancel / wait）。
         self._active_tasks: dict[str, asyncio.Task[None]] = {}
+        self._start_guard = asyncio.Lock()
+        self._accepting_runs = True
         # 会话内最近一次执行完成的 AgentResult（供 CLI 读取，不持久化）。
         self._last_results: dict[str, AgentResult] = {}
 
@@ -92,43 +94,80 @@ class RunManager:
 
         if self._checkpoint_store is not None:
             await self._checkpoint_store.recover_running()
-        stale_pending = await self._run_store.list_runs(status=RunStatus.PENDING)
         reconciled: list[Run] = []
-        for run in stale_pending:
-            updated = await self._run_store.mark_failed(
-                run.id,
-                error=_STALE_PENDING_ERROR,
-            )
-            reconciled.append(updated)
-        stale = await self._run_store.list_runs(status=RunStatus.RUNNING)
-        for run in stale:
+        # list_runs is a UI query with a default limit of 20. Drain each
+        # nonterminal status so larger restart backlogs cannot remain stuck.
+        while stale_pending := await self._run_store.list_runs(
+            status=RunStatus.PENDING
+        ):
+            for run in stale_pending:
+                updated = await self._run_store.mark_failed(
+                    run.id,
+                    error=_STALE_PENDING_ERROR,
+                )
+                reconciled.append(updated)
+        while stale := await self._run_store.list_runs(status=RunStatus.RUNNING):
+            for run in stale:
+                checkpoint = await self._checkpoint_store.get(run.id)
+                if checkpoint is None:
+                    updated = await self._run_store.mark_failed(
+                        run.id,
+                        error=_STALE_RUN_ERROR
+                        + " (no recoverable checkpoint)",
+                    )
+                elif checkpoint.status is CheckpointStatus.INTERRUPTED:
+                    updated = await self._run_store.mark_interrupted(
+                        run.id,
+                        error=_STALE_RUN_ERROR
+                        + " (recoverable checkpoint preserved)",
+                    )
+                elif checkpoint.status is CheckpointStatus.COMPLETED:
+                    updated = await self._run_store.mark_completed(
+                        run.id,
+                        stop_reason=(
+                            checkpoint.stop_reason.value
+                            if checkpoint.stop_reason is not None
+                            else None
+                        ),
+                    )
+                else:  # FAILED
+                    updated = await self._run_store.mark_failed(
+                        run.id,
+                        error=checkpoint.error,
+                    )
+                reconciled.append(updated)
+        # 旧版本在 checkpoint 写失败后可能先把 Run 标为 INTERRUPTED。
+        # 只修正没有可恢复 Checkpoint 的遗留记录；正常中断保持原状态。
+        for run in await self._run_store.list_interrupted_runs():
             checkpoint = await self._checkpoint_store.get(run.id)
-            if checkpoint is None:
-                updated = await self._run_store.mark_failed(
-                    run.id,
-                    error=_STALE_RUN_ERROR
-                    + " (no recoverable checkpoint)",
-                )
-            elif checkpoint.status is CheckpointStatus.INTERRUPTED:
-                updated = await self._run_store.mark_interrupted(
-                    run.id,
-                    error=_STALE_RUN_ERROR
-                    + " (recoverable checkpoint preserved)",
-                )
-            elif checkpoint.status is CheckpointStatus.COMPLETED:
-                updated = await self._run_store.mark_completed(
-                    run.id,
-                    stop_reason=(
-                        checkpoint.stop_reason.value
-                        if checkpoint.stop_reason is not None
-                        else None
-                    ),
-                )
-            else:  # FAILED
-                updated = await self._run_store.mark_failed(
-                    run.id,
-                    error=checkpoint.error,
-                )
+            if checkpoint is not None and checkpoint.status in {
+                CheckpointStatus.INTERRUPTED,
+                CheckpointStatus.RUNNING,
+            }:
+                continue
+            status = (
+                RunStatus.COMPLETED
+                if checkpoint is not None
+                and checkpoint.status is CheckpointStatus.COMPLETED
+                else RunStatus.CANCELLED
+                if checkpoint is not None
+                and checkpoint.status is CheckpointStatus.CANCELLED
+                else RunStatus.FAILED
+            )
+            updated = await self._run_store.repair_unrecoverable_interrupt(
+                run.id,
+                status=status,
+                error=(
+                    None
+                    if status is RunStatus.COMPLETED
+                    else "legacy interrupted run had no recoverable checkpoint"
+                ),
+                stop_reason=(
+                    checkpoint.stop_reason.value
+                    if checkpoint is not None and checkpoint.stop_reason is not None
+                    else None
+                ),
+            )
             reconciled.append(updated)
         return tuple(reconciled)
 
@@ -151,6 +190,7 @@ class RunManager:
         scheduled_for: datetime | None = None,
         triggered_at: datetime | None = None,
         mode: AgentMode = AgentMode.NORMAL,
+        needs_writeback: bool = False,
     ) -> tuple[str, asyncio.Task[None]]:
         """创建一个新 Run 并开始异步执行，返回 (run_id, task)。
 
@@ -163,31 +203,59 @@ class RunManager:
         执行的模式（NORMAL / PLAN），一并持久化。
         """
 
-        run = await self._run_store.create(
-            conversation_id=conversation_id,
-            user_message=user_message,
-            recovered_from_run_id=recovered_from_run_id,
-            source=source,
-            source_id=source_id,
-            scheduled_for=scheduled_for,
-            triggered_at=triggered_at,
-            mode=mode,
-        )
-        await self._run_store.mark_started(run.id)
-        task = asyncio.create_task(
-            self._execute(
-                run.id,
-                user_message=user_message,
+        async with self._start_guard:
+            if not self._accepting_runs:
+                raise RuntimeError("Host is shutting down; new runs are disabled")
+            run = await self._run_store.create(
                 conversation_id=conversation_id,
-                history=history,
-                summary_state=summary_state,
-                event_handler=event_handler,
-                recovery_run_id=recovery_run_id,
+                user_message=user_message,
+                recovered_from_run_id=recovered_from_run_id,
+                source=source,
+                source_id=source_id,
+                scheduled_for=scheduled_for,
+                triggered_at=triggered_at,
                 mode=mode,
+                needs_writeback=needs_writeback,
             )
-        )
-        self._active_tasks[run.id] = task
-        return run.id, task
+            await self._run_store.mark_started(run.id)
+            task = asyncio.create_task(
+                self._execute(
+                    run.id,
+                    user_message=user_message,
+                    conversation_id=conversation_id,
+                    history=history,
+                    summary_state=summary_state,
+                    event_handler=event_handler,
+                    recovery_run_id=recovery_run_id,
+                    mode=mode,
+                )
+            )
+            self._active_tasks[run.id] = task
+            return run.id, task
+
+    async def stop_accepting_if_idle(self) -> tuple[str, ...]:
+        """Atomically reserve an idle manager for a Host restart."""
+
+        async with self._start_guard:
+            active = self.active_run_ids
+            if not active:
+                self._accepting_runs = False
+            return active
+
+    async def shutdown(self) -> None:
+        """Stop new runs and interrupt active ones before shared resources close."""
+
+        async with self._start_guard:
+            self._accepting_runs = False
+            active = self.active_run_ids
+        for run_id in active:
+            try:
+                await self.interrupt(run_id)
+            except Exception:
+                logger.exception(
+                    "could not preserve checkpoint for %s; cancelling", run_id
+                )
+                await self.cancel(run_id)
 
     async def wait(self, run_id: str) -> Run:
         """等待 Run 执行结束并返回最终 Run 记录（幂等，可多次调用）。"""
@@ -200,6 +268,11 @@ class RunManager:
                 # 取消后的 Run 状态已由 _execute 更新为 CANCELLED。
                 pass
         return await self._run_store.require(run_id)
+
+    async def pending_writebacks(
+        self, conversation_id: str | None = None
+    ) -> tuple[Run, ...]:
+        return await self._run_store.list_pending_writebacks(conversation_id)
 
     def result(self, run_id: str) -> AgentResult | None:
         """返回本进程内最近一次执行的 AgentResult（用于 CLI 读取最终消息）。"""
@@ -323,31 +396,27 @@ class RunManager:
         与 ``cancel`` 的区别：终态是 INTERRUPTED（可被 ``recover`` 从断点继续），
         而不是 CANCELLED（终止）。AgentRuntime 收到取消信号时会在安全边界把
         Checkpoint 转 INTERRUPTED（保留 pending_tool_calls / completed_tool_results
-        与 phase）；这里先标 Run 为 INTERRUPTED，再发取消信号，_execute 的取消
-        分支看到已中断则不再覆盖为 CANCELLED。
+        与 phase）。Run 与 Checkpoint 在同一事务里落库后才取消执行任务。
         """
 
         run = await self._run_store.require(run_id)
         if run.status in TERMINAL_STATUSES:
-            # 幂等：已终态，返回当前状态。
+            if run.status is RunStatus.INTERRUPTED:
+                checkpoint = await self._checkpoint_store.get(run_id)
+                if (
+                    checkpoint is None
+                    or checkpoint.status is not CheckpointStatus.INTERRUPTED
+                ):
+                    raise ValueError("interrupted run has no recoverable checkpoint")
             return run
         if run.status is not RunStatus.RUNNING:
             raise ValueError(
                 f"cannot interrupt run in state {run.status.value}"
             )
-        await self._run_store.mark_interrupted(
-            run_id,
-            error="interrupted by user",
-        )
-        # 暂停语义：在发取消信号前先把 checkpoint 落成 INTERRUPTED——
-        # runtime 的取消兜底只处理仍处于 RUNNING 的 checkpoint，先标
-        # INTERRUPTED 即可保住"可恢复"边界不被兜底改写。
-        if self._checkpoint_store is not None:
-            with suppress(Exception):
-                await self._checkpoint_store.interrupt(
-                    run_id,
-                    error="interrupted by user",
-                )
+        if await self._checkpoint_store.get(run_id) is None:
+            # Agent 尚未建立第一个安全边界：没有可恢复状态，不伪装成暂停。
+            return await self.cancel(run_id)
+        await self._run_store.mark_interrupted_with_checkpoint(run_id)
         task = self._active_tasks.get(run_id)
         if task is not None and not task.done():
             task.cancel()
@@ -387,6 +456,7 @@ class RunManager:
         history: tuple[Any, ...] = (),
         summary_state: ConversationSummaryState | None = None,
         event_handler: AgentEventHandler | None = None,
+        needs_writeback: bool = False,
     ) -> tuple[str, asyncio.Task[None]]:
         """恢复一个 INTERRUPTED Run。
 
@@ -424,6 +494,7 @@ class RunManager:
             recovered_from_run_id=run_id,
             # 恢复后的新 Run 沿用旧 Run 的执行模式。
             mode=run.mode,
+            needs_writeback=needs_writeback,
         )
 
     # ------------------------------------------------------------------
@@ -500,8 +571,10 @@ class RunManager:
                     stop_reason=result.stop_reason.value,
                 )
         finally:
-            await self._run_finalizers_for(run_id)
-            self._active_tasks.pop(run_id, None)
+            try:
+                await self._run_finalizers_for(run_id)
+            finally:
+                self._active_tasks.pop(run_id, None)
 
 
 __all__ = ["RunManager"]

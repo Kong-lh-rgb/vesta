@@ -4,8 +4,6 @@ from __future__ import annotations
 
 import logging
 import re
-from collections.abc import AsyncIterator
-from contextlib import asynccontextmanager
 from datetime import UTC, datetime
 from pathlib import Path
 from uuid import uuid4
@@ -13,7 +11,7 @@ from uuid import uuid4
 import aiosqlite
 
 from app.conversation.store import DEFAULT_DATABASE_PATH
-from app.storage import configure_sqlite_connection
+from app.storage import sqlite_connection
 
 from .models import EvidenceDocument, EvidenceRecord, EvidenceSearchHit
 
@@ -122,7 +120,7 @@ class SQLiteEvidenceStore:
 
     async def initialize(self) -> None:
         self.database_path.parent.mkdir(parents=True, exist_ok=True)
-        async with self._connect() as database:
+        async with sqlite_connection(self.database_path) as database:
             await database.executescript(_SCHEMA)
             # 用量对账：旧版本数据 / 外部修改后重算一次运行总量。
             await database.execute(
@@ -196,7 +194,7 @@ class SQLiteEvidenceStore:
         evidence_id = uuid4().hex
         created_at = datetime.now(UTC)
         content_bytes = len(content.encode("utf-8"))
-        async with self._connect() as database:
+        async with sqlite_connection(self.database_path) as database:
             try:
                 # 串行化“幂等检查 + 容量检查 + 写入”，避免并发重放绕过限制。
                 await database.execute("BEGIN IMMEDIATE")
@@ -293,7 +291,7 @@ class SQLiteEvidenceStore:
             raise ValueError(
                 "evidence id must be a 4-32 character hexadecimal prefix"
             )
-        async with self._connect() as database:
+        async with sqlite_connection(self.database_path) as database:
             cursor = await database.execute(
                 """
                 SELECT * FROM evidence
@@ -387,18 +385,18 @@ class SQLiteEvidenceStore:
             limit=limit,
         )
         try:
-            async with self._connect() as database:
+            async with sqlite_connection(self.database_path) as database:
                 cursor = await database.execute(sql, tuple(parameters))
                 return await cursor.fetchall()
         except aiosqlite.Error as exc:
             logger.warning("evidence FTS search failed, rebuilding: %s", exc)
             try:
-                async with self._connect() as database:
+                async with sqlite_connection(self.database_path) as database:
                     await database.execute(
                         "INSERT INTO evidence_fts(evidence_fts) VALUES ('rebuild')"
                     )
                     await database.commit()
-                async with self._connect() as database:
+                async with sqlite_connection(self.database_path) as database:
                     cursor = await database.execute(sql, tuple(parameters))
                     return await cursor.fetchall()
             except aiosqlite.Error as fallback_exc:
@@ -426,7 +424,7 @@ class SQLiteEvidenceStore:
             task_id=task_id,
             limit=limit,
         )
-        async with self._connect() as database:
+        async with sqlite_connection(self.database_path) as database:
             cursor = await database.execute(sql, tuple(parameters))
             return await cursor.fetchall()
 
@@ -471,7 +469,7 @@ class SQLiteEvidenceStore:
     ) -> tuple[EvidenceRecord, ...]:
         if limit < 1:
             raise ValueError("limit must be at least 1")
-        async with self._connect() as database:
+        async with sqlite_connection(self.database_path) as database:
             cursor = await database.execute(
                 """
                 SELECT * FROM evidence WHERE conversation_id = ?
@@ -489,7 +487,7 @@ class SQLiteEvidenceStore:
         task_id: str,
         limit: int = 20,
     ) -> tuple[EvidenceRecord, ...]:
-        async with self._connect() as database:
+        async with sqlite_connection(self.database_path) as database:
             cursor = await database.execute(
                 """
                 SELECT * FROM evidence
@@ -509,7 +507,7 @@ class SQLiteEvidenceStore:
         """删除某会话归档的全部工具原始证据。"""
 
         normalized = _required(conversation_id, "conversation_id")
-        async with self._connect() as database:
+        async with sqlite_connection(self.database_path) as database:
             cursor = await database.execute(
                 "DELETE FROM evidence WHERE conversation_id = ?",
                 (normalized,),
@@ -523,15 +521,6 @@ class SQLiteEvidenceStore:
             await database.commit()
         return max(cursor.rowcount, 0)
 
-    @asynccontextmanager
-    async def _connect(self) -> AsyncIterator[aiosqlite.Connection]:
-        database = await aiosqlite.connect(self.database_path)
-        database.row_factory = aiosqlite.Row
-        await configure_sqlite_connection(database)
-        try:
-            yield database
-        finally:
-            await database.close()
 
 
 def _record_from_row(row: aiosqlite.Row) -> EvidenceRecord:

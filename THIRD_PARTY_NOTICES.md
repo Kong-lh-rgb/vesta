@@ -5,10 +5,11 @@ files originate from [GitHub Spec Kit](https://github.com/github/spec-kit).
 Those files retain GitHub, Inc.'s copyright and MIT license; Vesta's copyright
 statement in [LICENSE](LICENSE) does not claim ownership of them.
 
-The demo images under `docs/assets/` were not independently provenance-checked
-in this review. Before distributing them as release assets, the maintainer
-should confirm their origin and any embedded third-party content. The Vesta
-copyright line does not assert ownership of third-party material within them.
+The demo images under `docs/assets/` are already public in this repository,
+but their provenance was not independently checked in this review. The
+maintainer should confirm their origin and any embedded third-party content
+before reusing them in a release package. The Vesta copyright line does not
+assert ownership of third-party material within them.
 
 ## GitHub Spec Kit
 

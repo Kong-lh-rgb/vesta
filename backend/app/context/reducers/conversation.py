@@ -264,13 +264,9 @@ def build_summary_candidate(
         return (*history, *current), len(history)
 
     covered_prefix = history[: state.covered_message_count]
-    preserved_system = tuple(
-        message
-        for message in covered_prefix
-        if message.role is MessageRole.SYSTEM and message.name != SUMMARY_MESSAGE_NAME
-    )
+    preserved = _preserved_prefix(covered_prefix)
     prepared_history = (
-        *preserved_system,
+        *preserved,
         state.summary.to_message(),
         *history[state.covered_message_count :],
     )
@@ -308,11 +304,7 @@ def _summary_cutoff(
         for index, item in enumerate(blocks)
         if isinstance(item.block, ToolRoundBlock)
     ]
-    protected: set[int] = {
-        index
-        for index, item in enumerate(blocks)
-        if isinstance(item.block, MalformedToolBlock)
-    }
+    protected: set[int] = set()
     if keep_recent_conversation_blocks:
         protected.update(conversation_indices[-keep_recent_conversation_blocks:])
     if keep_recent_tool_rounds:
@@ -347,13 +339,17 @@ def _replace_covered_prefix(
     covered_raw_messages: Sequence[Message],
     state: ConversationSummaryState,
 ) -> tuple[Message, ...]:
+    preserved_ids = {id(message) for message in _preserved_prefix(covered_raw_messages)}
     removable_ids = {
         id(message)
         for message in covered_raw_messages
-        if message.role is not MessageRole.SYSTEM
+        if id(message) not in preserved_ids
     }
     covered_call_ids = {
-        call.id for message in covered_raw_messages for call in message.tool_calls
+        call.id
+        for message in covered_raw_messages
+        if id(message) not in preserved_ids
+        for call in message.tool_calls
     }
     kept: list[Message] = []
     for message in prepared_messages:
@@ -376,6 +372,19 @@ def _replace_covered_prefix(
         insertion_index += 1
     kept.insert(insertion_index, state.summary.to_message())
     return tuple(kept)
+
+
+def _preserved_prefix(messages: Sequence[Message]) -> tuple[Message, ...]:
+    """Keep system instructions and malformed tool protocol verbatim across folds."""
+
+    return tuple(
+        message
+        for block in partition_messages(messages)
+        if isinstance(block, MalformedToolBlock)
+        or (block.messages[0].role is MessageRole.SYSTEM)
+        for message in block.messages
+        if message.name != SUMMARY_MESSAGE_NAME
+    )
 
 
 __all__ = [

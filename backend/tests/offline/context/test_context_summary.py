@@ -261,6 +261,42 @@ async def test_summary_watermark_prevents_resummarizing_same_history() -> None:
 
 
 @pytest.mark.asyncio
+async def test_old_malformed_tool_block_does_not_freeze_watermark() -> None:
+    malformed = Message(
+        role=MessageRole.ASSISTANT,
+        tool_calls=(ToolCall(id="missing", name="read_file", arguments={}),),
+    )
+    history = (
+        *_history(1),
+        malformed,
+        *_history(4)[1:],
+    )
+    current = (Message(role=MessageRole.USER, content="继续"),)
+    summarizer = FakeSummarizer()
+    reducer = ConversationReducer(
+        summarizer,
+        keep_recent_conversation_blocks=1,
+        keep_recent_tool_rounds=0,
+    )
+    first = await reducer.reduce(
+        raw_history=history,
+        prepared_messages=(*history, *current),
+        current_messages=current,
+        previous_state=None,
+        initial_estimated_input_tokens=_estimate((*history, *current)),
+        target_tokens=500,
+        estimate=_estimate,
+    )
+    assert first.summary_state is not None
+    assert first.summary_state.covered_message_count > history.index(malformed)
+    assert malformed in first.messages
+    second_messages, _ = build_summary_candidate(
+        history, current, first.summary_state
+    )
+    assert malformed in second_messages
+
+
+@pytest.mark.asyncio
 async def test_conversation_reducer_summarizes_old_prefix_and_keeps_recent() -> None:
     history = _history(6)
     current = (Message(role=MessageRole.USER, content="当前问题"),)

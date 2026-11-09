@@ -3,8 +3,7 @@
 from __future__ import annotations
 
 import json
-from collections.abc import AsyncIterator, Sequence
-from contextlib import asynccontextmanager
+from collections.abc import Sequence
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -13,7 +12,7 @@ import aiosqlite
 from app.agent.result import AgentStopReason
 from app.conversation import DEFAULT_DATABASE_PATH
 from app.models.types import Message, MessageRole, ToolCall, ToolResult
-from app.storage import configure_sqlite_connection
+from app.storage import sqlite_connection
 
 from .models import CheckpointPhase, CheckpointStatus, RunCheckpoint
 
@@ -52,7 +51,7 @@ class SQLiteCheckpointStore:
 
     async def initialize(self) -> None:
         self.database_path.parent.mkdir(parents=True, exist_ok=True)
-        async with self._connect() as database:
+        async with sqlite_connection(self.database_path) as database:
             await database.executescript(_SCHEMA)
             await database.commit()
 
@@ -68,7 +67,7 @@ class SQLiteCheckpointStore:
         if user_message.role is not MessageRole.USER:
             raise ValueError("checkpoint user_message must have user role")
         now = datetime.now(UTC).isoformat()
-        async with self._connect() as database:
+        async with sqlite_connection(self.database_path) as database:
             try:
                 await database.execute(
                     """
@@ -127,7 +126,7 @@ class SQLiteCheckpointStore:
     ) -> RunCheckpoint:
         """记录一个工具的统一结果，并从待执行集合移除。"""
 
-        async with self._connect() as database:
+        async with sqlite_connection(self.database_path) as database:
             await database.execute("BEGIN IMMEDIATE")
             checkpoint = await _require_row(database, run_id)
             _require_running(checkpoint)
@@ -228,7 +227,7 @@ class SQLiteCheckpointStore:
         if conversation_id is not None:
             query += " AND conversation_id = ?"
             parameters.append(_required_identifier(conversation_id, "conversation_id"))
-        async with self._connect() as database:
+        async with sqlite_connection(self.database_path) as database:
             cursor = await database.execute(query, tuple(parameters))
             run_ids = [row["run_id"] for row in await cursor.fetchall()]
         recovered: list[RunCheckpoint] = []
@@ -247,7 +246,7 @@ class SQLiteCheckpointStore:
     ) -> RunCheckpoint | None:
         """返回当前会话最近一条尚未核对的中断记录。"""
 
-        async with self._connect() as database:
+        async with sqlite_connection(self.database_path) as database:
             cursor = await database.execute(
                 """
                 SELECT * FROM run_checkpoints
@@ -272,7 +271,7 @@ class SQLiteCheckpointStore:
         取最近一条（避免会话内存在多个中断 Run 时恢复错对象）。
         """
 
-        async with self._connect() as database:
+        async with sqlite_connection(self.database_path) as database:
             cursor = await database.execute(
                 """
                 SELECT * FROM run_checkpoints
@@ -297,7 +296,7 @@ class SQLiteCheckpointStore:
     ) -> RunCheckpoint:
         """在后续 Run 正常完成后标记中断记录已被模型处理。"""
 
-        async with self._connect() as database:
+        async with sqlite_connection(self.database_path) as database:
             checkpoint = await _require_row(database, interrupted_run_id)
             if checkpoint.status is not CheckpointStatus.INTERRUPTED:
                 raise ValueError("only interrupted checkpoint can be recovered")
@@ -317,7 +316,7 @@ class SQLiteCheckpointStore:
         return await self._require(interrupted_run_id)
 
     async def get(self, run_id: str) -> RunCheckpoint | None:
-        async with self._connect() as database:
+        async with sqlite_connection(self.database_path) as database:
             cursor = await database.execute(
                 "SELECT * FROM run_checkpoints WHERE run_id = ?",
                 (_required_identifier(run_id, "run_id"),),
@@ -340,7 +339,7 @@ class SQLiteCheckpointStore:
             parameters.append(_required_identifier(conversation_id, "conversation_id"))
         query += " ORDER BY updated_at DESC LIMIT ?"
         parameters.append(limit)
-        async with self._connect() as database:
+        async with sqlite_connection(self.database_path) as database:
             cursor = await database.execute(query, tuple(parameters))
             rows = await cursor.fetchall()
         return tuple(_checkpoint_from_row(row) for row in rows)
@@ -360,7 +359,7 @@ class SQLiteCheckpointStore:
             placeholders = ",".join("?" for _ in run_ids)
             query += f" OR run_id IN ({placeholders})"
             parameters.extend(run_ids)
-        async with self._connect() as database:
+        async with sqlite_connection(self.database_path) as database:
             cursor = await database.execute(query, tuple(parameters))
             await database.commit()
         return max(cursor.rowcount, 0)
@@ -375,7 +374,7 @@ class SQLiteCheckpointStore:
     ) -> RunCheckpoint:
         if step < 1:
             raise ValueError("checkpoint step must be at least 1")
-        async with self._connect() as database:
+        async with sqlite_connection(self.database_path) as database:
             await database.execute("BEGIN IMMEDIATE")
             checkpoint = await _require_row(database, run_id)
             _require_running(checkpoint)
@@ -403,7 +402,7 @@ class SQLiteCheckpointStore:
         error: str | None = None,
         preserve_phase: bool = False,
     ) -> RunCheckpoint:
-        async with self._connect() as database:
+        async with sqlite_connection(self.database_path) as database:
             await database.execute("BEGIN IMMEDIATE")
             checkpoint = await _require_row(database, run_id)
             _require_running(checkpoint)
@@ -445,15 +444,6 @@ class SQLiteCheckpointStore:
             raise KeyError(f"Checkpoint 不存在：{run_id}")
         return checkpoint
 
-    @asynccontextmanager
-    async def _connect(self) -> AsyncIterator[aiosqlite.Connection]:
-        database = await aiosqlite.connect(self.database_path)
-        database.row_factory = aiosqlite.Row
-        await configure_sqlite_connection(database)
-        try:
-            yield database
-        finally:
-            await database.close()
 
 
 async def _require_row(

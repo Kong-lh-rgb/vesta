@@ -89,6 +89,10 @@ async def call_model(
         async with asyncio.timeout(settings.skill_learning_timeout_seconds):
             response = await adapter.complete(request)
         usage = response.usage
+        if (response.finish_reason or "").lower() in {
+            "length", "max_tokens", "max_output_tokens"
+        }:
+            raise ValueError("skill learning model output was truncated")
         raw_output = response.message.content
         if not raw_output:
             raise ValueError("skill learning model returned empty content")

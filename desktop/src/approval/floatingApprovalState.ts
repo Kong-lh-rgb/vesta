@@ -82,6 +82,14 @@ export function reduceFloatingApprovalState(
         const [current, ...queue] = pending
         return current ? startApproval(current, queue) : initialFloatingApprovalState
       }
+      const currentId = state.current.id
+      if (
+        pending.length > 0 &&
+        !pending.some((approval) => approval.id === currentId)
+      ) {
+        const [current, ...queue] = pending
+        return startApproval(current, queue)
+      }
       let queue = state.queue
       for (const approval of pending) {
         if (approval.id !== state.current.id) queue = pushApproval(queue, approval)
@@ -96,6 +104,7 @@ export function reduceFloatingApprovalState(
       // Agent 继续阶段遇到下一次审批时，立即切回可操作的审批卡片。
       if (
         state.phase === 'continuing' ||
+        state.phase === 'executing' ||
         state.phase === 'action_delivered' ||
         state.phase === 'action_failed' ||
         state.phase === 'run_completed' ||

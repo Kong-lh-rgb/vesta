@@ -20,7 +20,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-from fastapi.testclient import TestClient
+from fastapi.testclient import TestClient as _TestClient
 from pydantic import SecretStr
 from starlette.websockets import WebSocketDisconnect
 
@@ -47,6 +47,19 @@ from app.server import app as server_app_module
 from app.server.app import create_app
 from app.skill_learning import SkillLearningSettings
 from app.tools.base import BaseTool
+
+
+class TestClient(_TestClient):
+    """Desktop handshake used by existing RPC transport tests."""
+
+    def websocket_connect(self, url: str, **kwargs: Any) -> Any:
+        headers = dict(kwargs.pop("headers", {}))
+        headers.setdefault("origin", "http://127.0.0.1:5173")
+        subprotocols = list(kwargs.pop("subprotocols", []))
+        subprotocols.append(f"vesta-rpc.{self.app.state.rpc_token}")
+        return super().websocket_connect(
+            url, headers=headers, subprotocols=subprotocols, **kwargs
+        )
 
 
 def _model_response(
@@ -219,7 +232,7 @@ def make_app(tmp_path):
                 skill_learning_data_dir=tmp_path / "skill-learning",
             ),
         )
-        app = create_app(application)
+        app = create_app(application, rpc_token_file=tmp_path / "rpc-token")
         return app, application, adapter
 
     return build
@@ -277,6 +290,50 @@ def test_rpc_rejects_non_loopback_client(make_app, monkeypatch) -> None:
         with pytest.raises(WebSocketDisconnect):
             with client.websocket_connect("/rpc"):
                 pass
+
+
+@pytest.mark.parametrize(
+    ("origin", "authorized"),
+    [
+        ("https://unrelated.example", True),
+        ("http://127.0.0.1:5173", False),
+        (None, True),
+    ],
+)
+def test_rpc_rejects_untrusted_handshake(make_app, origin, authorized) -> None:
+    app, _, _ = make_app()
+    headers = {"origin": origin} if origin is not None else {}
+    subprotocols = [f"vesta-rpc.{app.state.rpc_token}"] if authorized else []
+    with _TestClient(app) as client:
+        with pytest.raises(WebSocketDisconnect):
+            with client.websocket_connect(
+                "/rpc", headers=headers, subprotocols=subprotocols
+            ):
+                pass
+
+
+@pytest.mark.parametrize("origin", ["null", "file://"])
+def test_rpc_accepts_packaged_origin_with_token(make_app, origin) -> None:
+    app, _, _ = make_app()
+    with _TestClient(app) as client:
+        with client.websocket_connect(
+            "/rpc",
+            headers={"origin": origin},
+            subprotocols=[f"vesta-rpc.{app.state.rpc_token}"],
+        ) as websocket:
+            assert _require_result(_rpc_call(websocket, 1, "system.info")[0])
+
+
+def test_health_rejects_non_loopback_client(make_app, monkeypatch) -> None:
+    app, _application, _adapter = make_app()
+    with TestClient(app) as client:
+        assert client.get("/health").status_code == 200
+        monkeypatch.setattr(
+            server_app_module, "_is_loopback_client", lambda host: False
+        )
+        response = client.get("/health")
+        assert response.status_code == 403
+        assert "provider" not in response.text
 
 
 def test_parse_error(make_app) -> None:

@@ -17,6 +17,7 @@ function approval(id: string, toolName = 'computer_click'): ApprovalRequest {
     tool_call_id: `call-${id}`,
     arguments: {},
     reason: '',
+    ui_scope: 'desktop',
     status: 'pending',
     created_at: '2026-08-21T00:00:00+00:00',
     resolved_at: null,

@@ -131,6 +131,7 @@ class ConversationService:
         mode: AgentMode,
     ) -> DispatchResult:
         # 1) 从持久化源加载“触发那一刻最新”的 history / summary。
+        await self.reconcile_pending_writebacks(conversation_id)
         history, summary_state = await self._load_history_and_summary(
             conversation_id
         )
@@ -150,6 +151,7 @@ class ConversationService:
             scheduled_for=trigger.scheduled_for,
             triggered_at=trigger.triggered_at,
             mode=mode,
+            needs_writeback=conversation_id is not None,
         )
         if on_run_started is not None:
             await on_run_started(run_id)
@@ -163,7 +165,7 @@ class ConversationService:
         )
 
         # 4) 把新的完整 history 写回 ConversationStore（保存最新 Summary）。
-        await self._write_back(conversation_id, result)
+        await self._write_back(run_id, conversation_id, result)
 
         return DispatchResult(
             run=run,
@@ -221,6 +223,7 @@ class ConversationService:
         on_run_started: Any | None,
     ) -> DispatchResult:
         # 1) 从持久化源加载最新 history / summary（与 dispatch 一致）。
+        await self.reconcile_pending_writebacks(conversation_id)
         history, summary_state = await self._load_history_and_summary(
             conversation_id
         )
@@ -234,6 +237,7 @@ class ConversationService:
             history=history,
             summary_state=summary_state,
             event_handler=handler,
+            needs_writeback=conversation_id is not None,
         )
         if on_run_started is not None:
             await on_run_started(new_run_id)
@@ -249,7 +253,7 @@ class ConversationService:
         )
 
         # 4) 把恢复后的完整 history 写回 ConversationStore（保存最新 Summary）。
-        await self._write_back(conversation_id, result)
+        await self._write_back(new_run_id, conversation_id, result)
 
         return DispatchResult(
             run=recovered_run,
@@ -395,25 +399,88 @@ class ConversationService:
 
     async def _write_back(
         self,
+        run_id: str,
         conversation_id: str | None,
         result: AgentResult,
     ) -> None:
         """把完整 history 写回 ConversationStore（保存最新 Summary）。"""
 
         if conversation_id is not None:
-            await self._conversation_store.replace_messages(
-                conversation_id,
-                result.messages,
+            await self._conversation_store.commit_run_writeback(
+                run_id, conversation_id, result
             )
-        if (
-            self._summary_store is not None
-            and conversation_id is not None
-            and result.summary_state is not None
-        ):
-            await self._summary_store.save(
-                conversation_id,
-                result.summary_state,
+
+    async def reconcile_all_writebacks(self) -> None:
+        """Replay durable terminal results left between Run end and writeback."""
+
+        for run in await self._run_manager.pending_writebacks():
+            try:
+                await self._replay_writeback(run)
+            except Exception:
+                # Keep the pending row: the next dispatch to this conversation
+                # will retry and refuse to overwrite history if replay fails.
+                logger.exception(
+                    "could not replay conversation writeback for %s", run.id
+                )
+
+    async def reconcile_pending_writebacks(
+        self, conversation_id: str | None
+    ) -> None:
+        """Drain older writes before starting another Run in this conversation."""
+
+        if conversation_id is None:
+            return
+        for run in await self._run_manager.pending_writebacks(conversation_id):
+            await self._replay_writeback(run)
+
+    async def _replay_writeback(self, run: Run) -> None:
+        if run.status is RunStatus.RUNNING or run.status is RunStatus.PENDING:
+            raise RuntimeError(f"previous run is still active: {run.id}")
+        if run.conversation_id is None:
+            raise ValueError(f"writeback run has no conversation: {run.id}")
+
+        try:
+            events = await self._trace_store.load_events(run.id)
+        except KeyError:
+            events = ()
+        result = next(
+            (event.result for event in reversed(events) if event.result), None
+        )
+        if result is None:
+            # Cancellation can land after RunManager has set the terminal state
+            # but before ConversationService emits its synthetic trace event.
+            if run.status not in {
+                RunStatus.CANCELLED,
+                RunStatus.INTERRUPTED,
+                RunStatus.FAILED,
+            }:
+                raise RuntimeError(f"terminal result is missing for run {run.id}")
+            history = await self._conversation_store.load_messages(
+                run.conversation_id
             )
+            reason = (
+                AgentStopReason.CANCELLED
+                if run.status is RunStatus.CANCELLED
+                else AgentStopReason.INTERRUPTED
+                if run.status is RunStatus.INTERRUPTED
+                else AgentStopReason.MODEL_ERROR
+            )
+            message = Message(
+                role=MessageRole.ASSISTANT,
+                content=f"Run {run.status.value}: execution stopped",
+            )
+            user_messages = (
+                (Message(role=MessageRole.USER, content=run.user_message),)
+                if run.recovered_from_run_id is None
+                else ()
+            )
+            result = AgentResult(
+                run_id=run.id,
+                final_message=message,
+                messages=(*history, *user_messages, message),
+                stop_reason=reason,
+            )
+        await self._write_back(run.id, run.conversation_id, result)
 
     async def is_run_running(self, run_id: str) -> bool:
         """供 Scheduler 做 max_instances 检查（只读 Run 生命周期查询）。"""

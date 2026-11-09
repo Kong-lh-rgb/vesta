@@ -2,7 +2,7 @@
 
 import { describe, expect, it } from 'vitest'
 
-import type { AgentEvent, ApprovalRequest } from '../api/types'
+import type { AgentEvent, AgentEventType, ApprovalRequest } from '../api/types'
 import {
   floatingApprovalDismissDelay,
   floatingApprovalShouldBeVisible,
@@ -28,7 +28,7 @@ function approval(id: string, overrides: Partial<ApprovalRequest> = {}): Approva
 }
 
 function agentEvent(
-  type: string,
+  type: AgentEventType,
   overrides: Partial<AgentEvent> = {},
 ): AgentEvent {
   return {
@@ -197,6 +197,27 @@ describe('reduceFloatingApprovalState', () => {
     })
     expect(state.current?.id).toBe('b')
     expect(state.phase).toBe('pending')
+  })
+
+  it('执行阶段出现新审批时不会把它排在隐藏浮窗之后', () => {
+    const executing = {
+      ...initialFloatingApprovalState,
+      current: approval('a', { status: 'approved' }),
+      phase: 'executing' as const,
+    }
+    const fromEvent = reduceFloatingApprovalState(executing, {
+      type: 'approval_required',
+      approval: approval('b'),
+    })
+    expect(fromEvent.current?.id).toBe('b')
+    expect(fromEvent.phase).toBe('pending')
+
+    const fromReconnect = reduceFloatingApprovalState(executing, {
+      type: 'sync_pending',
+      approvals: [approval('b')],
+    })
+    expect(fromReconnect.current?.id).toBe('b')
+    expect(fromReconnect.phase).toBe('pending')
   })
 
   it('终态 dismiss 后继续 FIFO 下一项', () => {

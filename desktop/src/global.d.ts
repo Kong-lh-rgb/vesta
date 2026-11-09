@@ -2,6 +2,7 @@
 
 interface VestaDesktopApi {
   platform: string
+  getRpcToken: () => string | null
   versions: {
     electron: string
     node: string

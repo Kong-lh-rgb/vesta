@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 from pathlib import Path
 from types import SimpleNamespace
@@ -277,6 +278,27 @@ async def test_status_unknown_when_helper_errors(tmp_path) -> None:
             "screen_capture_status": RuntimeError("boom"),
         }
     )
+    runtime = MacOSComputerRuntime(stub)  # type: ignore[arg-type]
+    app = await _build_application(
+        tmp_path, computer_runtime=runtime, computer_host_status=_available_status()
+    )
+    try:
+        result = await computer_rpc.computer_status({}, _ctx(app))
+        assert result["permissions"] == {
+            "accessibility": "unknown",
+            "screen_recording": "unknown",
+        }
+    finally:
+        await app.close()
+
+
+async def test_status_returns_unknown_when_helper_hangs(tmp_path, monkeypatch) -> None:
+    class HangingHelperClient(StubHelperClient):
+        async def call(self, method: str, params: dict | None = None, **kwargs):
+            await asyncio.Event().wait()
+
+    monkeypatch.setattr(computer_rpc, "_STATUS_TIMEOUT_SECONDS", 0.01)
+    stub = HangingHelperClient()
     runtime = MacOSComputerRuntime(stub)  # type: ignore[arg-type]
     app = await _build_application(
         tmp_path, computer_runtime=runtime, computer_host_status=_available_status()

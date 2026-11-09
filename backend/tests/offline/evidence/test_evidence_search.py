@@ -12,6 +12,7 @@ from pathlib import Path
 import pytest
 
 from app.evidence import SQLiteEvidenceStore
+from app.storage import sqlite_connection
 
 
 def _digest(content: str) -> str:
@@ -172,7 +173,7 @@ async def test_silent_projection_damage_heals_via_forced_rebuild(store) -> None:
     """静默损坏（不抛错、计数也对不上检测）时：清状态标记触发全量重建。"""
 
     await _seed(store, "conv-1", [("t1", "read_file", "自愈标记 SELFHEAL 内容")])
-    async with store._connect() as database:
+    async with sqlite_connection(store.database_path) as database:
         await database.execute(
             "INSERT INTO evidence_fts(evidence_fts) VALUES ('delete-all')"
         )
@@ -183,7 +184,7 @@ async def test_silent_projection_damage_heals_via_forced_rebuild(store) -> None:
     assert await store.search(conversation_id="conv-1", query="SELFHEAL") == ()
 
     # 文档化修复路径：清重建标记后重新 initialize 触发全量重建。
-    async with store._connect() as database:
+    async with sqlite_connection(store.database_path) as database:
         await database.execute("DELETE FROM evidence_fts_state")
         await database.commit()
     await store.initialize()
@@ -198,7 +199,7 @@ async def test_row_count_mismatch_triggers_rebuild(store) -> None:
     """投影行数与原文不一致（如中断/手工删行）时：启动对账自动重建。"""
 
     await _seed(store, "conv-1", [("t1", "read_file", "对账标记 AUDIT 内容")])
-    async with store._connect() as database:
+    async with sqlite_connection(store.database_path) as database:
         # 制造行数不一致：删除一条原文但绕过触发器（模拟中断遗留）。
         await database.execute("DROP TRIGGER evidence_fts_ad")
         await database.execute("DELETE FROM evidence WHERE tool_call_id = 't1'")
@@ -218,7 +219,7 @@ async def test_missing_projection_degrades_to_scan(store) -> None:
     """投影表丢失：检索降级 instr 扫描，结果正确；原文不受影响。"""
 
     await _seed(store, "conv-1", [("t1", "read_file", "降级标记 FALLBACK 内容")])
-    async with store._connect() as database:
+    async with sqlite_connection(store.database_path) as database:
         await database.execute("DROP TABLE evidence_fts")
         await database.commit()
 
@@ -236,7 +237,7 @@ async def test_projection_loss_never_affects_original(store) -> None:
     await _seed(store, "conv-1", [("t1", "read_file", "重建标记 REBUILD 内容")])
     evidence_id = (await store.list_recent(conversation_id="conv-1"))[0].id
 
-    async with store._connect() as database:
+    async with sqlite_connection(store.database_path) as database:
         await database.execute("DROP TABLE evidence_fts")
         await database.execute("DELETE FROM evidence_fts_state")
         await database.commit()

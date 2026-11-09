@@ -161,8 +161,9 @@ ConversationService / RunManager / AgentRuntime
 
 - Python 3.12+
 - Node.js 22+
-- macOS + Swift：Computer Runtime 需要 macOS 和辅助功能权限；当前受限 Shell 与 MCP
-  进程也只有 macOS Seatbelt 后端。其他平台缺少安全后端时会拒绝启动这些进程。
+- macOS + Swift：Computer Runtime 需要辅助功能权限；窗口截图还需要 macOS 14+
+  和屏幕录制权限。当前受限 Shell 与 MCP 进程只有 macOS Seatbelt 后端；其他平台
+  缺少安全后端时会拒绝启动这些进程。
 
 ### 1. Clone and install Backend
 
@@ -208,7 +209,9 @@ npm ci
 npm run electron:dev
 ```
 
-纯浏览器 Renderer 调试可以使用 `npm run dev`，完整桌面能力需要 Electron。
+纯浏览器 Renderer 可使用 `npm run dev` 检查界面；连接本机 Host 的 RPC
+需要 Electron。Host 会在 `~/.vesta/rpc-token` 创建仅当前用户可读的连接凭证，
+Desktop 自动读取。若已有凭证文件权限不安全，Host 会拒绝启动并提示修正权限。
 
 ## Extensions
 

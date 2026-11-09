@@ -55,10 +55,17 @@ class StdioMCPClient:
         self.sandbox_supervisor = sandbox_supervisor
         self._stack: AsyncExitStack | None = None
         self._session: ClientSession | None = None
+        self._lock = asyncio.Lock()
+        self._needs_reconnect = False
         self.launch_spec: SandboxLaunchSpec | None = None
 
     async def start(self) -> None:
         """启动子进程并完成 MCP initialize 握手。"""
+
+        async with self._lock:
+            await self._start_unlocked()
+
+    async def _start_unlocked(self) -> None:
 
         if self._session is not None:
             return
@@ -87,20 +94,28 @@ class StdioMCPClient:
             ) from exc
         self._stack = stack
         self._session = session
+        self._needs_reconnect = False
         self.launch_spec = launch
 
     async def list_tools(self) -> tuple[MCPRemoteTool, ...]:
         """发现服务器暴露的全部工具。"""
 
-        session = self._require_session()
-        try:
-            async with asyncio.timeout(self.config.call_timeout_seconds):
-                result = await session.list_tools()
-        except Exception as exc:
-            raise MCPToolDiscoveryError(
-                f"MCP Server '{self.config.name}' 工具发现失败: "
-                f"{type(exc).__name__}: {exc}"
-            ) from exc
+        async with self._lock:
+            await self._reconnect_if_needed()
+            session = self._require_session()
+            try:
+                async with asyncio.timeout(self.config.call_timeout_seconds):
+                    result = await session.list_tools()
+            except TimeoutError as exc:
+                await self._reset_after_timeout()
+                raise MCPToolDiscoveryError(
+                    f"MCP Server '{self.config.name}' 工具发现超时；会话已重置"
+                ) from exc
+            except Exception as exc:
+                raise MCPToolDiscoveryError(
+                    f"MCP Server '{self.config.name}' 工具发现失败: "
+                    f"{type(exc).__name__}: {exc}"
+                ) from exc
         return tuple(
             MCPRemoteTool(
                 name=tool.name,
@@ -113,15 +128,22 @@ class StdioMCPClient:
     async def call_tool(self, name: str, arguments: dict[str, Any]) -> str:
         """调用远端工具并把 MCP 内容转换为文本。"""
 
-        session = self._require_session()
-        try:
-            async with asyncio.timeout(self.config.call_timeout_seconds):
-                result = await session.call_tool(name, arguments)
-        except Exception as exc:
-            raise MCPToolCallError(
-                f"MCP 工具 '{self.config.name}/{name}' 调用失败: "
-                f"{type(exc).__name__}: {exc}"
-            ) from exc
+        async with self._lock:
+            await self._reconnect_if_needed()
+            session = self._require_session()
+            try:
+                async with asyncio.timeout(self.config.call_timeout_seconds):
+                    result = await session.call_tool(name, arguments)
+            except TimeoutError as exc:
+                await self._reset_after_timeout()
+                raise MCPToolCallError(
+                    f"MCP 工具 '{self.config.name}/{name}' 调用超时；会话已重置"
+                ) from exc
+            except Exception as exc:
+                raise MCPToolCallError(
+                    f"MCP 工具 '{self.config.name}/{name}' 调用失败: "
+                    f"{type(exc).__name__}: {exc}"
+                ) from exc
         output = serialize_mcp_result(result)
         if result.isError:
             raise MCPToolCallError(
@@ -132,11 +154,30 @@ class StdioMCPClient:
     async def close(self) -> None:
         """关闭会话与 stdio 子进程；可重复调用。"""
 
+        async with self._lock:
+            await self._close_unlocked()
+
+    async def _close_unlocked(self) -> None:
         stack = self._stack
         self._stack = None
         self._session = None
+        self._needs_reconnect = False
         if stack is not None:
             await stack.aclose()
+
+    async def _reset_after_timeout(self) -> None:
+        # Cancellation can leave the SDK session and child process in an
+        # uncertain state. Never retry the timed-out tool's side effect.
+        stack = self._stack
+        self._stack = None
+        self._session = None
+        self._needs_reconnect = True
+        if stack is not None:
+            await _close_quietly(stack)
+
+    async def _reconnect_if_needed(self) -> None:
+        if self._needs_reconnect:
+            await self._start_unlocked()
 
     def _prepare_launch(self, environment: dict[str, str]) -> SandboxLaunchSpec:
         if self.sandbox_supervisor is None:

@@ -7,17 +7,16 @@
 
 from __future__ import annotations
 
-from collections.abc import AsyncIterator
-from contextlib import asynccontextmanager
 from datetime import UTC, datetime
 from pathlib import Path
 from uuid import uuid4
 
 import aiosqlite
 
+from app.checkpoint.models import CheckpointStatus
 from app.conversation import DEFAULT_DATABASE_PATH
 from app.models.types import AgentMode
-from app.storage import configure_sqlite_connection
+from app.storage import sqlite_connection
 
 from .models import (
     _ALLOWED_TRANSITIONS,
@@ -51,6 +50,11 @@ ON runs(conversation_id, created_at DESC);
 
 CREATE INDEX IF NOT EXISTS idx_runs_status_updated
 ON runs(status, created_at DESC);
+
+CREATE TABLE IF NOT EXISTS run_writebacks (
+    run_id TEXT PRIMARY KEY,
+    conversation_id TEXT NOT NULL
+);
 """
 
 # 旧库迁移：为已存在的 runs 表补齐 provenance 列（新库由 _SCHEMA 直接创建）。
@@ -71,7 +75,7 @@ class SQLiteRunStore:
 
     async def initialize(self) -> None:
         self.database_path.parent.mkdir(parents=True, exist_ok=True)
-        async with self._connect() as database:
+        async with sqlite_connection(self.database_path) as database:
             await database.executescript(_SCHEMA)
             for column in _PROVENANCE_COLUMNS:
                 try:
@@ -93,12 +97,13 @@ class SQLiteRunStore:
         scheduled_for: datetime | None = None,
         triggered_at: datetime | None = None,
         mode: AgentMode = AgentMode.NORMAL,
+        needs_writeback: bool = False,
     ) -> Run:
         """创建一个 PENDING Run，并返回完整记录。"""
 
         run_id = uuid4().hex
         now = _now()
-        async with self._connect() as database:
+        async with sqlite_connection(self.database_path) as database:
             await database.execute("BEGIN IMMEDIATE")
             await database.execute(
                 """
@@ -131,12 +136,20 @@ class SQLiteRunStore:
                     AgentMode(mode).value,
                 ),
             )
+            if needs_writeback:
+                if conversation_id is None:
+                    raise ValueError("writeback requires a conversation")
+                await database.execute(
+                    "INSERT INTO run_writebacks (run_id, conversation_id) "
+                    "VALUES (?, ?)",
+                    (run_id, conversation_id),
+                )
             await database.commit()
         run = await self.require(run_id)
         return run
 
     async def get(self, run_id: str) -> Run | None:
-        async with self._connect() as database:
+        async with sqlite_connection(self.database_path) as database:
             cursor = await database.execute(
                 "SELECT * FROM runs WHERE run_id = ?",
                 (_required_identifier(run_id, "run_id"),),
@@ -169,7 +182,7 @@ class SQLiteRunStore:
         query += " ORDER BY created_at DESC LIMIT ?"
         parameters.append(limit)
 
-        async with self._connect() as database:
+        async with sqlite_connection(self.database_path) as database:
             cursor = await database.execute(query, tuple(parameters))
             rows = await cursor.fetchall()
         return tuple(_run_from_row(row) for row in rows)
@@ -191,7 +204,7 @@ class SQLiteRunStore:
                 (RunStatus.PENDING.value, RunStatus.RUNNING.value)
             )
         query += " ORDER BY created_at DESC"
-        async with self._connect() as database:
+        async with sqlite_connection(self.database_path) as database:
             cursor = await database.execute(query, tuple(parameters))
             rows = await cursor.fetchall()
         return tuple(_run_from_row(row) for row in rows)
@@ -200,13 +213,79 @@ class SQLiteRunStore:
         """删除某会话的全部 Run 生命周期记录。"""
 
         normalized = _required_identifier(conversation_id, "conversation_id")
-        async with self._connect() as database:
+        async with sqlite_connection(self.database_path) as database:
+            await database.execute("BEGIN IMMEDIATE")
+            await database.execute(
+                "DELETE FROM run_writebacks WHERE conversation_id = ?",
+                (normalized,),
+            )
             cursor = await database.execute(
                 "DELETE FROM runs WHERE conversation_id = ?",
                 (normalized,),
             )
             await database.commit()
         return max(cursor.rowcount, 0)
+
+    async def list_pending_writebacks(
+        self, conversation_id: str | None = None
+    ) -> tuple[Run, ...]:
+        """Return runs whose conversation result has not been committed yet."""
+
+        query = (
+            "SELECT r.* FROM runs AS r JOIN run_writebacks AS w "
+            "ON w.run_id = r.run_id"
+        )
+        parameters: tuple[object, ...] = ()
+        if conversation_id is not None:
+            query += " WHERE w.conversation_id = ?"
+            parameters = (conversation_id,)
+        query += " ORDER BY r.created_at ASC, r.run_id ASC"
+        async with sqlite_connection(self.database_path) as database:
+            cursor = await database.execute(query, parameters)
+            rows = await cursor.fetchall()
+        return tuple(_run_from_row(row) for row in rows)
+
+    async def list_interrupted_runs(self) -> tuple[Run, ...]:
+        """Unbounded startup audit of legacy interrupted records."""
+
+        async with sqlite_connection(self.database_path) as database:
+            cursor = await database.execute(
+                "SELECT * FROM runs WHERE status = ? ORDER BY created_at ASC",
+                (RunStatus.INTERRUPTED.value,),
+            )
+            rows = await cursor.fetchall()
+        return tuple(_run_from_row(row) for row in rows)
+
+    async def repair_unrecoverable_interrupt(
+        self,
+        run_id: str,
+        *,
+        status: RunStatus,
+        error: str | None = None,
+        stop_reason: str | None = None,
+    ) -> Run:
+        """Correct only preexisting INTERRUPTED rows without a recovery point."""
+
+        if status not in {
+            RunStatus.COMPLETED,
+            RunStatus.FAILED,
+            RunStatus.CANCELLED,
+        }:
+            raise ValueError("invalid interrupt repair status")
+        async with sqlite_connection(self.database_path) as database:
+            await database.execute("BEGIN IMMEDIATE")
+            run = await _require_row(database, run_id)
+            if run.status is not RunStatus.INTERRUPTED:
+                raise ValueError("only interrupted runs can be repaired")
+            await database.execute(
+                """
+                UPDATE runs SET status = ?, updated_at = ?, error = ?, stop_reason = ?
+                WHERE run_id = ?
+                """,
+                (status.value, _now(), error, stop_reason, run_id),
+            )
+            await database.commit()
+        return await self.require(run_id)
 
     async def update_status(
         self,
@@ -220,7 +299,7 @@ class SQLiteRunStore:
 
         if not isinstance(status, RunStatus):
             status = RunStatus(status)
-        async with self._connect() as database:
+        async with sqlite_connection(self.database_path) as database:
             await database.execute("BEGIN IMMEDIATE")
             current = await _require_row(database, run_id)
             allowed = _ALLOWED_TRANSITIONS[current.status]
@@ -277,6 +356,49 @@ class SQLiteRunStore:
             stop_reason=stop_reason,
         )
 
+    async def mark_interrupted_with_checkpoint(self, run_id: str) -> Run:
+        """Persist both recoverability facts in one SQLite transaction."""
+
+        async with sqlite_connection(self.database_path) as database:
+            await database.execute("BEGIN IMMEDIATE")
+            run = await _require_row(database, run_id)
+            if run.status is not RunStatus.RUNNING:
+                raise ValueError(f"cannot interrupt run in state {run.status.value}")
+            cursor = await database.execute(
+                "SELECT status FROM run_checkpoints WHERE run_id = ?", (run_id,)
+            )
+            checkpoint = await cursor.fetchone()
+            if checkpoint is None:
+                raise KeyError(f"Checkpoint 不存在：{run_id}")
+            if checkpoint["status"] != CheckpointStatus.RUNNING.value:
+                raise ValueError("checkpoint is no longer running")
+            now = _now()
+            await database.execute(
+                """
+                UPDATE run_checkpoints
+                SET status = ?, error = ?, updated_at = ?, completed_at = ?,
+                    revision = revision + 1
+                WHERE run_id = ?
+                """,
+                (
+                    CheckpointStatus.INTERRUPTED.value,
+                    "interrupted by user",
+                    now,
+                    now,
+                    run_id,
+                ),
+            )
+            await database.execute(
+                """
+                UPDATE runs
+                SET status = ?, updated_at = ?, completed_at = ?, error = ?
+                WHERE run_id = ?
+                """,
+                (RunStatus.INTERRUPTED.value, now, now, "interrupted by user", run_id),
+            )
+            await database.commit()
+        return await self.require(run_id)
+
     async def mark_failed(
         self,
         run_id: str,
@@ -321,15 +443,6 @@ class SQLiteRunStore:
             raise KeyError(f"Run 不存在：{run_id}")
         return run
 
-    @asynccontextmanager
-    async def _connect(self) -> AsyncIterator[aiosqlite.Connection]:
-        database = await aiosqlite.connect(self.database_path)
-        database.row_factory = aiosqlite.Row
-        await configure_sqlite_connection(database)
-        try:
-            yield database
-        finally:
-            await database.close()
 
 
 def _now() -> str:

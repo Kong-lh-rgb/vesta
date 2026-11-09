@@ -3,11 +3,11 @@
 import { rpcClient } from '../rpc'
 import { RpcMethods } from '../rpc/methods'
 import type {
-  AgentEvent,
+  SerializedAgentEvent,
   AgentRunTrace,
-  AgentResult,
+  SerializedAgentResult,
   Run,
-  RunUsageSummary,
+  SerializedRunUsageSummary,
 } from './types'
 
 export interface RunListQuery {
@@ -49,12 +49,12 @@ export async function interruptRun(runId: string): Promise<Run> {
 
 export async function recoverRun(
   runId: string,
-): Promise<{ recovered_from_run_id: string; run: Run; result: AgentResult | null }> {
+): Promise<{ recovered_from_run_id: string; run: Run; result: SerializedAgentResult | null }> {
   return rpcClient.call(RpcMethods.runRecover, { run_id: runId })
 }
 
 export async function getRunTrace(
   runId: string,
-): Promise<{ run: AgentRunTrace; events: AgentEvent[]; usage: RunUsageSummary }> {
+): Promise<{ run: AgentRunTrace; events: SerializedAgentEvent[]; usage: SerializedRunUsageSummary }> {
   return rpcClient.call(RpcMethods.traceGet, { run_id: runId })
 }

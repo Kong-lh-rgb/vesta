@@ -6,6 +6,12 @@ import { RpcClient } from './client'
 /** Renderer 全局唯一的 RPC 连接（一条 WS /rpc，双向通信）。 */
 export const rpcClient = new RpcClient({
   url: `${WS_URL}/rpc`,
+  socketFactory: () => {
+    const token = window.vesta?.getRpcToken()
+    return new WebSocket(`${WS_URL}/rpc`, [
+      token ? `vesta-rpc.${token}` : 'vesta-rpc.unavailable',
+    ])
+  },
 })
 
 export * from './client'

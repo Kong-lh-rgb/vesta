@@ -33,6 +33,9 @@ from .session import (
     ComputerSessionManager,
 )
 
+SESSION_END_TIMEOUT_SECONDS = 3.0
+HELPER_RETIRE_TIMEOUT_SECONDS = 16.0
+
 __all__ = ["MacOSComputerRuntime"]
 logger = logging.getLogger("vesta.computer.macos")
 _TEXT_ENTRY_ROLES = frozenset({"text_area", "text_field", "combo_box"})
@@ -185,14 +188,19 @@ class MacOSComputerRuntime:
         ended = self._session_manager.end(run_id)
         if session is not None:
             try:
-                await self.helper_client.ensure_started()
-                await self.helper_client.call(
-                    "end_session",
-                    {"session_id": session.session_id},
-                )
-            except Exception:  # noqa: BLE001 - 清理失败不影响 Run 终态
+                async with asyncio.timeout(SESSION_END_TIMEOUT_SECONDS):
+                    await self.helper_client.ensure_started()
+                    await self.helper_client.call(
+                        "end_session",
+                        {"session_id": session.session_id},
+                    )
+            except Exception:  # noqa: BLE001 - 状态未知时必须退出旧 helper
                 logger.exception(
-                    "failed to end computer session on helper (run %s)", run_id
+                    "failed to end computer session on helper; retiring it (run %s)",
+                    run_id,
+                )
+                await asyncio.wait_for(
+                    self.helper_client.close(), timeout=HELPER_RETIRE_TIMEOUT_SECONDS
                 )
         return ended
 

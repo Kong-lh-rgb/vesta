@@ -5,6 +5,7 @@ from __future__ import annotations
 import fcntl
 import logging
 import os
+import time
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -32,14 +33,30 @@ class ComputerLeaseSnapshot:
 
 
 class ComputerLeaseManager:
-    """以 run_id 为 owner 的非等待、不可抢占机器租约。"""
+    """以 run_id 为 owner 的机器租约；仅回收已过期且不活跃的 owner。"""
 
-    def __init__(self, lock_path: str | Path) -> None:
+    def __init__(
+        self,
+        lock_path: str | Path,
+        *,
+        ttl_seconds: float = 300.0,
+        owner_active: Callable[[str], bool] | None = None,
+    ) -> None:
+        if ttl_seconds <= 0:
+            raise ValueError("computer lease TTL must be positive")
         self.lock_path = Path(lock_path).expanduser().resolve()
+        self.ttl_seconds = ttl_seconds
+        self._owner_active = owner_active
         self._guard = Lock()
         self._owner_run_id: str | None = None
         self._acquired_at: datetime | None = None
         self._lock_file = None
+        self._last_touch: float | None = None
+        self._quarantined = False
+
+    def set_owner_active(self, predicate: Callable[[str], bool]) -> None:
+        with self._guard:
+            self._owner_active = predicate
 
     @property
     def snapshot(self) -> ComputerLeaseSnapshot:
@@ -54,13 +71,28 @@ class ComputerLeaseManager:
         if not isinstance(run_id, str) or not run_id.strip():
             raise ValueError("computer action requires run context")
         with self._guard:
+            if self._quarantined:
+                raise ComputerBusyError(
+                    "computer helper cleanup was not confirmed; restart Host"
+                )
             if self._owner_run_id == run_id:
+                self._last_touch = time.monotonic()
                 return self.snapshot_unlocked()
             if self._owner_run_id is not None:
-                logger.info("computer lease busy for run %s", run_id)
-                raise ComputerBusyError(
-                    "computer is currently controlled by another run"
+                stale = (
+                    self._last_touch is not None
+                    and time.monotonic() - self._last_touch >= self.ttl_seconds
+                    and self._owner_active is not None
+                    and not self._owner_active(self._owner_run_id)
                 )
+                if stale:
+                    logger.warning("releasing expired inactive computer lease")
+                    self._release_unlocked()
+                else:
+                    logger.info("computer lease busy for run %s", run_id)
+                    raise ComputerBusyError(
+                        "computer is currently controlled by another run"
+                    )
 
             self.lock_path.parent.mkdir(parents=True, exist_ok=True)
             lock_file = self.lock_path.open("a+", encoding="utf-8")
@@ -84,6 +116,7 @@ class ComputerLeaseManager:
             self._lock_file = lock_file
             self._owner_run_id = run_id
             self._acquired_at = acquired_at
+            self._last_touch = time.monotonic()
             logger.info("computer lease acquired by run %s", run_id)
             return self.snapshot_unlocked()
 
@@ -102,6 +135,12 @@ class ComputerLeaseManager:
             logger.info("computer lease released by run %s", run_id)
             return True
 
+    def quarantine(self) -> None:
+        """Refuse new owners after an unconfirmed native cleanup."""
+
+        with self._guard:
+            self._quarantined = True
+
     def close(self) -> None:
         with self._guard:
             self._release_unlocked()
@@ -111,6 +150,7 @@ class ComputerLeaseManager:
         self._lock_file = None
         self._owner_run_id = None
         self._acquired_at = None
+        self._last_touch = None
         if lock_file is not None:
             try:
                 fcntl.flock(lock_file.fileno(), fcntl.LOCK_UN)

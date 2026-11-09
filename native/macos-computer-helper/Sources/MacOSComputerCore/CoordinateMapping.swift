@@ -33,5 +33,7 @@ public func focusedFirstIndices(count: Int, focusedIndex: Int?) -> [Int] {
 }
 
 public func validScroll(deltaX: Int, deltaY: Int) -> Bool {
-    deltaX != 0 || deltaY != 0
+    let allowed = -10_000...10_000
+    return (deltaX != 0 || deltaY != 0)
+        && allowed.contains(deltaX) && allowed.contains(deltaY)
 }

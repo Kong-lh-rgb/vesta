@@ -42,12 +42,14 @@ const STATUS_TONE: Record<ApprovalStatus, 'warning' | 'success' | 'danger'> = {
   pending: 'warning',
   approved: 'success',
   denied: 'danger',
+  cancelled: 'danger',
 }
 
 const STATUS_LABEL: Record<ApprovalStatus, string> = {
   pending: '待处理',
   approved: '已批准',
   denied: '已拒绝',
+  cancelled: '已取消',
 }
 
 const COMPUTER_ACTION_LABEL: Record<string, string> = {

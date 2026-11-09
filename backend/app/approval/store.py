@@ -9,8 +9,6 @@
 from __future__ import annotations
 
 import json
-from collections.abc import AsyncIterator
-from contextlib import asynccontextmanager
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -19,7 +17,7 @@ from uuid import uuid4
 import aiosqlite
 
 from app.conversation import DEFAULT_DATABASE_PATH
-from app.storage import configure_sqlite_connection
+from app.storage import sqlite_connection
 
 from .models import ApprovalRequest, ApprovalRequestStatus
 
@@ -54,7 +52,7 @@ class SQLiteApprovalStore:
 
     async def initialize(self) -> None:
         self.database_path.parent.mkdir(parents=True, exist_ok=True)
-        async with self._connect() as database:
+        async with sqlite_connection(self.database_path) as database:
             await database.executescript(_SCHEMA)
             # 迁移：旧库补充 ui_scope 列（默认 sandbox，兼容历史审批）。
             columns = await database.execute_fetchall(
@@ -77,13 +75,14 @@ class SQLiteApprovalStore:
         arguments: dict[str, Any] | None = None,
         reason: str = "",
         ui_scope: str = "sandbox",
+        approval_id: str | None = None,
     ) -> ApprovalRequest:
         """创建一个 PENDING ApprovalRequest 并返回完整记录。"""
 
-        approval_id = uuid4().hex
+        approval_id = approval_id or uuid4().hex
         now = _now()
         arguments = arguments or {}
-        async with self._connect() as database:
+        async with sqlite_connection(self.database_path) as database:
             await database.execute("BEGIN IMMEDIATE")
             await database.execute(
                 """
@@ -114,7 +113,7 @@ class SQLiteApprovalStore:
         return await self.require(approval_id)
 
     async def get(self, approval_id: str) -> ApprovalRequest | None:
-        async with self._connect() as database:
+        async with sqlite_connection(self.database_path) as database:
             cursor = await database.execute(
                 "SELECT * FROM approvals WHERE id = ?",
                 (_required(approval_id, "approval_id"),),
@@ -157,7 +156,7 @@ class SQLiteApprovalStore:
         query += " ORDER BY created_at DESC LIMIT ?"
         parameters.append(limit)
 
-        async with self._connect() as database:
+        async with sqlite_connection(self.database_path) as database:
             cursor = await database.execute(query, tuple(parameters))
             rows = await cursor.fetchall()
         return tuple(_approval_from_row(row) for row in rows)
@@ -178,7 +177,7 @@ class SQLiteApprovalStore:
         resolved = ApprovalRequestStatus(status)
         if resolved is ApprovalRequestStatus.PENDING:
             raise ValueError("cannot resolve approval back to PENDING")
-        async with self._connect() as database:
+        async with sqlite_connection(self.database_path) as database:
             await database.execute("BEGIN IMMEDIATE")
             current = await _require_row(database, approval_id)
             if current.status is not ApprovalRequestStatus.PENDING:
@@ -205,7 +204,7 @@ class SQLiteApprovalStore:
         """
 
         normalized = _required(run_id, "run_id")
-        async with self._connect() as database:
+        async with sqlite_connection(self.database_path) as database:
             await database.execute("BEGIN IMMEDIATE")
             cursor = await database.execute(
                 """
@@ -230,7 +229,7 @@ class SQLiteApprovalStore:
         """
 
         normalized = _required(conversation_id, "conversation_id")
-        async with self._connect() as database:
+        async with sqlite_connection(self.database_path) as database:
             await database.execute("BEGIN IMMEDIATE")
             cursor = await database.execute(
                 """
@@ -263,7 +262,7 @@ class SQLiteApprovalStore:
             placeholders = ",".join("?" for _ in run_ids)
             query += f" OR run_id IN ({placeholders})"
             parameters.extend(run_ids)
-        async with self._connect() as database:
+        async with sqlite_connection(self.database_path) as database:
             cursor = await database.execute(query, tuple(parameters))
             await database.commit()
         return max(cursor.rowcount, 0)
@@ -276,7 +275,7 @@ class SQLiteApprovalStore:
         两者都视为孤儿审批。返回取消的数量。
         """
 
-        async with self._connect() as database:
+        async with sqlite_connection(self.database_path) as database:
             await database.execute("BEGIN IMMEDIATE")
             if active_run_ids:
                 placeholders = ",".join("?" for _ in active_run_ids)
@@ -310,15 +309,6 @@ class SQLiteApprovalStore:
             await database.commit()
         return cursor.rowcount
 
-    @asynccontextmanager
-    async def _connect(self) -> AsyncIterator[aiosqlite.Connection]:
-        database = await aiosqlite.connect(self.database_path)
-        database.row_factory = aiosqlite.Row
-        await configure_sqlite_connection(database)
-        try:
-            yield database
-        finally:
-            await database.close()
 
 
 def _now() -> str:

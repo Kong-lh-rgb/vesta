@@ -41,8 +41,9 @@ def _message(role: MessageRole, content: str) -> Message:
 class StubRunManager:
     """记录 start / recover；返回固定 AgentResult；可配置 get_run 状态。"""
 
-    def __init__(self, agent_result: AgentResult) -> None:
+    def __init__(self, agent_result: AgentResult, database) -> None:
         self._agent_result = agent_result
+        self._database = database
         self.started: list[dict] = []
         self.recovered: list[dict] = []
         self.run_status = "completed"
@@ -70,7 +71,10 @@ class StubRunManager:
         scheduled_for=None,
         triggered_at=None,
         mode=None,
+        needs_writeback=False,
     ) -> tuple[str, None]:
+        if needs_writeback:
+            await self._record_writeback("run-1", conversation_id)
         self.started.append(
             {
                 "conversation_id": conversation_id,
@@ -103,7 +107,10 @@ class StubRunManager:
         history=(),
         summary_state=None,
         event_handler=None,
+        needs_writeback=False,
     ) -> tuple[str, None]:
+        if needs_writeback:
+            await self._record_writeback("run-2", self.conversation_id)
         self.recovered.append(
             {
                 "run_id": run_id,
@@ -131,7 +138,21 @@ class StubRunManager:
         # RunManager.result 是同步方法（返回本进程最近结果）。
         if self.cancelled or self.interrupted:
             return None
-        return self._agent_result
+        return self._agent_result.model_copy(update={"run_id": run_id})
+
+    async def pending_writebacks(self, conversation_id=None):
+        return ()
+
+    async def _record_writeback(self, run_id, conversation_id):
+        import aiosqlite
+
+        async with aiosqlite.connect(self._database) as database:
+            await database.execute(
+                "INSERT OR REPLACE INTO run_writebacks (run_id, conversation_id) "
+                "VALUES (?, ?)",
+                (run_id, conversation_id),
+            )
+            await database.commit()
 
     async def get_run(self, run_id: str):
         if self.missing_run:
@@ -172,7 +193,7 @@ async def service_factory(tmp_path):
             run_store,
         ):
             await store.initialize()
-        manager = StubRunManager(result)
+        manager = StubRunManager(result, database)
         manager.run_status = run_status
         service = ConversationService(
             conversation_store,
@@ -582,7 +603,8 @@ async def test_next_dispatch_sees_previous_automation_result(
 class ConcurrentRunManager:
     """记录并发窗口；每次 result 基于当时 history + 本次输入动态构造。"""
 
-    def __init__(self) -> None:
+    def __init__(self, database) -> None:
+        self._database = database
         self.active = 0
         self.max_active = 0
         self.calls: list[dict] = []
@@ -601,6 +623,7 @@ class ConcurrentRunManager:
         scheduled_for=None,
         triggered_at=None,
         mode=None,
+        needs_writeback=False,
     ) -> tuple[str, None]:
         self.active += 1
         self.max_active = max(self.max_active, self.active)
@@ -612,7 +635,21 @@ class ConcurrentRunManager:
                 "mode": mode,
             }
         )
-        return f"run-{len(self.calls)}", None
+        run_id = f"run-{len(self.calls)}"
+        if needs_writeback:
+            import aiosqlite
+
+            async with aiosqlite.connect(self._database) as database:
+                await database.execute(
+                    "INSERT INTO run_writebacks (run_id, conversation_id) "
+                    "VALUES (?, ?)",
+                    (run_id, conversation_id),
+                )
+                await database.commit()
+        return run_id, None
+
+    async def pending_writebacks(self, conversation_id=None):
+        return ()
 
     async def wait(self, run_id: str):
         await asyncio.sleep(0.02)
@@ -631,7 +668,7 @@ class ConcurrentRunManager:
             _message(MessageRole.USER, call["content"]),
             _message(MessageRole.ASSISTANT, f"out-{index + 1}"),
         )
-        return _result_with(messages)
+        return _result_with(messages).model_copy(update={"run_id": run_id})
 
     async def get_run(self, run_id: str):
         return None
@@ -648,7 +685,7 @@ async def test_same_conversation_dispatch_is_serialized(service_factory) -> None
         )
     )
     # 替换为记录并发的 run manager。
-    manager = ConcurrentRunManager()
+    manager = ConcurrentRunManager(conversation_store.database_path)
     service._run_manager = manager  # type: ignore[assignment]
 
     task1 = asyncio.create_task(
@@ -694,7 +731,7 @@ async def test_different_conversations_dispatch_in_parallel(service_factory) -> 
     )
     conv_a = await conversation_store.create()
     conv_b = await conversation_store.create()
-    manager = ConcurrentRunManager()
+    manager = ConcurrentRunManager(conversation_store.database_path)
     service._run_manager = manager  # type: ignore[assignment]
 
     task_a = asyncio.create_task(

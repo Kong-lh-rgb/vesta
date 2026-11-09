@@ -18,6 +18,7 @@
 from __future__ import annotations
 
 import asyncio
+import sqlite3
 from collections.abc import Sequence
 
 import pytest
@@ -236,6 +237,64 @@ async def test_start_running_to_completed(manager_factory) -> None:
     assert result is not None and result.ok is True
 
 
+async def test_restart_reservation_blocks_new_runs(manager_factory) -> None:
+    registry, _ = fake_registry([model_response(content="完成")])
+    manager, _, _ = await manager_factory(registry)
+
+    assert await manager.stop_accepting_if_idle() == ()
+    with pytest.raises(RuntimeError, match="shutting down"):
+        await manager.start("must not start")
+    assert await manager.list_runs() == ()
+
+
+async def test_restart_reservation_does_not_stop_active_run(manager_factory) -> None:
+    config = ProviderConfig(
+        provider="blocking",
+        model="blocking-model",
+        api_key=SecretStr("offline-test-key"),
+        api_style=ApiStyle.CHAT_COMPLETIONS,
+    )
+    adapter = BlockingModelAdapter(config)
+    registry = ModelAdapterRegistry(ModelSettings(_env_file=None))
+    registry.register("blocking", lambda _: adapter, config=config)
+    manager, _, _ = await manager_factory(registry, provider="blocking")
+
+    run_id, _ = await manager.start("active")
+    await adapter.started.wait()
+    try:
+        assert await manager.stop_accepting_if_idle() == (run_id,)
+        second_run_id, _ = await manager.start("another active run")
+        await manager.cancel(second_run_id)
+    finally:
+        await manager.cancel(run_id)
+
+
+async def test_shutdown_interrupts_active_run_before_closing_resources(
+    manager_factory,
+) -> None:
+    config = ProviderConfig(
+        provider="blocking",
+        model="blocking-model",
+        api_key=SecretStr("offline-test-key"),
+        api_style=ApiStyle.CHAT_COMPLETIONS,
+    )
+    adapter = BlockingModelAdapter(config)
+    registry = ModelAdapterRegistry(ModelSettings(_env_file=None))
+    registry.register("blocking", lambda _: adapter, config=config)
+    manager, _, _ = await manager_factory(registry, provider="blocking")
+
+    run_id, task = await manager.start("active")
+    await adapter.started.wait()
+    await manager.shutdown()
+
+    assert task.done()
+    assert adapter.cancelled
+    assert manager.active_run_ids == ()
+    assert (await manager.get_run(run_id)).status is RunStatus.INTERRUPTED
+    with pytest.raises(RuntimeError, match="shutting down"):
+        await manager.start("late")
+
+
 # ---------------------------------------------------------------------------
 # 2. Runtime 异常 → FAILED 且 error 被记录
 # ---------------------------------------------------------------------------
@@ -388,6 +447,83 @@ async def test_interrupt_running_run_preserves_checkpoint(manager_factory) -> No
     assert again.status is RunStatus.INTERRUPTED
 
 
+async def test_interrupt_db_failure_keeps_run_and_checkpoint_running(
+    manager_factory,
+) -> None:
+    config = ProviderConfig(
+        provider="blocking",
+        model="blocking-model",
+        api_key=SecretStr("offline-test-key"),
+        api_style=ApiStyle.CHAT_COMPLETIONS,
+    )
+    adapter = BlockingModelAdapter(config)
+    registry = ModelAdapterRegistry(ModelSettings(_env_file=None))
+    registry.register("blocking", lambda _: adapter, config=config)
+    manager, run_store, checkpoint_store = await manager_factory(
+        registry, provider="blocking"
+    )
+    run_id, _ = await manager.start("pause me", conversation_id="conv-1")
+    await adapter.started.wait()
+
+    with sqlite3.connect(run_store.database_path) as database:
+        database.execute(
+            """
+            CREATE TRIGGER reject_interrupt BEFORE UPDATE OF status ON runs
+            WHEN NEW.status = 'interrupted'
+            BEGIN SELECT RAISE(ABORT, 'injected write failure'); END
+            """
+        )
+    with pytest.raises(Exception, match="injected write failure"):
+        await manager.interrupt(run_id)
+    assert (await run_store.require(run_id)).status is RunStatus.RUNNING
+    checkpoint = await checkpoint_store.get(run_id)
+    assert checkpoint is not None
+    assert checkpoint.status is CheckpointStatus.RUNNING
+    assert adapter.cancelled is False
+
+    with sqlite3.connect(run_store.database_path) as database:
+        database.execute("DROP TRIGGER reject_interrupt")
+    assert (await manager.interrupt(run_id)).status is RunStatus.INTERRUPTED
+    assert (await checkpoint_store.get(run_id)).status is CheckpointStatus.INTERRUPTED
+
+
+async def test_interrupt_before_first_checkpoint_cancels_without_recovery(
+    tmp_path,
+) -> None:
+    class NoCheckpointRuntime:
+        async def run_stream(self, *_args, **_kwargs):
+            await asyncio.Event().wait()
+            yield None
+
+    run_store = SQLiteRunStore(tmp_path / "vesta.db")
+    checkpoint_store = SQLiteCheckpointStore(tmp_path / "vesta.db")
+    await run_store.initialize()
+    await checkpoint_store.initialize()
+    manager = RunManager(
+        run_store, checkpoint_store, NoCheckpointRuntime()  # type: ignore[arg-type]
+    )
+    run_id, _ = await manager.start("early pause", conversation_id="conv-1")
+    interrupted = await manager.interrupt(run_id)
+    assert interrupted.status is RunStatus.CANCELLED
+    assert await checkpoint_store.get_unrecovered(run_id) is None
+
+
+async def test_startup_repairs_legacy_interrupt_without_checkpoint(tmp_path) -> None:
+    run_store = SQLiteRunStore(tmp_path / "vesta.db")
+    checkpoint_store = SQLiteCheckpointStore(tmp_path / "vesta.db")
+    await run_store.initialize()
+    await checkpoint_store.initialize()
+    broken = await run_store.create(conversation_id="conv-1")
+    await run_store.mark_started(broken.id)
+    await run_store.mark_interrupted(broken.id)
+
+    manager = RunManager(run_store, checkpoint_store, object())  # type: ignore[arg-type]
+    repaired = await manager.reconcile()
+    assert len(repaired) == 1
+    assert repaired[0].status is RunStatus.FAILED
+    assert (await run_store.require(broken.id)).status is RunStatus.FAILED
+
+
 async def test_terminal_run_cancel_is_idempotent(manager_factory) -> None:
     build_manager = manager_factory
     registry, _ = fake_registry([model_response(content="完成")])
@@ -538,6 +674,34 @@ async def test_reconcile_stale_pending_becomes_failed(
     # 已转终态，不能再被 recover。
     with pytest.raises(ValueError):
         await manager.recover(pending.id)
+
+
+async def test_reconcile_drains_more_than_one_page_of_stale_runs(
+    tmp_path,
+    manager_factory,
+) -> None:
+    database = tmp_path / "vesta.db"
+    run_store = SQLiteRunStore(database)
+    checkpoint_store = SQLiteCheckpointStore(database)
+    await run_store.initialize()
+    await checkpoint_store.initialize()
+    for index in range(21):
+        await run_store.create(user_message=f"pending {index}")
+        running = await run_store.create(user_message=f"running {index}")
+        await run_store.mark_started(running.id)
+
+    registry, _ = fake_registry([model_response(content="完成")])
+    manager, _, _ = await manager_factory(
+        registry,
+        run_store=run_store,
+        checkpoint_store=checkpoint_store,
+    )
+    reconciled = await manager.initialize()
+
+    assert len(reconciled) == 42
+    assert all(run.status is RunStatus.FAILED for run in reconciled)
+    assert await run_store.list_runs(status=RunStatus.PENDING, limit=100) == ()
+    assert await run_store.list_runs(status=RunStatus.RUNNING, limit=100) == ()
 
 
 # ---------------------------------------------------------------------------

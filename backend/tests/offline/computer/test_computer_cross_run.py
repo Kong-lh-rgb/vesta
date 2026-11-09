@@ -6,8 +6,11 @@ Run B 第一次 observe 使用全新 session，绝不会继承 Notes。
 
 from __future__ import annotations
 
+import asyncio
+
 import pytest
 
+import app.computer.macos as macos_module
 from app.computer.macos import MacOSComputerRuntime
 
 
@@ -87,3 +90,42 @@ async def test_end_session_is_idempotent_and_clears_python_state() -> None:
     runtime.begin_session("run-a")
     assert await runtime.end_session("run-a") is True
     assert await runtime.end_session("run-a") is False  # 第二次幂等
+
+
+async def test_hung_end_session_retires_helper_before_return(monkeypatch) -> None:
+    class HangingHelper(RecordingHelper):
+        closed = False
+
+        async def call(self, method, params=None, **kwargs):
+            if method == "end_session":
+                await asyncio.Event().wait()
+            return await super().call(method, params, **kwargs)
+
+        async def close(self) -> None:
+            self.closed = True
+
+    monkeypatch.setattr(macos_module, "SESSION_END_TIMEOUT_SECONDS", 0.02)
+    helper = HangingHelper()
+    runtime = MacOSComputerRuntime(helper)  # type: ignore[arg-type]
+    runtime.begin_session("run-a")
+
+    assert await runtime.end_session("run-a") is True
+    assert helper.closed is True
+    assert runtime._session_manager.get_active() is None
+
+
+async def test_failed_helper_retirement_propagates(monkeypatch) -> None:
+    class UnretirableHelper(RecordingHelper):
+        async def call(self, method, params=None, **kwargs):
+            if method == "end_session":
+                await asyncio.Event().wait()
+            return await super().call(method, params, **kwargs)
+
+        async def close(self) -> None:
+            raise RuntimeError("helper still live")
+
+    monkeypatch.setattr(macos_module, "SESSION_END_TIMEOUT_SECONDS", 0.02)
+    runtime = MacOSComputerRuntime(UnretirableHelper())  # type: ignore[arg-type]
+    runtime.begin_session("run-a")
+    with pytest.raises(RuntimeError, match="helper still live"):
+        await runtime.end_session("run-a")

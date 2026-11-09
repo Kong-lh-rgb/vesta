@@ -37,6 +37,7 @@ from app.skill_learning import (
     TaskCard,
     TraceEvidenceBuilder,
 )
+from app.skill_learning._call import call_model
 from app.skills import SkillStore
 from app.task import FileTaskStore, TaskStatus, TaskStep, TaskStepStatus
 from app.trace.store import SQLiteTraceStore
@@ -92,6 +93,25 @@ def _fake_registry(
     registry = ModelAdapterRegistry(ModelSettings(_env_file=None))
     registry.register("fake", lambda _: adapter, config=config)
     return registry, adapter
+
+
+@pytest.mark.asyncio
+async def test_model_call_rejects_truncated_distillation(tmp_path: Path) -> None:
+    response = _model_response('{"summary": "incomplete"}')
+    response = response.model_copy(update={"finish_reason": "length"})
+    registry, adapter = _fake_registry([response])
+    settings = _settings(tmp_path)
+    result = await call_model(
+        registry,
+        system_prompt="distill",
+        user_content="trace",
+        settings=settings,
+        default_provider="fake",
+        default_model="fake-model",
+    )
+    assert adapter.requests[0].max_output_tokens == 8_192
+    assert not result.ok
+    assert "truncated" in (result.error or "")
 
 
 # ---------------------------------------------------------------------------

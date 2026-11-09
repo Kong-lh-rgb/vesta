@@ -39,6 +39,19 @@ from .errors import (
 )
 from .event_stream import EventEmitter
 from .events import AgentEventType
+from .loop_instructions import (
+    _EMPTY_FINAL_RETRY_MESSAGE,
+    _PLAN_NO_TASK_MESSAGE,
+    _PLAN_NO_VALID_TASK_MESSAGE,
+    _RUN_BUDGET_CLOSING_MESSAGE,
+    _RUN_BUDGET_FINALIZATION_MESSAGE,
+    _RUN_BUDGET_WARNING_MESSAGE,
+    _TASK_WRITEBACK_REMINDER_MESSAGE,
+    _TEXTUAL_TOOL_CALL_RETRY_MESSAGE,
+    _TOOL_ROUND_LIMIT_FALLBACK_MESSAGE,
+    context_instructions,
+    final_request_instruction,
+)
 from .result import (
     AgentError,
     AgentResult,
@@ -60,57 +73,6 @@ from .runtime_helpers import (
 )
 from .tool_hooks import AgentEventHook
 from .tool_round_executor import ToolRoundExecutor
-
-# Plan Mode 系统指令（补充；真正的限制由工具过滤 + 执行层硬阻断保证）。
-_PLAN_MODE_SYSTEM_MESSAGE = (
-    "你现在处于 PLAN MODE（规划模式）：只分析、调查并形成计划，不要修改用户环境。\n"
-    "你可以使用只读 / 搜索工具（read_file、list_files、web_search、get_current_time、"
-    "memory_read、memory_search、history_search/read、evidence_search/read）与任务工具"
-    "（task_create、task_update、task_get、task_list）。\n"
-    "完成必要调查后，必须创建（task_create）或更新（task_update）一个 PENDING 任务"
-    "作为本轮计划，至少包含 title、goal 与具体可执行的 steps；不要伪造 DONE 步骤、"
-    "已完成 state 或已验证 key_facts。\n"
-    "最后返回简洁的计划说明。"
-)
-
-_PLAN_NO_TASK_MESSAGE = "Plan mode finished without creating a task."
-_PLAN_NO_VALID_TASK_MESSAGE = "Plan mode finished without a valid pending task."
-_RUN_BUDGET_FINALIZATION_MESSAGE = (
-    "本 Run 已达到 Main Agent 用量收口线。不要再调用工具，请基于已有证据立即"
-    "给出简洁的最终答复；明确区分已完成、未完成和无法验证的内容，不要伪造"
-    "执行结果。"
-)
-_RUN_BUDGET_CLOSING_MESSAGE = (
-    "本 Run 已达到 Main Agent 用量收口线，现在进入 Closing。仅保留完成当前"
-    "目标所必需的交付工具；不要继续搜索、调查或扩展任务。若已有结果尚未写入"
-    "文件、发布为交付物或同步到任务状态，请立即完成这一次交付；否则直接给出"
-    "简洁的最终答复。"
-)
-_RUN_BUDGET_WARNING_MESSAGE = (
-    "本 Run 的累计 Main Agent 用量已进入预警区。请减少不必要的重复调查和工具"
-    "调用，优先完成当前目标；仍可在确有必要时继续使用工具。"
-)
-_TOOL_ROUND_LIMIT_FALLBACK_MESSAGE = (
-    "已达到本 Run 的工具调用轮次上限，系统已停止继续执行工具。已有工具结果"
-    "仍保留在本轮记录中，但模型未能在无工具模式下生成可靠总结；如需继续，"
-    "请基于当前结果提出下一步要求。"
-)
-_EMPTY_FINAL_RETRY_MESSAGE = (
-    "上一条模型响应没有可展示文本，也没有工具调用。请基于已有上下文给出一条"
-    "完整、可直接展示给用户的最终回答；不要只输出内部思考。"
-)
-_TEXTUAL_TOOL_CALL_RETRY_MESSAGE = (
-    "上一条模型响应把工具调用协议作为普通文本输出，系统不会执行这类文本。"
-    "如需调用工具，必须使用 Provider 的结构化 tool_calls；否则请直接给出一条"
-    "完整、可展示给用户的最终回答，不要输出 DSML、XML 或其他工具协议标记。"
-)
-_TASK_WRITEBACK_REMINDER_MESSAGE = (
-    "当前会话的 Task 仍有进行中的步骤，但本次 Run 还没有任何成功的 "
-    "task_update 写回。若本轮工作确实有进展、完成或阻塞，请先用 task_update "
-    "把真实状态写回（禁止把未完成的步骤伪造成 done）；若本轮与该 Task 无关"
-    "或确无状态变化，直接给出最终回答即可。"
-)
-
 
 
 class AgentLoop:
@@ -173,26 +135,12 @@ class AgentLoop:
         """执行一次已分配 Run ID 的 Agent 循环。"""
 
         tool_event_hook = AgentEventHook(emitter)
-        user_message = Message(role=MessageRole.USER, content=user_input)
-        # 原始消息用于 AgentResult 和数据库持久化，始终保留完整工具协议。
-        historical_message_count = len(history)
-        messages = [*history, user_message]
-        transformed_history = tuple(
-            without_legacy_fixed_date(message) for message in history
-        )
-        request_system_message = (
-            Message(role=MessageRole.SYSTEM, content=self._system_prompt)
-            if self._system_prompt is not None
-            and not any(
-                message.role is MessageRole.SYSTEM
-                and message.content == self._system_prompt
-                for message in transformed_history
-            )
-            else None
+        user_message, messages, request_system_message = self._request_history(
+            user_input, history
         )
         request_history_offset = 1 if request_system_message is not None else 0
         request_historical_message_count = (
-            historical_message_count + request_history_offset
+            len(history) + request_history_offset
         )
         previous_signature: str | None = None
         repeated_count = 0
@@ -202,27 +150,8 @@ class AgentLoop:
         main_model_calls = 0
         budget_chargeable_tokens = 0
         current_summary_state = summary_state
-        context_session = RuntimeContextSession(
-            memory_manager=self._memory_manager,
-            skill_store=self._skill_store,
-            skill_context_provider=self._skill_context_provider,
-            task_context_provider=self._task_context_provider,
-            # Memory 自动召回的确定性 Query 输入：当前用户消息 + 近期用户
-            # 消息 + 会话摘要目标（活动 Task 字段由 Session 首次构建时补齐）。
-            recall_query=(
-                MemoryRecallQueryInputs(
-                    user_message=user_input,
-                    recent_user_messages=recent_user_message_texts(history),
-                    summary_objective=(
-                        summary_state.summary.current_objective
-                        if summary_state is not None
-                        and summary_state.summary.current_objective
-                        else None
-                    ),
-                )
-                if self._memory_manager is not None
-                else None
-            ),
+        context_session = self._new_context_session(
+            user_input, history, summary_state
         )
         activated_tools: set[str] = set()
         ensure_tool_search_registered(self._tool_registry)
@@ -429,26 +358,12 @@ class AgentLoop:
             try:
                 # 易变事实通过按需工具获取；Run 级缓存与 Skill 状态由
                 # RuntimeContextSession 管理，Task 仍在每个 Step 重新读取。
-                trailing_system_messages: list[Message] = []
-                if mode is AgentMode.PLAN:
-                    trailing_system_messages.append(
-                        Message(
-                            role=MessageRole.SYSTEM,
-                            name="vesta_plan_mode",
-                            content=_PLAN_MODE_SYSTEM_MESSAGE,
-                        )
-                    )
-                if budget_warning_in_request:
-                    trailing_system_messages.append(
-                        Message(
-                            role=MessageRole.SYSTEM,
-                            content=_RUN_BUDGET_WARNING_MESSAGE,
-                        )
-                    )
                 context_injection = await context_session.build(
                     conversation_id=conversation_id,
                     recovery_checkpoint=recovery_checkpoint,
-                    trailing_system_messages=tuple(trailing_system_messages),
+                    trailing_system_messages=context_instructions(
+                        mode, budget_warning=budget_warning_in_request
+                    ),
                 )
                 context_messages = context_injection.messages
                 if context_messages:
@@ -466,26 +381,11 @@ class AgentLoop:
                         ),
                     )
                 elif force_final_answer:
-                    if computer_halted:
-                        final_instruction = (
-                            "Computer 操作已因同一失败且桌面无进展而停止。不要再输出"
-                            "或伪造任何工具调用；请根据已有证据直接说明阻塞原因、"
-                            "已经完成的部分和用户可采取的恢复步骤。"
-                        )
-                    elif budget_forces_final:
-                        final_instruction = _RUN_BUDGET_FINALIZATION_MESSAGE
-                    else:
-                        final_instruction = (
-                            "工具调用轮次已用完。请读取最后一条工具结果，停止"
-                            "调用工具并直接回答用户。对于 verification_status="
-                            "unverified 的电脑操作，只能说明事件已投递、效果未"
-                            "确认，不能宣称界面操作已经完成。"
-                        )
                     request_messages = (
                         *request_messages,
-                        Message(
-                            role=MessageRole.SYSTEM,
-                            content=final_instruction,
+                        final_request_instruction(
+                            computer_halted=computer_halted,
+                            budget_forces_final=budget_forces_final,
                         ),
                     )
             except Exception as exc:
@@ -1131,6 +1031,57 @@ class AgentLoop:
             usage=usage,
             error=error,
             summary_state=current_summary_state,
+        )
+
+    def _request_history(
+        self, user_input: str, history: Sequence[Message]
+    ) -> tuple[Message, list[Message], Message | None]:
+        """Keep raw history intact while preparing the model-only system prefix."""
+
+        user_message = Message(role=MessageRole.USER, content=user_input)
+        messages = [*history, user_message]
+        transformed_history = tuple(
+            without_legacy_fixed_date(message) for message in history
+        )
+        request_system_message = (
+            Message(role=MessageRole.SYSTEM, content=self._system_prompt)
+            if self._system_prompt is not None
+            and not any(
+                message.role is MessageRole.SYSTEM
+                and message.content == self._system_prompt
+                for message in transformed_history
+            )
+            else None
+        )
+        return user_message, messages, request_system_message
+
+    def _new_context_session(
+        self,
+        user_input: str,
+        history: Sequence[Message],
+        summary_state: ConversationSummaryState | None,
+    ) -> RuntimeContextSession:
+        """Create the Run-scoped recall/session state from the original history."""
+
+        return RuntimeContextSession(
+            memory_manager=self._memory_manager,
+            skill_store=self._skill_store,
+            skill_context_provider=self._skill_context_provider,
+            task_context_provider=self._task_context_provider,
+            recall_query=(
+                MemoryRecallQueryInputs(
+                    user_message=user_input,
+                    recent_user_messages=recent_user_message_texts(history),
+                    summary_objective=(
+                        summary_state.summary.current_objective
+                        if summary_state is not None
+                        and summary_state.summary.current_objective
+                        else None
+                    ),
+                )
+                if self._memory_manager is not None
+                else None
+            ),
         )
 
     @staticmethod

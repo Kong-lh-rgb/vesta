@@ -24,12 +24,16 @@ from pathlib import Path
 import pytest
 from pydantic import SecretStr
 
+import app.computer.helper_client as helper_client_module
+import app.computer.macos as macos_module
 from app.application import Application
 from app.computer import (
+    ComputerBusyError,
     ComputerHelperError,
     ComputerHelperProcessError,
     ComputerHelperProtocolError,
     ComputerLeaseManager,
+    FakeComputerRuntime,
     MacOSComputerRuntime,
     MacOSHelperClient,
 )
@@ -294,6 +298,21 @@ async def test_timeout_late_response_is_ignored() -> None:
         await client.close()
 
 
+async def test_default_timeout_bounds_unresponsive_helper(monkeypatch) -> None:
+    monkeypatch.setattr(
+        helper_client_module, "DEFAULT_HELPER_REQUEST_TIMEOUT_SECONDS", 0.005
+    )
+    client = _make_client()
+    await client.start()
+    try:
+        with pytest.raises(ComputerHelperError, match="timed out"):
+            await client.call("__delay", {"seconds": 0.05})
+        assert await client.call("ping", {}, timeout=1) == {"ok": True}
+        assert client._pending == {}
+    finally:
+        await client.close()
+
+
 async def test_cancelled_call_does_not_leak_pending() -> None:
     client = _make_client()
     await client.start()
@@ -470,3 +489,46 @@ async def test_application_close_releases_machine_lease(tmp_path) -> None:
         assert next_host.acquire("run-b").owner_run_id == "run-b"
     finally:
         next_host.close()
+
+
+async def test_failed_computer_finalizer_quarantines_machine_lease(tmp_path) -> None:
+    class UnretiredRuntime(FakeComputerRuntime):
+        async def end_session(self, run_id: str) -> bool:
+            raise RuntimeError("native cleanup unconfirmed")
+
+    app = await _build_application(
+        tmp_path, computer_runtime=UnretiredRuntime()
+    )
+    try:
+        assert app.computer_lease is not None
+        assert app.run_manager is not None
+        app.computer_lease.acquire("run-a")
+        await app.run_manager._run_finalizers_for("run-a")
+        assert app.computer_lease.snapshot.owner_run_id == "run-a"
+        with pytest.raises(ComputerBusyError, match="restart Host"):
+            app.computer_lease.acquire("run-b")
+    finally:
+        await app.close()
+
+
+async def test_hung_subprocess_is_retired_before_session_cleanup_returns(
+    tmp_path, monkeypatch
+) -> None:
+    monkeypatch.setattr(macos_module, "SESSION_END_TIMEOUT_SECONDS", 0.05)
+    client = _make_client()
+    runtime = MacOSComputerRuntime(client, screenshot_dir=tmp_path)
+    await client.start()
+    process = client._process
+    assert process is not None
+    runtime.begin_session("run-a")
+    blocked = asyncio.create_task(client.call("__delay", {"seconds": 30}))
+    try:
+        await asyncio.sleep(0.05)
+        assert await runtime.end_session("run-a") is True
+        assert process.returncode is not None
+        assert client._process is None
+        with pytest.raises(ComputerHelperProcessError):
+            await blocked
+    finally:
+        blocked.cancel()
+        await client.close()
