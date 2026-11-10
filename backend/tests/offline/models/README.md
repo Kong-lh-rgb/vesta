@@ -17,6 +17,47 @@ variables override `.env`. Explicitly select `chat_completions`: the `openai`
 provider defaults to `responses`, which requires a different endpoint and event
 format. This example does not establish compatibility with any particular service.
 
+## Community-tested endpoints
+
+The following is a dated community report, not an official Vesta endorsement or
+a guarantee of compatibility with every model or feature. Results were reported
+by A2Agent using Vesta's existing `openai` provider and actual
+`OpenAICompatibleAdapter`; no provider-specific integration is required.
+
+### A2Agent — reported verification on 2026-11-09
+
+| Setting | Tested value |
+| --- | --- |
+| Service | [A2Agent](https://a2agent.me/) |
+| Base URL | `https://api.a2agent.me/v1` |
+| Model | `deepseek-v4-flash` |
+| API styles (tested separately) | `chat_completions`, `responses` |
+| Vesta revision | `cebc3ab867d3ceaadde37660d5884c496832ef47` |
+| Test environment | Windows amd64; Python 3.14.2, OpenAI SDK 2.50.0, httpx 0.28.1 |
+
+Select the desired API style explicitly using `OPENAI_API_STYLE` in the local
+configuration above, with this base URL and model. Supply your own private API
+key; do not commit it.
+
+| Live check | Chat Completions | Responses |
+| --- | --- | --- |
+| Non-streaming text with expected marker | Passed | Passed |
+| Streamed text and final result | Passed (`stop`) | Passed (`completed`) |
+| Streamed `compat_echo` call with valid ID and JSON arguments | Passed | Passed |
+| Fixed local tool-result continuation to expected final marker | Passed | Passed |
+| Invalid-key error propagated through `ModelAdapterError` | Passed (HTTP 401) | Passed (HTTP 401) |
+
+Authenticated model discovery also returned 22 models, including the tested
+model. These results are A2Agent's self-reported live checks at the listed date
+and revision. The tests exercised the adapter/SDK round trip with a fixed local
+tool result, not the full desktop workflow or arbitrary shell tools. Other
+models and features were not verified; live HTTP 429 responses and deliberate
+network interruptions were not tested. Offline synthetic fixtures below are
+separate from these live results.
+
+See the [reported results and sanitized trace summary](https://github.com/Kong-lh-rgb/vesta/issues/4#issuecomment-6731574814)
+and the [maintainer's documentation scope](https://github.com/Kong-lh-rgb/vesta/issues/4#issuecomment-6733105168).
+
 ## Run without credentials or network access
 
 From `backend`, after installing `requirements-dev.txt`:
